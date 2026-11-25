@@ -269,6 +269,51 @@ std::vector<std::string> Selection::usedModules() const
 }
 
 //==============================================================================
+std::vector<Configuration> factoryConfigurations()
+{
+    std::vector<Configuration> list;
+
+    auto make = [](const std::string &id, const std::string &name, const std::string &module)
+    {
+        Configuration c;
+        c.id = id;
+        c.name = name;
+        c.factory = true;
+        c.selection.kickModule = module;
+        c.selection.snareModule = module;
+        for (auto &tom : c.selection.tomModules)
+            tom = module;
+        return c;
+    };
+
+    list.push_back(make("naked", "Naked Drums", "naked"));
+    list.push_back(make("crocell", "Crocell Shells", "crocell"));
+    list.push_back(make("drs", "DRS Shells", "drs"));
+    list.push_back(make("salamander", "Salamander Shells", "salamander"));
+    list.push_back(make("monster", "Monster Shells", "monster"));
+
+    Configuration studio;
+    studio.id = "studio";
+    studio.name = "Studio Mix";
+    studio.factory = true;
+    studio.selection.kickModule = "monster";
+    studio.selection.snareModule = "crocell";
+    studio.selection.tomModules = {"drs", "drs", "drs", "", ""};
+    list.push_back(std::move(studio));
+
+    Configuration vintage;
+    vintage.id = "vintage";
+    vintage.name = "Vintage Mix";
+    vintage.factory = true;
+    vintage.selection.kickModule = "salamander";
+    vintage.selection.snareModule = "drs";
+    vintage.selection.tomModules = {"monster", "monster", "", "", ""};
+    list.push_back(std::move(vintage));
+
+    return list;
+}
+
+//==============================================================================
 BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &kits,
                   const Selection &selection)
 {
@@ -377,10 +422,33 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
         return moduleName(moduleId) + " " + baseName;
     };
 
+    enum class ShellKind
+    {
+        none,
+        kick,
+        snare,
+        tom
+    };
+    int kickCounter = 0;
+
+    auto roleToken = [](std::string s)
+    {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c)
+        {
+            return static_cast<char>(std::tolower(c));
+        });
+        for (auto &c : s)
+            if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.')
+                c = '_';
+        return s;
+    };
+
     auto appendPiece = [&](const std::string &moduleId,
                            const DrumKit &sourceKit,
                            const DrumKit::LogicalPiece &srcLp,
-                           bool include)
+                           bool include,
+                           ShellKind shellKind,
+                           int shellSlot)
     {
         PieceEntry entry;
         entry.moduleId = moduleId;
@@ -437,9 +505,55 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
 
             inst.displayName = moduleDisplay(moduleId, sourceKit, inst);
 
-            if (zi.note >= 0)
-                suggestions.push_back({zi.note, inst.displayName});
-            if (zi.altNote >= 0)
+            int suggestedNote = zi.note;
+            std::string midiRole;
+
+            if (shellKind == ShellKind::kick)
+            {
+                const int ordinal = kickCounter++;
+                suggestedNote = ordinal == 0 ? 36 : std::max(1, 36 - ordinal);
+                midiRole = ordinal == 0 ? "kick.main" : "kick.alt" + std::to_string(ordinal);
+            }
+            else if (shellKind == ShellKind::snare)
+            {
+                const auto lower = roleToken(srcLp.name + " " + srcLp.id + " " + zi.name);
+                if (lower.find("stick") != std::string::npos || lower.find("rim") != std::string::npos)
+                {
+                    suggestedNote = 37;
+                    midiRole = "snare.stick";
+                }
+                else if (lower.find("rest") != std::string::npos || lower.find("off") != std::string::npos)
+                {
+                    suggestedNote = lower.find("2") != std::string::npos ? 41 : 39;
+                    midiRole = lower.find("2") != std::string::npos ? "snare.rest2" : "snare.rest";
+                }
+                else if (lower.find("2") != std::string::npos)
+                {
+                    suggestedNote = 40;
+                    midiRole = "snare.2";
+                }
+                else
+                {
+                    suggestedNote = 38;
+                    midiRole = "snare.main";
+                }
+            }
+            else if (shellKind == ShellKind::tom)
+            {
+                static const int tomNotes[tomSlots] {48, 47, 45, 43, 41};
+                suggestedNote = tomNotes[std::clamp(shellSlot, 0, tomSlots - 1)];
+                midiRole = "tom." + std::to_string(shellSlot + 1);
+            }
+            else
+            {
+                midiRole = "base." + roleToken(srcLp.id) + "." + roleToken(zi.name);
+            }
+
+            inst.midiRole = midiRole;
+
+            if (suggestedNote >= 0)
+                suggestions.push_back({suggestedNote, inst.displayName});
+            if (shellKind == ShellKind::none && zi.altNote >= 0)
                 suggestions.push_back({zi.altNote, inst.displayName});
 
             zi.samplerIndex = inst.index;
@@ -459,7 +573,7 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
     {
         if (isShellClass(classifyPiece(lp.name, lp.id)))
             continue;
-        appendPiece("naked", *base, lp, enabled("naked", lp.id));
+        appendPiece("naked", *base, lp, enabled("naked", lp.id), ShellKind::none, 0);
     }
 
     // Kick: every kick piece from the chosen source (Crocell has two).
@@ -469,7 +583,8 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
         if (kit != nullptr)
             for (const auto &lp : kit->logicalPieces)
                 if (classifyPiece(lp.name, lp.id) == PieceClass::kick)
-                    appendPiece(selection.kickModule, *kit, lp, enabled(selection.kickModule, lp.id));
+                    appendPiece(selection.kickModule, *kit, lp, enabled(selection.kickModule, lp.id),
+                                ShellKind::kick, 0);
     }
 
     // Snare: every snare piece from the chosen source (Crocell has a rest too).
@@ -479,7 +594,8 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
         if (kit != nullptr)
             for (const auto &lp : kit->logicalPieces)
                 if (classifyPiece(lp.name, lp.id) == PieceClass::snare)
-                    appendPiece(selection.snareModule, *kit, lp, enabled(selection.snareModule, lp.id));
+                    appendPiece(selection.snareModule, *kit, lp, enabled(selection.snareModule, lp.id),
+                                ShellKind::snare, 0);
     }
 
     // Toms: each slot can come from a different module.
@@ -502,7 +618,7 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
         }
 
         const auto *lp = toms[static_cast<size_t>(slot)];
-        appendPiece(moduleId, *kit, *lp, enabled(moduleId, lp->id));
+        appendPiece(moduleId, *kit, *lp, enabled(moduleId, lp->id), ShellKind::tom, slot);
     }
 
     if (out.instruments.empty())

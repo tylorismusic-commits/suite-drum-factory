@@ -12,7 +12,12 @@
 - [x] Per-piece source dropdowns over the kick, snare and tom images.
 - [x] Mixer exposes one strip per active kit piece, not one per microphone.
 - [x] Source-mic polarity is applied automatically during piece summing.
+- [x] Kit dropdown removed; configurations replace kit switching.
+- [x] Stable role-based MIDI mapping across piece swaps.
+- [x] Factory and user kit configurations.
+- [x] Per-category automatic level matching (kicks to kicks, snares to snares, toms by slot).
 - [ ] Fixed Kick / Snare / Room / Mix bus mixer with inserts.
+- [ ] Mix presets tied to the active configuration instead of generic presets.
 
 ## Mixer
 

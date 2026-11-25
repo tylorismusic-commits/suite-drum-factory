@@ -114,6 +114,7 @@ struct Instrument
     std::string logicalName;                   ///< Logical piece name (e.g. "Snare")
     std::string zoneName;                      ///< Zone name (e.g. "head", "rimshot")
     std::string sourceModule;                  ///< Factory module id ("naked", "crocell", ...)
+    std::string midiRole;                      ///< Stable role used to keep MIDI notes across kit swaps
     BleedPiece bleedPiece = BleedPiece::snare; ///< Bleed piece classification
     int outputBus = 0;                         ///< Target output bus
 

@@ -555,6 +555,108 @@ void PluginProcessor::setFactoryPieceEnabled(const juce::String &moduleId,
     loadFactoryKit();
 }
 
+std::vector<PluginProcessor::FactoryConfiguration> PluginProcessor::getFactoryConfigurations() const
+{
+    std::vector<FactoryConfiguration> list;
+
+    for (const auto &builtin : factory::factoryConfigurations())
+    {
+        FactoryConfiguration c;
+        c.id = juce::String(builtin.id);
+        c.name = juce::String(builtin.name);
+        c.factory = true;
+        c.selection = builtin.selection;
+        list.push_back(std::move(c));
+    }
+
+    const auto dir = settings.getConfigDirectory().getChildFile("factory_configs");
+    if (dir.isDirectory())
+    {
+        for (const auto &file : dir.findChildFiles(juce::File::findFiles, false, "*.factoryconfig"))
+        {
+            auto xml = juce::XmlDocument::parse(file);
+            if (xml == nullptr || !xml->hasTagName("FactoryConfiguration"))
+                continue;
+
+            FactoryConfiguration c;
+            c.id = "user:" + file.getFileNameWithoutExtension();
+            c.name = xml->getStringAttribute("name", file.getFileNameWithoutExtension());
+            c.file = file;
+            c.factory = false;
+            c.selection.kickModule = xml->getStringAttribute("kick", "naked").toStdString();
+            c.selection.snareModule = xml->getStringAttribute("snare", "naked").toStdString();
+            c.selection.tomModules = {"", "", "", "", ""};
+            for (auto *tom : xml->getChildWithTagNameIterator("tom"))
+            {
+                const int slot = tom->getIntAttribute("slot", -1);
+                if (slot >= 0 && slot < factory::tomSlots)
+                    c.selection.tomModules[static_cast<size_t>(slot)] = tom->getStringAttribute("module").toStdString();
+            }
+            for (auto *piece : xml->getChildWithTagNameIterator("disabled"))
+            {
+                const auto key = piece->getStringAttribute("key");
+                if (key.isNotEmpty())
+                    c.selection.disabled.insert(key.toStdString());
+            }
+            list.push_back(std::move(c));
+        }
+    }
+
+    // Keep the built-in order (Naked first) and sort only the user section.
+    const auto userStart = std::find_if(list.begin(), list.end(),
+                                        [](const FactoryConfiguration &c) { return !c.factory; });
+    std::sort(userStart, list.end(), [](const FactoryConfiguration &a, const FactoryConfiguration &b)
+    {
+        return a.name.compareIgnoreCase(b.name) < 0;
+    });
+
+    return list;
+}
+
+void PluginProcessor::applyFactoryConfiguration(const FactoryConfiguration &configuration)
+{
+    factorySelection = configuration.selection;
+    saveFactorySelection();
+    loadFactoryKit();
+}
+
+juce::String PluginProcessor::saveFactoryConfiguration(const juce::String &name)
+{
+    auto trimmed = name.trim();
+    if (trimmed.isEmpty())
+        return {};
+
+    auto safe = trimmed.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_");
+    safe = safe.trim().replaceCharacter(' ', '_');
+    if (safe.isEmpty())
+        safe = "Configuration";
+
+    const auto dir = settings.getConfigDirectory().getChildFile("factory_configs");
+    dir.createDirectory();
+    const auto file = dir.getChildFile(safe + ".factoryconfig");
+
+    juce::XmlElement xml("FactoryConfiguration");
+    xml.setAttribute("name", trimmed);
+    xml.setAttribute("kick", juce::String(factorySelection.kickModule));
+    xml.setAttribute("snare", juce::String(factorySelection.snareModule));
+    for (int i = 0; i < factory::tomSlots; ++i)
+    {
+        auto *tom = xml.createNewChildElement("tom");
+        tom->setAttribute("slot", i);
+        tom->setAttribute("module", juce::String(factorySelection.tomModules[static_cast<size_t>(i)]));
+    }
+    for (const auto &key : factorySelection.disabled)
+    {
+        auto *piece = xml.createNewChildElement("disabled");
+        piece->setAttribute("key", juce::String(key));
+    }
+
+    if (!xml.writeTo(file))
+        return {};
+
+    return file.getFullPathName();
+}
+
 void PluginProcessor::saveFactorySelection()
 {
     settings.factoryKickModule = juce::String(factorySelection.kickModule);
@@ -582,6 +684,23 @@ void PluginProcessor::loadKitImpl(const juce::String &drumkitPath)
 
 void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
 {
+    // Keep the current note map across factory piece swaps. Notes are stored by
+    // a stable role ("kick.main", "snare.main", "tom.1", ...), so replacing a
+    // Crocell snare with a DRS snare does not move note 38.
+    std::map<int, std::string> previousRoles;
+    if (currentKit.isFactoryAssembly && audioEngine.getSampler().isKitLoaded())
+    {
+        for (const auto &[note, instrument] : midiRouter.getMidiMap().noteAssignments())
+        {
+            const auto role = audioEngine.getSampler().instrumentRole(instrument).toStdString();
+            if (!role.empty())
+                previousRoles[note] = role;
+        }
+    }
+
+    const bool factorySwap = kit.isFactoryAssembly && !previousRoles.empty();
+    const bool preserveMapPreset = !previousRoles.empty();
+
     currentKit = std::move(kit);
 
     if (!currentKit.error.empty())
@@ -613,10 +732,70 @@ void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
                                      + juce::String(audioEngine.getSampler().numInstruments()) + " instruments)");
 
     // Delegate note mapping to MidiRouter (handles kit midimap, GM fallback, and default assignments)
-    midiRouter.setupNoteMappingFromKit(currentKit, audioEngine.getSampler());
+    if (factorySwap)
+    {
+        auto &map = midiRouter.getMidiMap();
+        map.clearAssignments();
+
+        for (const auto &[note, role] : previousRoles)
+        {
+            for (int i = 0; i < audioEngine.getSampler().numInstruments(); ++i)
+            {
+                if (audioEngine.getSampler().instrumentRole(i).toStdString() == role)
+                {
+                    map.addNote(note, i, false);
+                    break;
+                }
+            }
+        }
+
+        // Fill roles that are new in this configuration from the canonical map.
+        for (const auto &[note, instrumentName] : currentKit.suggestedMap)
+        {
+            if (map.instrumentForNote(note) >= 0)
+                continue;
+
+            const auto target = juce::String(instrumentName).toLowerCase().removeCharacters(" .-_/\\");
+            for (int i = 0; i < audioEngine.getSampler().numInstruments(); ++i)
+            {
+                const auto candidate =
+                    audioEngine.getSampler().instrumentName(i).toLowerCase().removeCharacters(" .-_/\\");
+                if (candidate == target)
+                {
+                    map.addNote(note, i, false);
+                    break;
+                }
+            }
+        }
+
+        // Anything still unmapped (for example a module-only articulation)
+        // gets the next free note so it remains playable.
+        for (int i = 0; i < audioEngine.getSampler().numInstruments(); ++i)
+        {
+            if (map.noteForInstrument(i) >= 0)
+                continue;
+
+            for (int note = 35; note <= 81; ++note)
+            {
+                if (map.instrumentForNote(note) < 0)
+                {
+                    map.addNote(note, i, false);
+                    break;
+                }
+            }
+        }
+    }
+    else
+    {
+        // A normal kit may have left stale assignments behind. Factory maps are
+        // rebuilt from scratch the first time a configuration is loaded.
+        if (currentKit.isFactoryAssembly)
+            midiRouter.getMidiMap().clearAssignments();
+        midiRouter.setupNoteMappingFromKit(currentKit, audioEngine.getSampler());
+    }
 
     // Preserve the user's selected MIDI map preset (e.g. "Custom" or e-drum preset) across restarts / kit switches
-    if (settings.lastMapPreset.isNotEmpty())
+    if (!preserveMapPreset && settings.lastMapPreset.isNotEmpty())
     {
         for (const auto &preset : MidiMap::availablePresets())
         {

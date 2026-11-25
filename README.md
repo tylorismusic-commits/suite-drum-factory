@@ -18,6 +18,15 @@ Drums Glorp.
 - A source dropdown sits on the kick, snare and every tom image, so a kit can be
   a Monster kick, a Crocell snare and DRS toms. A separate **PIECES** menu
   enables or disables individual pieces.
+- **CONFIG** loads a factory configuration or saves the current one. Built-ins
+  include Naked, Crocell, DRS, Salamander, Monster, Studio Mix and Vintage Mix;
+  user configurations are stored under `~/.config/SuiteDrumFactory/factory_configs`.
+- MIDI notes are tied to stable roles (`kick.main`, `snare.main`, `tom.1`, ...),
+  so swapping a Crocell snare for a DRS snare keeps note 38 in the same place
+  and a loop can keep playing while pieces change.
+- Module kicks are level-matched to the Naked kick, snares to the Naked snare
+  and toms to their Naked slot. Kicks stay equal to kicks and snares to snares,
+  rather than flattening the whole kit to one loudness.
 - The mixer exposes **one strip per active kit piece**, not one strip per
   microphone. A Naked-only kit shows 16 strips; the Monster-kick/Crocell-snare/
   DRS-tom example shows 14.

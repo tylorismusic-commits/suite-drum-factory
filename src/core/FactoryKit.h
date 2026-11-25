@@ -109,6 +109,17 @@ struct ModuleInfo
     std::string folder;
 };
 
+struct Configuration
+{
+    std::string id;
+    std::string name;
+    Selection selection;
+    bool factory = true;
+};
+
+/// A small set of ready-made configurations shown before user-saved ones.
+std::vector<Configuration> factoryConfigurations();
+
 struct BuildResult
 {
     DrumKit kit;

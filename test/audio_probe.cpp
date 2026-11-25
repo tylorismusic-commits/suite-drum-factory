@@ -54,6 +54,58 @@ int main (int argc, char** argv)
         }
 
         std::cout << "Factory module: '" << factoryModule << "'" << std::endl;
+
+        if (std::getenv ("GLORP_PROBE_CONFIGS") != nullptr)
+        {
+            auto configs = proc.getFactoryConfigurations();
+            std::cout << "configs=" << configs.size() << std::endl;
+            for (const auto& config : configs)
+                std::cout << "  " << (config.factory ? "factory " : "user    ") << config.name.toStdString()
+                          << " kick=" << config.selection.kickModule << " snare=" << config.selection.snareModule
+                          << std::endl;
+
+            for (const auto& config : configs)
+            {
+                if (config.name == "Studio Mix")
+                {
+                    proc.applyFactoryConfiguration (config);
+                    std::cout << "applied=" << proc.getSampler().kitTitleString().toStdString()
+                              << " strips=" << proc.getSampler().numMicStrips() << std::endl;
+                    break;
+                }
+            }
+
+            const auto saved = proc.saveFactoryConfiguration ("Probe Config");
+            std::cout << "saved=" << saved.toStdString() << std::endl;
+            configs = proc.getFactoryConfigurations();
+            std::cout << "configs_after=" << configs.size() << std::endl;
+            return 0;
+        }
+
+        if (std::getenv ("GLORP_PROBE_MAPSWAP") != nullptr)
+        {
+            auto printMap = [&proc] (const char* label)
+            {
+                std::cout << "map " << label << ":" << std::endl;
+                for (int i = 0; i < proc.getSampler().numInstruments(); ++i)
+                {
+                    const auto role = proc.getSampler().instrumentRole (i);
+                    const int note = proc.getMidiMap().noteForInstrument (i);
+                    if (role.isNotEmpty())
+                        std::cout << "  " << role.toStdString() << "=" << note << std::endl;
+                }
+            };
+
+            printMap ("start");
+            proc.setFactoryKickModule ("salamander");
+            printMap ("kick-swap");
+            proc.setFactorySnareModule ("drs");
+            printMap ("snare-swap");
+            proc.setFactoryTomModule (0, "monster");
+            printMap ("tom-swap");
+            return 0;
+        }
+
         std::cout << "Strips: " << proc.getSampler().numMicStrips()
                   << " (factory piece mode=" << (proc.getSampler().isFactoryPieceMode() ? 1 : 0) << ")" << std::endl;
         for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)

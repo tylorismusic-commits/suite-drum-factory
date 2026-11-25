@@ -129,6 +129,8 @@ class Editor
     void promptLoadKitFile();
     void promptSaveMapPreset();
     void showFactoryPiecesMenu();
+    void showFactoryConfigMenu();
+    void promptSaveFactoryConfiguration();
 
     enum class ShellSlotKind
     {
@@ -188,9 +190,15 @@ class Editor
             theme = t;
             repaint();
         }
+        void setLabel(const juce::String &text)
+        {
+            label = text;
+            repaint();
+        }
 
       private:
         Theme theme = Theme::suite();
+        juce::String label {"PIECES"};
     };
 
     /// Small chevron placed over a shell piece. Opens that piece's source menu.
@@ -413,6 +421,7 @@ class Editor
 
     KitSelectorButton kitSelectorButton;
     FactoryPiecesButton factoryPiecesButton;
+    FactoryPiecesButton configButton;
     std::vector<std::unique_ptr<ShellSlotButton>> shellSlotButtons;
     DrumKitView kitView;
     std::unique_ptr<MinimalInstrumentGrid> minimalGrid;

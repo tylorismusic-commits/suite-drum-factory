@@ -140,6 +140,7 @@ class Sampler
     int usedBusCount() const noexcept { return busCount; }
     bool isFactoryPieceMode() const noexcept { return factoryPieceMode; }
     juce::String instrumentName(int index) const;
+    juce::String instrumentRole(int index) const; ///< stable factory MIDI role, or empty
     juce::String kitTitleString() const { return kitTitle; }
 
     int numSamplesForInstrument(int index) const;
@@ -313,6 +314,8 @@ class Sampler
         std::vector<ResolvedHit> hits;
         juce::String group;
         juce::String name;
+        juce::String midiRole;
+        std::string sourceModule;
         BleedPiece piece = BleedPiece::snare;
         std::vector<ChokeTarget> chokeTargets;
         /// DrumGizmo `power` values are absolute recordings, not 0..1, and
@@ -407,6 +410,7 @@ class Sampler
     }
 
     void resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out);
+    void calibrateFactoryPieces();
     void recomputeSoloFlags();
     float nextRandom();
     void pushHitEvent(const HitEvent &event) noexcept;
@@ -506,6 +510,7 @@ class Sampler
         juce::String title;
         MicStripParams params;
         ChannelStripFX fx;
+        float autoGain = 1.0f;       ///< hidden calibration gain for factory pieces
         bool kitPhaseInvert = false; ///< polarity correction that belongs to the recording
         std::atomic<float> peakL {0.0f};
         std::atomic<float> peakR {0.0f};

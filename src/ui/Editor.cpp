@@ -184,7 +184,7 @@ void Editor::FactoryPiecesButton::paintButton(juce::Graphics &g, bool isHover, b
     auto textArea = b.withTrimmedLeft(12.0f).withTrimmedRight(26.0f);
     g.setFont(displayFont(12.0f));
     g.setColour(isHover ? theme.accent : theme.ink);
-    g.drawText("PIECES", textArea, juce::Justification::centredLeft, false);
+    g.drawText(label, textArea, juce::Justification::centredLeft, false);
 
     juce::Path chevron;
     const float cx = b.getRight() - 14.0f;
@@ -1238,6 +1238,13 @@ Editor::Editor(PluginProcessor &p) : processor(p)
     factoryPiecesButton.setTheme(theme);
     factoryPiecesButton.setTooltip("Enable or disable individual kit pieces");
     factoryPiecesButton.onClick = [this] { showFactoryPiecesMenu(); };
+
+    addAndMakeVisible(configButton);
+    configButton.setTheme(theme);
+    configButton.setLabel("CONFIG");
+    configButton.setTooltip("Load or save a kit configuration");
+    configButton.onClick = [this] { showFactoryConfigMenu(); };
+
     buildShellSlotButtons();
 
     minimalGrid = std::make_unique<MinimalInstrumentGrid>();
@@ -1527,6 +1534,7 @@ void Editor::applyTheme(const Theme &newTheme)
 
     kitSelectorButton.setTheme(theme);
     factoryPiecesButton.setTheme(theme);
+    configButton.setTheme(theme);
     for (auto &slot : shellSlotButtons)
         if (slot != nullptr && slot->button != nullptr)
             slot->button->setTheme(theme);
@@ -2019,6 +2027,89 @@ void Editor::showShellSlotMenu(ShellSlotKind kind, int slot)
                        });
 }
 
+void Editor::showFactoryConfigMenu()
+{
+    const auto configs = processor.getFactoryConfigurations();
+    const auto &current = processor.getFactorySelection();
+
+    auto matchesCurrent = [&current](const PluginProcessor::FactoryConfiguration &config)
+    {
+        const auto &s = config.selection;
+        return s.kickModule == current.kickModule && s.snareModule == current.snareModule
+               && s.tomModules == current.tomModules && s.disabled == current.disabled;
+    };
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader("FACTORY CONFIGURATIONS");
+    int userCount = 0;
+    for (int i = 0; i < static_cast<int>(configs.size()); ++i)
+    {
+        const auto &config = configs[static_cast<size_t>(i)];
+        if (!config.factory)
+        {
+            if (userCount++ == 0)
+            {
+                menu.addSeparator();
+                menu.addSectionHeader("USER CONFIGURATIONS");
+            }
+        }
+        menu.addItem(1000 + i, config.name, true, matchesCurrent(config));
+    }
+
+    menu.addSeparator();
+    menu.addItem(1, "Save Current Configuration...");
+
+    juce::PopupMenu::Options opts;
+    opts = opts.withTargetComponent(&configButton).withParentComponent(this);
+    menu.showMenuAsync(opts,
+                       [this, configs](int result)
+                       {
+                           if (result == 1)
+                           {
+                               promptSaveFactoryConfiguration();
+                               return;
+                           }
+                           if (result >= 1000)
+                           {
+                               const int index = result - 1000;
+                               if (index >= 0 && index < static_cast<int>(configs.size()))
+                                   processor.applyFactoryConfiguration(configs[static_cast<size_t>(index)]);
+                           }
+                       });
+}
+
+void Editor::promptSaveFactoryConfiguration()
+{
+    auto *alert = new juce::AlertWindow("Save Configuration",
+                                        "Name this kit configuration:",
+                                        juce::AlertWindow::QuestionIcon,
+                                        this);
+    alert->setLookAndFeel(&getLookAndFeel());
+    alert->addTextEditor("name", "My Kit", "Configuration Name");
+    alert->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<Editor> safeThis(this);
+    alert->enterModalState(true,
+                           juce::ModalCallbackFunction::create(
+                               [safeThis, alert](int result)
+                               {
+                                   if (result == 1 && safeThis != nullptr)
+                                   {
+                                       const auto name = alert->getTextEditorContents("name").trim();
+                                       if (name.isNotEmpty())
+                                       {
+                                           const auto path = safeThis->processor.saveFactoryConfiguration(name);
+                                           safeThis->statusText = path.isNotEmpty()
+                                                                      ? "Saved configuration '" + name + "'"
+                                                                      : "Could not save configuration";
+                                           safeThis->repaint();
+                                       }
+                                   }
+                                   delete alert;
+                               }));
+}
+
 void Editor::showFactoryPiecesMenu()
 {
     juce::PopupMenu menu;
@@ -2081,12 +2172,13 @@ void Editor::setViewMode(EditorView mode)
 
     kitView.setVisible(isKit && !isMinimal);
     factoryPiecesButton.setVisible(isKit && !isMinimal);
+    configButton.setVisible(isKit && !isMinimal);
     for (auto &slot : shellSlotButtons)
         if (slot != nullptr && slot->button != nullptr)
             slot->button->setVisible(isKit && !isMinimal && slot->hasBounds);
     if (minimalGrid != nullptr)
         minimalGrid->setVisible(isKit && isMinimal);
-    kitSelectorButton.setVisible(isKit);
+    kitSelectorButton.setVisible(false);
     instSelectorButton.setVisible(isKit);
     outBusButton.setVisible(isKit);
     for (auto &z : zoneButtons)
@@ -3911,7 +4003,9 @@ void Editor::resized()
     const int factoryW = 104;
     const int factoryH = 28;
     factoryPiecesButton.setBounds(kitX + kitW - factoryW - 14, kitY + 10, factoryW, factoryH);
+    configButton.setBounds(factoryPiecesButton.getX() - factoryW - 8, kitY + 10, factoryW, factoryH);
     factoryPiecesButton.toFront(false);
+    configButton.toFront(false);
     updateShellSlotButtons();
 
     if (mixerView != nullptr)

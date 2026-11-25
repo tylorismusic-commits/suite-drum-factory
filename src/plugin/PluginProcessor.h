@@ -119,6 +119,21 @@ class PluginProcessor : public juce::AudioProcessor
     bool isFactoryPieceEnabled(const juce::String &moduleId, const juce::String &pieceId) const;
     void setFactoryPieceEnabled(const juce::String &moduleId, const juce::String &pieceId, bool enabled);
 
+    struct FactoryConfiguration
+    {
+        juce::String id;
+        juce::String name;
+        juce::File file;
+        bool factory = true;
+        factory::Selection selection;
+    };
+
+    /// Factory defaults plus user-saved configurations.
+    std::vector<FactoryConfiguration> getFactoryConfigurations() const;
+    void applyFactoryConfiguration(const FactoryConfiguration &configuration);
+    juce::String saveFactoryConfiguration(const juce::String &name);
+    const factory::Selection &getFactorySelection() const noexcept { return factorySelection; }
+
     /// Routes a mixer mic strip and its matching drum instruments together.
     void setMicOutputBus(int micStripIndex, int bus);
     void setInstrumentOutputBus(int instrumentIndex, int bus);

@@ -144,11 +144,19 @@ namespace
             { "naked", &base }, { "crocell", &shell }
         };
 
+        const auto configs = factory::factoryConfigurations();
+        check (configs.size() >= 5, "factory configurations available");
+        checkEq (configs.front().name, std::string ("Naked Drums"), "Naked configuration first");
+
         factory::Selection baseSelection;
         auto baseResult = factory::build (kits, baseSelection);
         check (baseResult.error.empty(), "base-only assembly succeeds");
         checkEq (static_cast<int> (baseResult.kit.instruments.size()), 4, "base-only keeps all pieces");
         checkEq (static_cast<int> (baseResult.pieces.size()), 4, "base-only lists all active pieces");
+        checkEq (baseResult.kit.suggestedMap.count (36) == 1 ? baseResult.kit.suggestedMap.at (36) : std::string(),
+                 std::string ("Kick head"), "kick keeps canonical note 36");
+        checkEq (baseResult.kit.suggestedMap.count (38) == 1 ? baseResult.kit.suggestedMap.at (38) : std::string(),
+                 std::string ("Snare 1 head"), "snare keeps canonical note 38");
 
         factory::Selection mixed;
         mixed.kickModule = "crocell";
@@ -168,6 +176,13 @@ namespace
                  std::string ("crocell_SnareTop"), "module resolved channel remapped");
         checkEq (mixedResult.kit.suggestedMap.count (49) == 1 ? mixedResult.kit.suggestedMap.at (49) : std::string(),
                  std::string ("Crash 1 head"), "module cymbal does not replace the Naked crash");
+        checkEq (mixedResult.kit.suggestedMap.count (36) == 1 ? mixedResult.kit.suggestedMap.at (36) : std::string(),
+                 std::string ("Crocell KDrumL head"), "module kick lands on canonical note 36");
+        bool hasKickRole = false;
+        for (const auto& inst : mixedResult.kit.instruments)
+            if (inst.midiRole == "kick.main")
+                hasKickRole = true;
+        check (hasKickRole, "kick role assigned for MIDI stability");
 
         bool moduleCymbalLoaded = false;
         for (const auto& lp : mixedResult.kit.logicalPieces)

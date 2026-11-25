@@ -486,6 +486,8 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
                 + " instruments had unreadable sample files and were skipped.";
     }
 
+    calibrateFactoryPieces();
+
     recomputeSoloFlags();
     sampleCache.trim();
 
@@ -543,6 +545,120 @@ void Sampler::unloadKit()
     hiHat = {};
     cc4Active.store(false);
     sampleCache.trim();
+}
+
+void Sampler::calibrateFactoryPieces()
+{
+    if (!factoryPieceMode || micChannels.empty())
+        return;
+
+    const auto sampleRate = std::max(1.0, currentSampleRate);
+    const auto maxFrames = static_cast<int64_t>(sampleRate * 0.25);
+
+    std::vector<std::vector<double>> instrumentRms(micChannels.size());
+
+    for (int i = 0; i < static_cast<int>(instruments_.size()); ++i)
+    {
+        if (i >= static_cast<int>(instrumentPiece.size()))
+            break;
+
+        const int piece = instrumentPiece[static_cast<size_t>(i)];
+        if (piece < 0 || piece >= static_cast<int>(micChannels.size()))
+            continue;
+
+        const auto &runtime = instruments_[static_cast<size_t>(i)];
+        if (runtime.hits.empty() || runtime.sortedHits.empty())
+            continue;
+
+        const auto hitIndex = runtime.sortedHits[runtime.sortedHits.size() / 2];
+        const auto &hit = runtime.hits[static_cast<size_t>(hitIndex)];
+        const auto frames = std::min<int64_t>(hit.numFrames, maxFrames);
+
+        double sumSq = 0.0;
+        int64_t values = 0;
+
+        for (int64_t pos = 0; pos < frames; ++pos)
+        {
+            for (const auto &channelRef : hit.channels)
+            {
+                if (!channelRef.handle.valid)
+                    continue;
+
+                const float sample = channelRef.handle.readSample(pos, channelRef.channel);
+                const float gain = 0.5f * (channelRef.gainL + channelRef.gainR);
+                const float value = sample * gain;
+                sumSq += static_cast<double>(value) * value;
+                ++values;
+            }
+        }
+
+        if (values > 0)
+            instrumentRms[static_cast<size_t>(piece)].push_back(std::sqrt(sumSq / static_cast<double>(values)));
+    }
+
+    std::vector<std::string> role(micChannels.size());
+    std::vector<std::string> source(micChannels.size());
+    for (int i = 0; i < static_cast<int>(instruments_.size()); ++i)
+    {
+        if (i >= static_cast<int>(instrumentPiece.size()))
+            break;
+        const int piece = instrumentPiece[static_cast<size_t>(i)];
+        if (piece < 0 || piece >= static_cast<int>(micChannels.size()))
+            continue;
+        if (role[static_cast<size_t>(piece)].empty())
+            role[static_cast<size_t>(piece)] = instruments_[static_cast<size_t>(i)].midiRole.toStdString();
+        if (source[static_cast<size_t>(piece)].empty())
+            source[static_cast<size_t>(piece)] = instruments_[static_cast<size_t>(i)].sourceModule;
+    }
+
+    // Reference RMS values measured from the Naked base. Each class is matched
+    // to its own Naked counterpart, so kicks match kicks and snares match
+    // snares instead of forcing the whole kit to one loudness.
+    auto targetForRole = [](const std::string &r) -> float
+    {
+        if (r == "kick.main" || r == "kick.alt1" || r == "kick.alt2")
+            return 0.03136f;
+        if (r == "snare.main")
+            return 0.03549f;
+        if (r == "snare.2")
+            return 0.03815f;
+        if (r == "snare.rest" || r == "snare.rest2")
+            return 0.03194f;
+        if (r == "snare.stick")
+            return 0.03300f;
+        if (r == "tom.1") return 0.02827f;
+        if (r == "tom.2") return 0.02601f;
+        if (r == "tom.3") return 0.02350f;
+        if (r == "tom.4") return 0.02368f;
+        if (r == "tom.5") return 0.02785f;
+        return -1.0f;
+    };
+
+    const bool debug = std::getenv("GLORP_DEBUG_RMS") != nullptr;
+    for (size_t piece = 0; piece < micChannels.size(); ++piece)
+    {
+        auto &values = instrumentRms[piece];
+        if (values.empty())
+            continue;
+
+        // Zones/articulations are alternatives, not layers: use the median
+        // instrument loudness rather than summing every zone together.
+        std::sort(values.begin(), values.end());
+        const auto measured = static_cast<float>(values[values.size() / 2]);
+        const float target = targetForRole(role[piece]);
+        float gain = 1.0f;
+
+        // Naked pieces are the reference; leave their internal balance alone.
+        if (target > 0.0f && measured > 1.0e-6 && source[piece] != "naked")
+            gain = std::clamp(target / measured, 0.10f, 16.0f);
+
+        micChannels[piece]->autoGain = gain;
+
+        if (debug)
+            std::fprintf(stderr, "[rms] %-28s role=%-12s rms=%.5f target=%.5f gain=%.2f zones=%zu\n",
+                         micChannels[piece]->title.toRawUTF8(), role[piece].c_str(), measured,
+                         static_cast<double>(target), static_cast<double>(gain), values.size());
+    }
 }
 
 void Sampler::recomputeSoloFlags()
@@ -756,6 +872,14 @@ juce::String Sampler::instrumentName(int index) const
 
     return instruments_[static_cast<size_t>(index)].name;
 }
+juce::String Sampler::instrumentRole(int index) const
+{
+    if (index < 0 || index >= instrumentCount)
+        return {};
+
+    return juce::String(instruments_[static_cast<size_t>(index)].midiRole);
+}
+
 
 int Sampler::numSamplesForInstrument(int index) const
 {
@@ -885,6 +1009,8 @@ GlobalParams Sampler::getGlobalParams() const
 void Sampler::resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out)
 {
     out.name = instrument.displayName;
+    out.midiRole = juce::String(instrument.midiRole);
+    out.sourceModule = instrument.sourceModule;
     out.group = instrument.group;
     out.piece = instrument.bleedPiece;
 
@@ -2751,8 +2877,8 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                 micPanL = 1.0f - p.pan;
                 micPanR = 1.0f;
             }
-            const float micGainL = p.level * micPanL;
-            const float micGainR = p.level * micPanR;
+            const float micGainL = p.level * micPanL * state.autoGain;
+            const float micGainR = p.level * micPanR * state.autoGain;
 
             float blkPeakL = 0.0f, blkPeakR = 0.0f;
             float blkRmsSumL = 0.0f, blkRmsSumR = 0.0f;
@@ -2769,7 +2895,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                 {
                     // Sum the stereo pair and place it dead centre. This also
                     // fixes kits whose trigger channel only has audio on one side.
-                    valL = valR = (sL[i] + sR[i]) * 0.5f * p.level;
+                    valL = valR = (sL[i] + sR[i]) * 0.5f * p.level * state.autoGain;
                 }
                 else
                 {
