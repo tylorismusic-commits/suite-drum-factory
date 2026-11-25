@@ -18,6 +18,7 @@
 - [x] Per-category automatic level matching (kicks to kicks, snares to snares, toms by slot).
 - [x] Piece swaps keep MIDI loops running without a stop/restart.
 - [x] CONFIG and PIECES moved into the old kit-dropdown position.
+- [x] Grooves folder persisted in a dedicated file; file pickers float over the DAW.
 - [ ] Fixed Kick / Snare / Room / Mix bus mixer with inserts.
 - [ ] Mix presets tied to the active configuration instead of generic presets.
 

@@ -305,9 +305,28 @@ void MidiBrowser::setTheme(const Theme &newTheme)
     repaint();
 }
 
+juce::File MidiBrowser::midiLibraryPathFile() const
+{
+    return processor.getSettings().getConfigDirectory().getChildFile("midi_library_path.txt");
+}
+
 juce::File MidiBrowser::libraryRoot() const
 {
     const auto &settings = processor.getSettings();
+
+    // The dedicated file wins over settings.txt so a second plugin instance
+    // saving its own stale Settings copy cannot forget the chosen folder.
+    const auto pathFile = midiLibraryPathFile();
+    if (pathFile.existsAsFile())
+    {
+        const auto saved = pathFile.loadFileAsString().trim();
+        if (saved.isNotEmpty())
+        {
+            const juce::File dir(saved);
+            if (dir.isDirectory())
+                return dir;
+        }
+    }
 
     if (settings.midiLibraryPath.isNotEmpty())
         return juce::File(settings.midiLibraryPath);
@@ -533,7 +552,13 @@ void MidiBrowser::refreshIfNeeded()
 
 void MidiBrowser::chooseLibrary()
 {
-    auto chooser = std::make_shared<juce::FileChooser>("Choose MIDI library folder", root, "");
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Choose MIDI library folder",
+        root,
+        "",
+        false,
+        false,
+        getTopLevelComponent());
     auto safeThis = juce::Component::SafePointer<MidiBrowser>(this);
 
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
@@ -549,7 +574,12 @@ void MidiBrowser::chooseLibrary()
                                  safeThis->processor.getSettings().midiLibraryPath = result.getFullPathName();
                                  safeThis->processor.getSettings().markDirty();
                                  safeThis->processor.getSettings().saveIfChanged();
+
+                                 // Keep a dedicated copy so another plugin instance
+                                 // cannot overwrite the choice with a stale settings.txt.
+                                 safeThis->midiLibraryPathFile().replaceWithText(result.getFullPathName());
                                  safeThis->refreshLibrary(false, true);
+                                 safeThis->setStatus("Library: " + result.getFullPathName());
                              }
                          });
 }

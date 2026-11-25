@@ -18,6 +18,23 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI gui;
 
     glorp::PluginProcessor proc;
+
+    if (const auto* setLibrary = std::getenv ("GLORP_PROBE_SET_LIBRARY"))
+    {
+        auto& settings = proc.getSettings();
+        settings.midiLibraryPath = setLibrary;
+        settings.markDirty();
+        settings.saveIfChanged();
+        std::cout << "set library=" << settings.midiLibraryPath.toStdString()
+                  << " file=" << settings.getConfigFile().getFullPathName().toStdString() << std::endl;
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_GET_LIBRARY") != nullptr)
+    {
+        std::cout << "get library=" << proc.getSettings().midiLibraryPath.toStdString() << std::endl;
+        return 0;
+    }
     juce::String kitPath = argc > 1 ? juce::String (argv[1])
                                     : juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
                                           .getChildFile ("SuiteDrumsGlorp/kits/GlorpDemoKit/drumkit.xml")

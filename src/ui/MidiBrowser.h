@@ -93,6 +93,7 @@ class MidiBrowser : public juce::Component, private juce::Timer
 
     void timerCallback() override;
     juce::File libraryRoot() const;
+    juce::File midiLibraryPathFile() const;
     void chooseLibrary();
     void selectPack(int index);
     void selectSong(int index);

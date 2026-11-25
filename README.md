@@ -34,6 +34,11 @@ Drums Glorp.
 - Source-mic polarity is applied automatically while the piece is summed, so
   modules that mark a mic out of phase (for example DRS Kdrum_back) need no
   manual setup.
+- The chosen grooves folder is written to a dedicated
+  `~/.config/SuiteDrumFactory/midi_library_path.txt` as well as settings, so
+  another plugin instance cannot forget it.
+- File pickers are non-native and parented to the plugin window, so they open
+  over the DAW instead of tiling behind it.
 - The existing kit view, MIDI browser, channel insert FX and master strip are
   inherited from Suite Drums Glorp.
 - Kit artwork is unchanged; the existing Naked art is reused for the prototype.

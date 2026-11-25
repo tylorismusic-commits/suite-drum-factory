@@ -1058,7 +1058,8 @@ class Editor::LayerDrawer : public juce::Component
         if (!startDir.isDirectory())
             startDir = juce::File::getSpecialLocation(juce::File::userMusicDirectory);
 
-        auto chooser = std::make_shared<juce::FileChooser>("Select a one-shot WAV", startDir, "*.wav");
+        auto chooser = std::make_shared<juce::FileChooser>(
+            "Select a one-shot WAV", startDir, "*.wav", false, false, getTopLevelComponent());
 
         chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                              [this, chooser](const juce::FileChooser &fc)
@@ -2359,9 +2360,13 @@ void Editor::buildHeaderMenu()
 
 void Editor::promptLoadKitFile()
 {
-    auto chooser = std::make_shared<juce::FileChooser>("Select DrumKit (.glorpkit, .xml, .zip)",
-                                                       juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                                                       "*.glorpkit;*.xml;*.zip");
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Select DrumKit (.glorpkit, .xml, .zip)",
+        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+        "*.glorpkit;*.xml;*.zip",
+        false,
+        false,
+        getTopLevelComponent());
 
     chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                          [this, chooser](const juce::FileChooser &fc)
@@ -2425,7 +2430,11 @@ juce::PopupMenu Editor::buildFileMenu()
                  {
                      auto chooser = std::make_shared<juce::FileChooser>(
                          "Select Folder Containing DrumKits",
-                         juce::File::getSpecialLocation(juce::File::userHomeDirectory));
+                         juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                         "",
+                         false,
+                         false,
+                         getTopLevelComponent());
 
                      chooser->launchAsync(juce::FileBrowserComponent::openMode
                                               | juce::FileBrowserComponent::canSelectDirectories,
