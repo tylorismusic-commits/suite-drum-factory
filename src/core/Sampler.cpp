@@ -552,10 +552,13 @@ void Sampler::calibrateFactoryPieces()
     if (!factoryPieceMode || micChannels.empty())
         return;
 
-    const auto sampleRate = std::max(1.0, currentSampleRate);
-    const auto maxFrames = static_cast<int64_t>(sampleRate * 0.25);
-
-    std::vector<std::vector<double>> instrumentRms(micChannels.size());
+    struct PieceRef
+    {
+        int instrument = -1;
+        std::string role;
+        std::string source;
+    };
+    std::vector<PieceRef> refs(micChannels.size());
 
     for (int i = 0; i < static_cast<int>(instruments_.size()); ++i)
     {
@@ -566,99 +569,124 @@ void Sampler::calibrateFactoryPieces()
         if (piece < 0 || piece >= static_cast<int>(micChannels.size()))
             continue;
 
-        const auto &runtime = instruments_[static_cast<size_t>(i)];
-        if (runtime.hits.empty() || runtime.sortedHits.empty())
-            continue;
-
-        const auto hitIndex = runtime.sortedHits[runtime.sortedHits.size() / 2];
-        const auto &hit = runtime.hits[static_cast<size_t>(hitIndex)];
-        const auto frames = std::min<int64_t>(hit.numFrames, maxFrames);
-
-        double sumSq = 0.0;
-        int64_t values = 0;
-
-        for (int64_t pos = 0; pos < frames; ++pos)
+        auto &ref = refs[static_cast<size_t>(piece)];
+        if (ref.instrument < 0)
         {
-            for (const auto &channelRef : hit.channels)
-            {
-                if (!channelRef.handle.valid)
-                    continue;
-
-                const float sample = channelRef.handle.readSample(pos, channelRef.channel);
-                const float gain = 0.5f * (channelRef.gainL + channelRef.gainR);
-                const float value = sample * gain;
-                sumSq += static_cast<double>(value) * value;
-                ++values;
-            }
+            ref.instrument = i;
+            ref.role = instruments_[static_cast<size_t>(i)].midiRole.toStdString();
+            ref.source = instruments_[static_cast<size_t>(i)].sourceModule;
         }
-
-        if (values > 0)
-            instrumentRms[static_cast<size_t>(piece)].push_back(std::sqrt(sumSq / static_cast<double>(values)));
     }
 
-    std::vector<std::string> role(micChannels.size());
-    std::vector<std::string> source(micChannels.size());
-    for (int i = 0; i < static_cast<int>(instruments_.size()); ++i)
-    {
-        if (i >= static_cast<int>(instrumentPiece.size()))
-            break;
-        const int piece = instrumentPiece[static_cast<size_t>(i)];
-        if (piece < 0 || piece >= static_cast<int>(micChannels.size()))
-            continue;
-        if (role[static_cast<size_t>(piece)].empty())
-            role[static_cast<size_t>(piece)] = instruments_[static_cast<size_t>(i)].midiRole.toStdString();
-        if (source[static_cast<size_t>(piece)].empty())
-            source[static_cast<size_t>(piece)] = instruments_[static_cast<size_t>(i)].sourceModule;
-    }
-
-    // Reference RMS values measured from the Naked base. Each class is matched
-    // to its own Naked counterpart, so kicks match kicks and snares match
-    // snares instead of forcing the whole kit to one loudness.
+    // Targets are the Naked base's measured output at the same velocity, per
+    // piece class/slot. Module pieces are matched to their own counterpart.
     auto targetForRole = [](const std::string &r) -> float
     {
         if (r == "kick.main" || r == "kick.alt1" || r == "kick.alt2")
-            return 0.03136f;
+            return 0.0650f;
         if (r == "snare.main")
-            return 0.03549f;
+            return 0.1100f;
         if (r == "snare.2")
-            return 0.03815f;
+            return 0.1150f;
         if (r == "snare.rest" || r == "snare.rest2")
-            return 0.03194f;
+            return 0.0950f;
         if (r == "snare.stick")
-            return 0.03300f;
-        if (r == "tom.1") return 0.02827f;
-        if (r == "tom.2") return 0.02601f;
-        if (r == "tom.3") return 0.02350f;
-        if (r == "tom.4") return 0.02368f;
-        if (r == "tom.5") return 0.02785f;
+            return 0.0800f;
+        if (r == "tom.1") return 0.0576f;
+        if (r == "tom.2") return 0.0723f;
+        if (r == "tom.3") return 0.0676f;
+        if (r == "tom.4") return 0.0565f;
+        if (r == "tom.5") return 0.0515f;
         return -1.0f;
     };
 
     const bool debug = std::getenv("GLORP_DEBUG_RMS") != nullptr;
-    for (size_t piece = 0; piece < micChannels.size(); ++piece)
+    const int blockSize = std::max(64, std::min(currentBlockSize, 1024));
+    const int measureFrames = static_cast<int>(std::max(1.0, currentSampleRate) * 0.25);
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    float *outputs[2] = {buffer.getWritePointer(0), buffer.getWritePointer(1)};
+
+    const bool wasLoaded = kitLoaded.load();
+    kitLoaded.store(true);
+
+    std::vector<bool> oldMute(micChannels.size());
+    for (size_t i = 0; i < micChannels.size(); ++i)
     {
-        auto &values = instrumentRms[piece];
-        if (values.empty())
+        oldMute[i] = micChannels[i]->params.mute;
+        micChannels[i]->params.mute = false;
+        micChannels[i]->autoGain = 1.0f;
+        micChannels[i]->fx.reset();
+    }
+    masterFX.reset();
+
+    auto measurePiece = [&](size_t piece) -> float
+    {
+        for (size_t i = 0; i < micChannels.size(); ++i)
+            micChannels[i]->params.mute = (i != piece);
+
+        recomputeSoloFlags();
+        allNotesOff();
+        sampleClock = 0;
+        masterFX.reset();
+        for (auto &ch : micChannels)
+            ch->fx.reset();
+
+        const auto &ref = refs[piece];
+        if (ref.instrument < 0)
+            return 0.0f;
+
+        noteOn(ref.instrument, 0.8f, 0);
+
+        double sumSq = 0.0;
+        int64_t values = 0;
+        for (int done = 0; done < measureFrames; done += blockSize)
+        {
+            const int frames = std::min(blockSize, measureFrames - done);
+            render(outputs, 2, frames);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < frames; ++i)
+                {
+                    const float v = buffer.getSample(ch, i);
+                    sumSq += static_cast<double>(v) * v;
+                    ++values;
+                }
+        }
+
+        allNotesOff();
+        return values > 0 ? static_cast<float>(std::sqrt(sumSq / static_cast<double>(values))) : 0.0f;
+    };
+
+    for (size_t piece = 0; piece < refs.size(); ++piece)
+    {
+        const auto &ref = refs[piece];
+        if (ref.instrument < 0)
             continue;
 
-        // Zones/articulations are alternatives, not layers: use the median
-        // instrument loudness rather than summing every zone together.
-        std::sort(values.begin(), values.end());
-        const auto measured = static_cast<float>(values[values.size() / 2]);
-        const float target = targetForRole(role[piece]);
-        float gain = 1.0f;
+        const auto measured = measurePiece(piece);
+        if (measured <= 1.0e-6f)
+            continue;
 
-        // Naked pieces are the reference; leave their internal balance alone.
-        if (target > 0.0f && measured > 1.0e-6 && source[piece] != "naked")
+        const float target = targetForRole(ref.role);
+        float gain = 1.0f;
+        if (target > 0.0f && ref.source != "naked")
             gain = std::clamp(target / measured, 0.10f, 16.0f);
 
         micChannels[piece]->autoGain = gain;
 
         if (debug)
-            std::fprintf(stderr, "[rms] %-28s role=%-12s rms=%.5f target=%.5f gain=%.2f zones=%zu\n",
-                         micChannels[piece]->title.toRawUTF8(), role[piece].c_str(), measured,
-                         static_cast<double>(target), static_cast<double>(gain), values.size());
+            std::fprintf(stderr, "[rms] %-28s role=%-12s measured=%.5f target=%.5f gain=%.2f\n",
+                         micChannels[piece]->title.toRawUTF8(), ref.role.c_str(), measured,
+                         static_cast<double>(target), static_cast<double>(gain));
     }
+
+    for (size_t i = 0; i < micChannels.size(); ++i)
+        micChannels[i]->params.mute = oldMute[i];
+
+    recomputeSoloFlags();
+    allNotesOff();
+    sampleClock = 0;
+    masterFX.reset();
+    kitLoaded.store(wasLoaded);
 }
 
 void Sampler::recomputeSoloFlags()
@@ -732,6 +760,13 @@ void Sampler::setMicStripParams(int index, const MicStripParams &params)
 {
     if (index >= 0 && index < static_cast<int>(micChannels.size()))
         micChannels[static_cast<size_t>(index)]->params = params;
+}
+
+float Sampler::getMicAutoGain(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(micChannels.size()))
+        return 1.0f;
+    return micChannels[static_cast<size_t>(index)]->autoGain;
 }
 
 MicStripParams Sampler::getMicStripParams(int index) const

@@ -16,6 +16,8 @@
 - [x] Stable role-based MIDI mapping across piece swaps.
 - [x] Factory and user kit configurations.
 - [x] Per-category automatic level matching (kicks to kicks, snares to snares, toms by slot).
+- [x] Piece swaps keep MIDI loops running without a stop/restart.
+- [x] CONFIG and PIECES moved into the old kit-dropdown position.
 - [ ] Fixed Kick / Snare / Room / Mix bus mixer with inserts.
 - [ ] Mix presets tied to the active configuration instead of generic presets.
 

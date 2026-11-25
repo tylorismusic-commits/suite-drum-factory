@@ -1038,6 +1038,86 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    if (std::getenv ("GLORP_PROBE_LEVELS") != nullptr)
+    {
+        proc.prepareToPlay (48000.0, 512);
+        juce::AudioBuffer<float> buffer (2, 512);
+
+        auto measure = [&] (int note, const char* label)
+        {
+            proc.getSampler().allNotesOff();
+            for (int b = 0; b < 5; ++b)
+            {
+                buffer.clear();
+                juce::MidiBuffer warm;
+                proc.processBlock (buffer, warm);
+            }
+
+            double sumSq = 0.0;
+            double shortSq = 0.0;
+            float peak = 0.0f;
+            int64_t frames = 0;
+            int64_t shortFrames = 0;
+
+            for (int block = 0; block < 120; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, static_cast<juce::uint8> (100)), 0);
+
+                buffer.clear();
+                proc.processBlock (buffer, midi);
+
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    const auto* data = buffer.getReadPointer (ch);
+                    for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    {
+                        const float v = data[i];
+                        sumSq += static_cast<double>(v) * v;
+                        if (frames < 48000 / 4)
+                        {
+                            shortSq += static_cast<double>(v) * v;
+                            ++shortFrames;
+                        }
+                        peak = std::max (peak, std::abs (v));
+                        ++frames;
+                    }
+                }
+            }
+
+            const double rms = std::sqrt (sumSq / std::max<int64_t> (1, frames));
+            const double rms250 = std::sqrt (shortSq / std::max<int64_t> (1, shortFrames));
+            std::cout << "level " << label << " note=" << note
+                      << " rms=" << rms << " rmsDb=" << juce::Decibels::gainToDecibels (static_cast<float> (rms))
+                      << " rms250=" << rms250 << " rms250Db="
+                      << juce::Decibels::gainToDecibels (static_cast<float> (rms250))
+                      << " peak=" << peak << " peakDb=" << juce::Decibels::gainToDecibels (peak) << std::endl;
+        };
+
+        for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)
+        {
+            const auto params = proc.getSampler().getMicStripParams (i);
+            std::cout << "strip " << i << " " << proc.getSampler().micStripTitle (i).toStdString()
+                      << " level=" << params.level << " pan=" << params.pan
+                      << " auto=" << proc.getSampler().getMicAutoGain (i) << std::endl;
+        }
+
+        for (int note : {36, 38, 48})
+        {
+            const int inst = proc.getMidiMap().instrumentForNote (note);
+            std::cout << "route note=" << note << " inst=" << inst
+                      << " name=" << (inst >= 0 ? proc.getSampler().instrumentName (inst).toStdString() : "<none>")
+                      << " role=" << (inst >= 0 ? proc.getSampler().instrumentRole (inst).toStdString() : "<none>")
+                      << std::endl;
+        }
+
+        measure (36, "kick");
+        measure (38, "snare");
+        measure (48, "tom1");
+        return 0;
+    }
+
     if (std::getenv ("GLORP_PROBE_STRESS") != nullptr)
     {
         constexpr double sr = 48000.0;

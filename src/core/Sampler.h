@@ -222,6 +222,7 @@ class Sampler
 
     void setMicStripParams(int index, const MicStripParams &params);
     MicStripParams getMicStripParams(int index) const;
+    float getMicAutoGain(int index) const;
 
     void setMicOutputBus(int index, int bus);
     int getMicOutputBus(int index) const;

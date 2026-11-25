@@ -22,8 +22,9 @@ Drums Glorp.
   include Naked, Crocell, DRS, Salamander, Monster, Studio Mix and Vintage Mix;
   user configurations are stored under `~/.config/SuiteDrumFactory/factory_configs`.
 - MIDI notes are tied to stable roles (`kick.main`, `snare.main`, `tom.1`, ...),
-  so swapping a Crocell snare for a DRS snare keeps note 38 in the same place
-  and a loop can keep playing while pieces change.
+  so swapping a Crocell snare for a DRS snare keeps note 38 in the same place.
+  Loops keep running through a swap; the MIDI browser resolves each note
+  against the current map as it plays instead of caching old instrument indices.
 - Module kicks are level-matched to the Naked kick, snares to the Naked snare
   and toms to their Naked slot. Kicks stay equal to kicks and snares to snares,
   rather than flattening the whole kit to one loudness.

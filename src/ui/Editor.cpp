@@ -4002,8 +4002,10 @@ void Editor::resized()
 
     const int factoryW = 104;
     const int factoryH = 28;
-    factoryPiecesButton.setBounds(kitX + kitW - factoryW - 14, kitY + 10, factoryW, factoryH);
-    configButton.setBounds(factoryPiecesButton.getX() - factoryW - 8, kitY + 10, factoryW, factoryH);
+    const int factoryGroupW = factoryW * 2 + 8;
+    const int factoryX = kitX + (kitW - factoryGroupW) / 2;
+    configButton.setBounds(factoryX, 52, factoryW, factoryH);
+    factoryPiecesButton.setBounds(factoryX + factoryW + 8, 52, factoryW, factoryH);
     factoryPiecesButton.toFront(false);
     configButton.toFront(false);
     updateShellSlotButtons();

@@ -882,10 +882,16 @@ void MidiBrowser::timerCallback()
            && auditionEvents[static_cast<size_t>(nextAuditionEvent)].timeSeconds <= elapsed)
     {
         const auto &event = auditionEvents[static_cast<size_t>(nextAuditionEvent)];
-        processor.getSampler().noteOn(event.instrument,
-                                      event.note,
-                                      event.velocity,
-                                      processor.getSampler().currentSamplePosition());
+
+        // Resolve the note against the current map every time. Kit pieces can be
+        // swapped while the loop is running, so a cached instrument index would
+        // keep triggering the old sample set until the loop was restarted.
+        const int instrument = processor.getMidiMap().instrumentForNote(event.note);
+        if (instrument >= 0)
+            processor.getSampler().noteOn(instrument,
+                                          event.note,
+                                          event.velocity,
+                                          processor.getSampler().currentSamplePosition());
         ++nextAuditionEvent;
     }
 
