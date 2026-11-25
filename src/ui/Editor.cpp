@@ -196,6 +196,26 @@ void Editor::FactoryPiecesButton::paintButton(juce::Graphics &g, bool isHover, b
     g.strokePath(chevron, juce::PathStrokeType(1.7f));
 }
 
+void Editor::ShellSourceButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+    const auto edge = customSource ? theme.accent.withAlpha(0.85f) : theme.panelEdge;
+
+    g.setColour(theme.panel.withAlpha(isHover ? 0.98f : 0.86f));
+    g.fillRoundedRectangle(b, 4.0f);
+    g.setColour(isHover ? theme.accent : edge);
+    g.drawRoundedRectangle(b.reduced(0.5f), 4.0f, isHover ? 1.5f : 1.0f);
+
+    juce::Path chevron;
+    const float cx = b.getCentreX();
+    const float cy = b.getCentreY();
+    chevron.startNewSubPath(cx - 3.5f, cy - 2.0f);
+    chevron.lineTo(cx, cy + 2.0f);
+    chevron.lineTo(cx + 3.5f, cy - 2.0f);
+    g.setColour(isHover ? theme.accent : (customSource ? theme.accent : theme.inkSoft));
+    g.strokePath(chevron, juce::PathStrokeType(1.5f));
+}
+
 void Editor::OutputBusButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
 {
     auto b = getLocalBounds().toFloat().reduced(1.0f);
@@ -1216,8 +1236,9 @@ Editor::Editor(PluginProcessor &p) : processor(p)
     addAndMakeVisible(scope);
     addAndMakeVisible(factoryPiecesButton);
     factoryPiecesButton.setTheme(theme);
-    factoryPiecesButton.setTooltip("Choose the shell module and enable or disable kit pieces");
+    factoryPiecesButton.setTooltip("Enable or disable individual kit pieces");
     factoryPiecesButton.onClick = [this] { showFactoryPiecesMenu(); };
+    buildShellSlotButtons();
 
     minimalGrid = std::make_unique<MinimalInstrumentGrid>();
     addChildComponent(*minimalGrid);
@@ -1506,6 +1527,9 @@ void Editor::applyTheme(const Theme &newTheme)
 
     kitSelectorButton.setTheme(theme);
     factoryPiecesButton.setTheme(theme);
+    for (auto &slot : shellSlotButtons)
+        if (slot != nullptr && slot->button != nullptr)
+            slot->button->setTheme(theme);
     instSelectorButton.setTheme(theme);
     outBusButton.setTheme(theme);
     instLearnButton.setTheme(theme);
@@ -1795,21 +1819,210 @@ void Editor::refreshHeaderButtonLabels()
     }
 }
 
-void Editor::showFactoryPiecesMenu()
+void Editor::buildShellSlotButtons()
 {
-    const auto &mods = factory::modules();
+    shellSlotButtons.clear();
 
-    juce::PopupMenu moduleMenu;
-    moduleMenu.addItem(1, "Naked Drums (base shells)", true, processor.getFactoryShellModule().isEmpty());
-    for (int i = 0; i < static_cast<int>(mods.size()); ++i)
-        moduleMenu.addItem(2 + i, mods[static_cast<size_t>(i)].name, true,
-                           processor.getFactoryShellModule().equalsIgnoreCase(juce::String(mods[static_cast<size_t>(i)].id)));
+    auto add = [this](ShellSlotKind kind, int slot)
+    {
+        auto holder = std::make_unique<ShellSlotButton>();
+        holder->kind = kind;
+        holder->slot = slot;
+        holder->button = std::make_unique<ShellSourceButton>();
+        holder->button->setTheme(theme);
+        holder->button->setVisible(false);
+        holder->button->onClick = [this, kind, slot] { showShellSlotMenu(kind, slot); };
+        addAndMakeVisible(*holder->button);
+        shellSlotButtons.push_back(std::move(holder));
+    };
+
+    add(ShellSlotKind::kick, 0);
+    add(ShellSlotKind::snare, 0);
+    for (int i = 0; i < factory::tomSlots; ++i)
+        add(ShellSlotKind::tom, i);
+}
+
+Editor::ShellSlotButton *Editor::shellSlotButton(ShellSlotKind kind, int slot)
+{
+    for (auto &holder : shellSlotButtons)
+        if (holder != nullptr && holder->kind == kind && holder->slot == slot)
+            return holder.get();
+    return nullptr;
+}
+
+void Editor::updateShellSlotButtons()
+{
+    const auto &pieces = kitView.getDynamicPieces();
+    const auto &catalogs = processor.getFactoryCatalogs();
+
+    const bool canShow = currentView == EditorView::kitView && !theme.minimalStyle;
+
+    auto moduleActualName = [](const std::string &id)
+    {
+        return id.empty() ? juce::String("Off") : juce::String(factory::moduleName(id));
+    };
+
+    auto findPiece = [&pieces](const std::string &moduleId, factory::PieceClass cls, const std::string &pieceId)
+        -> const DrumKitView::DynamicPiece *
+    {
+        for (const auto &dp : pieces)
+        {
+            if (dp.sourceModule != moduleId)
+                continue;
+            if (!pieceId.empty() && dp.sourceId != pieceId)
+                continue;
+            if (factory::classifyPiece(dp.name, dp.sourceId) == cls)
+                return &dp;
+        }
+        return nullptr;
+    };
+
+    auto apply = [&](ShellSlotKind kind, int slot, const std::string &moduleId, const std::string &pieceId,
+                     const juce::String &label, KitPiece fallback, int duplicateIndex)
+    {
+        auto *holder = shellSlotButton(kind, slot);
+        if (holder == nullptr)
+            return;
+
+        const auto cls = kind == ShellSlotKind::kick
+                             ? factory::PieceClass::kick
+                             : (kind == ShellSlotKind::snare ? factory::PieceClass::snare
+                                                             : factory::PieceClass::tom);
+
+        if (const auto *dp = findPiece(moduleId, cls, pieceId))
+        {
+            holder->localBounds = { dp->bounds.getRight() - 20.0f, dp->bounds.getY() + 4.0f, 18.0f, 18.0f };
+            holder->hasBounds = true;
+        }
+        else if (fallback != KitPiece::count)
+        {
+            const auto bounds = kitView.boundsForClassicPiece(fallback);
+            if (!bounds.isEmpty())
+            {
+                holder->localBounds = { bounds.getRight() - 20.0f,
+                                        bounds.getY() + 4.0f + static_cast<float>(duplicateIndex) * 21.0f,
+                                        18.0f,
+                                        18.0f };
+                holder->hasBounds = true;
+            }
+        }
+
+        holder->button->setTooltip(label + ": " + moduleActualName(moduleId));
+        holder->button->setCustomSource(!moduleId.empty() && moduleId != "naked");
+
+        if (canShow && holder->hasBounds)
+        {
+            holder->button->setBounds(juce::Rectangle<int>(
+                juce::roundToInt(kitView.getX() + holder->localBounds.getX()),
+                juce::roundToInt(kitView.getY() + holder->localBounds.getY()),
+                juce::roundToInt(holder->localBounds.getWidth()),
+                juce::roundToInt(holder->localBounds.getHeight())));
+            holder->button->setVisible(true);
+            holder->button->toFront(false);
+        }
+        else
+        {
+            holder->button->setVisible(false);
+        }
+    };
+
+    apply(ShellSlotKind::kick, 0, processor.getFactoryKickModule().toStdString(), {}, "Kick", KitPiece::kick, 0);
+    apply(ShellSlotKind::snare, 0, processor.getFactorySnareModule().toStdString(), {}, "Snare", KitPiece::snare, 0);
+
+    for (int slot = 0; slot < factory::tomSlots; ++slot)
+    {
+        const auto moduleId = processor.getFactoryTomModule(slot).toStdString();
+        std::string pieceId;
+        if (const auto it = catalogs.find(moduleId); it != catalogs.end())
+        {
+            const auto toms = factory::tomsOf(it->second);
+            if (slot < static_cast<int>(toms.size()))
+                pieceId = toms[static_cast<size_t>(slot)].id;
+        }
+
+        const auto fallback = slot == 0 ? KitPiece::tom1 : (slot == 1 ? KitPiece::tom2 : KitPiece::floorTom);
+        const int duplicateIndex = slot >= 2 ? slot - 2 : 0;
+        apply(ShellSlotKind::tom, slot, moduleId, pieceId, "Tom " + juce::String(slot + 1), fallback, duplicateIndex);
+    }
+}
+
+void Editor::showShellSlotMenu(ShellSlotKind kind, int slot)
+{
+    const auto &catalogs = processor.getFactoryCatalogs();
+
+    const auto current = kind == ShellSlotKind::kick
+                             ? processor.getFactoryKickModule().toStdString()
+                             : (kind == ShellSlotKind::snare ? processor.getFactorySnareModule().toStdString()
+                                                             : processor.getFactoryTomModule(slot).toStdString());
+
+    auto available = [&](const std::string &id)
+    {
+        if (id == "naked")
+            return catalogs.count("naked") != 0;
+
+        const auto it = catalogs.find(id);
+        if (it == catalogs.end())
+            return false;
+
+        if (kind == ShellSlotKind::tom)
+            return slot < static_cast<int>(factory::tomsOf(it->second).size());
+
+        const auto wanted = kind == ShellSlotKind::kick ? factory::PieceClass::kick : factory::PieceClass::snare;
+        for (const auto &piece : it->second.pieces)
+            if (piece.pieceClass == wanted)
+                return true;
+        return false;
+    };
+
+    std::vector<std::string> choices {"naked"};
+    for (const auto &m : factory::modules())
+        if (available(m.id))
+            choices.push_back(m.id);
 
     juce::PopupMenu menu;
-    menu.addSectionHeader("SUITE DRUM FACTORY");
-    menu.addSubMenu("Shell module", moduleMenu);
+    const auto title = kind == ShellSlotKind::kick
+                           ? juce::String("KICK SOURCE")
+                           : (kind == ShellSlotKind::snare ? juce::String("SNARE SOURCE")
+                                                           : "TOM " + juce::String(slot + 1) + " SOURCE");
+    menu.addSectionHeader(title);
+
+    for (int i = 0; i < static_cast<int>(choices.size()); ++i)
+        menu.addItem(100 + i, juce::String(factory::moduleName(choices[static_cast<size_t>(i)])), true,
+                     current == choices[static_cast<size_t>(i)]);
+
     menu.addSeparator();
-    menu.addSectionHeader("Pieces");
+    menu.addItem(999, "Off (no piece)", true, current.empty());
+
+    auto *holder = shellSlotButton(kind, slot);
+    if (holder == nullptr || holder->button == nullptr)
+        return;
+
+    juce::PopupMenu::Options opts;
+    opts = opts.withTargetComponent(holder->button.get()).withParentComponent(this);
+    menu.showMenuAsync(opts,
+                       [this, kind, slot, choices](int result)
+                       {
+                           std::string chosen;
+                           if (result >= 100 && result < 100 + static_cast<int>(choices.size()))
+                               chosen = choices[static_cast<size_t>(result - 100)];
+                           else if (result == 999)
+                               chosen.clear();
+                           else
+                               return;
+
+                           if (kind == ShellSlotKind::kick)
+                               processor.setFactoryKickModule(juce::String(chosen));
+                           else if (kind == ShellSlotKind::snare)
+                               processor.setFactorySnareModule(juce::String(chosen));
+                           else
+                               processor.setFactoryTomModule(slot, juce::String(chosen));
+                       });
+}
+
+void Editor::showFactoryPiecesMenu()
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader("KIT PIECES");
 
     const auto &pieces = processor.getFactoryPieces();
     juce::String lastModule;
@@ -1836,32 +2049,19 @@ void Editor::showFactoryPiecesMenu()
     menu.showMenuAsync(opts,
                        [this](int result)
                        {
-                           if (result == 1)
-                           {
-                               processor.setFactoryShellModule({});
+                           if (result < 1000)
                                return;
-                           }
 
-                           const auto &moduleList = factory::modules();
-                           if (result >= 2 && result < 2 + static_cast<int>(moduleList.size()))
-                           {
-                               processor.setFactoryShellModule(moduleList[static_cast<size_t>(result - 2)].id);
+                           const auto index = result - 1000;
+                           const auto &available = processor.getFactoryPieces();
+                           if (index < 0 || index >= static_cast<int>(available.size()))
                                return;
-                           }
 
-                           if (result >= 1000)
-                           {
-                               const auto index = result - 1000;
-                               const auto &available = processor.getFactoryPieces();
-                               if (index >= 0 && index < static_cast<int>(available.size()))
-                               {
-                                   const auto &piece = available[static_cast<size_t>(index)];
-                                   processor.setFactoryPieceEnabled(
-                                       piece.moduleId,
-                                       piece.id,
-                                       !processor.isFactoryPieceEnabled(piece.moduleId, piece.id));
-                               }
-                           }
+                           const auto piece = available[static_cast<size_t>(index)];
+                           processor.setFactoryPieceEnabled(
+                               piece.moduleId,
+                               piece.id,
+                               !processor.isFactoryPieceEnabled(piece.moduleId, piece.id));
                        });
 }
 
@@ -1881,6 +2081,9 @@ void Editor::setViewMode(EditorView mode)
 
     kitView.setVisible(isKit && !isMinimal);
     factoryPiecesButton.setVisible(isKit && !isMinimal);
+    for (auto &slot : shellSlotButtons)
+        if (slot != nullptr && slot->button != nullptr)
+            slot->button->setVisible(isKit && !isMinimal && slot->hasBounds);
     if (minimalGrid != nullptr)
         minimalGrid->setVisible(isKit && isMinimal);
     kitSelectorButton.setVisible(isKit);
@@ -3212,6 +3415,7 @@ void Editor::kitChanged()
 
     kitView.setInstrumentNames(names);
     kitView.applyKitVisuals(processor.getCurrentKit());
+    updateShellSlotButtons();
 
     if (!logicalInstruments.empty())
     {
@@ -3708,6 +3912,7 @@ void Editor::resized()
     const int factoryH = 28;
     factoryPiecesButton.setBounds(kitX + kitW - factoryW - 14, kitY + 10, factoryW, factoryH);
     factoryPiecesButton.toFront(false);
+    updateShellSlotButtons();
 
     if (mixerView != nullptr)
         mixerView->setBounds(16, 56, w - 32, h - 68);

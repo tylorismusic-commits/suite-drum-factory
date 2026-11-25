@@ -107,9 +107,33 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
 
     parameterManager.createParameterLayout(*this);
 
-    factorySelection.shellModule = settings.factoryShellModule.toStdString();
+    factorySelection.kickModule = settings.factoryKickModule.toStdString();
+    factorySelection.snareModule = settings.factorySnareModule.toStdString();
+    for (int i = 0; i < factory::tomSlots; ++i)
+        if (i < settings.factoryTomModules.size())
+            factorySelection.tomModules[static_cast<size_t>(i)] = settings.factoryTomModules[i].toStdString();
     for (const auto &key : settings.factoryDisabledPieces)
         factorySelection.disabled.insert(key.toStdString());
+
+    {
+        const auto basePath = factory::baseKitPath();
+        if (!basePath.empty())
+        {
+            factory::Catalog catalog;
+            if (factory::readCatalog("naked", basePath, catalog))
+                factoryCatalogs["naked"] = std::move(catalog);
+        }
+        for (const auto &module : factory::modules())
+        {
+            const auto path = factory::moduleKitPath(module.id);
+            if (path.empty())
+                continue;
+
+            factory::Catalog catalog;
+            if (factory::readCatalog(module.id, path, catalog))
+                factoryCatalogs[module.id] = std::move(catalog);
+        }
+    }
 
     midiRouter.onMidiMapChanged = [this] { listeners.call(&Listener::parametersChanged); };
 
@@ -437,7 +461,7 @@ void PluginProcessor::loadFactoryKit()
 
     try
     {
-        auto result = factory::buildFromDisk(basePath, factorySelection.shellModule, factorySelection);
+        auto result = factory::buildFromDisk(factorySelection);
         factoryPieces = std::move(result.pieces);
 
         if (!result.error.empty())
@@ -464,15 +488,48 @@ void PluginProcessor::loadFactoryKit()
     }
 }
 
-void PluginProcessor::setFactoryShellModule(const juce::String &moduleId)
+void PluginProcessor::setFactoryKickModule(const juce::String &moduleId)
 {
     const auto id = moduleId.trim().toStdString();
-    if (id == factorySelection.shellModule)
+    if (id == factorySelection.kickModule)
         return;
 
-    factorySelection.shellModule = id;
+    factorySelection.kickModule = id;
     saveFactorySelection();
     loadFactoryKit();
+}
+
+void PluginProcessor::setFactorySnareModule(const juce::String &moduleId)
+{
+    const auto id = moduleId.trim().toStdString();
+    if (id == factorySelection.snareModule)
+        return;
+
+    factorySelection.snareModule = id;
+    saveFactorySelection();
+    loadFactoryKit();
+}
+
+void PluginProcessor::setFactoryTomModule(int slot, const juce::String &moduleId)
+{
+    if (slot < 0 || slot >= factory::tomSlots)
+        return;
+
+    const auto id = moduleId.trim().toStdString();
+    auto &target = factorySelection.tomModules[static_cast<size_t>(slot)];
+    if (id == target)
+        return;
+
+    target = id;
+    saveFactorySelection();
+    loadFactoryKit();
+}
+
+juce::String PluginProcessor::getFactoryTomModule(int slot) const
+{
+    if (slot < 0 || slot >= factory::tomSlots)
+        return {};
+    return juce::String(factorySelection.tomModules[static_cast<size_t>(slot)]);
 }
 
 bool PluginProcessor::isFactoryPieceEnabled(const juce::String &moduleId, const juce::String &pieceId) const
@@ -500,7 +557,12 @@ void PluginProcessor::setFactoryPieceEnabled(const juce::String &moduleId,
 
 void PluginProcessor::saveFactorySelection()
 {
-    settings.factoryShellModule = juce::String(factorySelection.shellModule);
+    settings.factoryKickModule = juce::String(factorySelection.kickModule);
+    settings.factorySnareModule = juce::String(factorySelection.snareModule);
+    settings.factoryTomModules.clear();
+    for (const auto &id : factorySelection.tomModules)
+        settings.factoryTomModules.add(juce::String(id));
+
     settings.factoryDisabledPieces.clear();
     for (const auto &key : factorySelection.disabled)
         settings.factoryDisabledPieces.add(juce::String(key));

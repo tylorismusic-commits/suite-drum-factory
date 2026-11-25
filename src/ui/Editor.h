@@ -130,6 +130,29 @@ class Editor
     void promptSaveMapPreset();
     void showFactoryPiecesMenu();
 
+    enum class ShellSlotKind
+    {
+        kick,
+        snare,
+        tom
+    };
+
+    class ShellSourceButton;
+
+    struct ShellSlotButton
+    {
+        std::unique_ptr<ShellSourceButton> button;
+        ShellSlotKind kind = ShellSlotKind::kick;
+        int slot = 0; ///< tom index, or 0 for kick/snare
+        juce::Rectangle<float> localBounds; ///< relative to kitView
+        bool hasBounds = false;
+    };
+
+    void buildShellSlotButtons();
+    void updateShellSlotButtons();
+    void showShellSlotMenu(ShellSlotKind kind, int slot);
+    ShellSlotButton *shellSlotButton(ShellSlotKind kind, int slot);
+
     PluginProcessor &processor;
 
     // Header buttons (hand-drawn text buttons)
@@ -168,6 +191,31 @@ class Editor
 
       private:
         Theme theme = Theme::suite();
+    };
+
+    /// Small chevron placed over a shell piece. Opens that piece's source menu.
+    class ShellSourceButton : public juce::Button
+    {
+      public:
+        ShellSourceButton() : juce::Button("shellSource") {}
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+        void setCustomSource(bool custom)
+        {
+            if (customSource != custom)
+            {
+                customSource = custom;
+                repaint();
+            }
+        }
+
+      private:
+        Theme theme = Theme::suite();
+        bool customSource = false;
     };
 
     class InstrumentSelectorButton : public juce::Button
@@ -365,6 +413,7 @@ class Editor
 
     KitSelectorButton kitSelectorButton;
     FactoryPiecesButton factoryPiecesButton;
+    std::vector<std::unique_ptr<ShellSlotButton>> shellSlotButtons;
     DrumKitView kitView;
     std::unique_ptr<MinimalInstrumentGrid> minimalGrid;
     Scope scope;

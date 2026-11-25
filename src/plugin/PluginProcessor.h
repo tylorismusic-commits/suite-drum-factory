@@ -96,16 +96,24 @@ class PluginProcessor : public juce::AudioProcessor
     void loadKitImpl(const juce::String &drumkitPath);
 
     // -- Suite Drum Factory ------------------------------------------------
-    /// Rebuilds the assembled kit from Naked plus the selected shell module.
+    /// Rebuilds the assembled kit from the per-piece shell selection.
     void loadFactoryKit();
 
-    /// Empty string means Naked's own shells. Otherwise "crocell", "drs",
-    /// "salamander" or "monster".
-    void setFactoryShellModule(const juce::String &moduleId);
-    juce::String getFactoryShellModule() const { return juce::String(factorySelection.shellModule); }
+    /// Per-slot source modules. Empty disables the slot. "naked", "crocell",
+    /// "drs", "salamander" and "monster" are the valid ids.
+    void setFactoryKickModule(const juce::String &moduleId);
+    void setFactorySnareModule(const juce::String &moduleId);
+    void setFactoryTomModule(int slot, const juce::String &moduleId);
 
-    /// All pieces available for the current module choice, including disabled
-    /// ones, so the dropdown can draw checkmarks correctly.
+    juce::String getFactoryKickModule() const { return juce::String(factorySelection.kickModule); }
+    juce::String getFactorySnareModule() const { return juce::String(factorySelection.snareModule); }
+    juce::String getFactoryTomModule(int slot) const;
+
+    /// Piece lists read from each installed module without mapping audio.
+    const std::map<std::string, factory::Catalog> &getFactoryCatalogs() const noexcept { return factoryCatalogs; }
+
+    /// All pieces for the current selection, including disabled ones, so the
+    /// piece list can draw checkmarks correctly.
     const std::vector<factory::PieceEntry> &getFactoryPieces() const noexcept { return factoryPieces; }
 
     bool isFactoryPieceEnabled(const juce::String &moduleId, const juce::String &pieceId) const;
@@ -207,6 +215,7 @@ class PluginProcessor : public juce::AudioProcessor
 
     factory::Selection factorySelection;
     std::vector<factory::PieceEntry> factoryPieces;
+    std::map<std::string, factory::Catalog> factoryCatalogs;
 
     std::atomic<float> lastHiHatCC4 {0.0f};
     std::atomic<float> lastSnareCC16 {0.5f};

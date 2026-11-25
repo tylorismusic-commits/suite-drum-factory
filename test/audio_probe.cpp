@@ -26,7 +26,23 @@ int main (int argc, char** argv)
     const auto* factoryModule = std::getenv ("GLORP_PROBE_FACTORY");
     if (factoryModule != nullptr)
     {
-        proc.setFactoryShellModule (juce::String (factoryModule));
+        if (const auto* kick = std::getenv ("GLORP_PROBE_FACTORY_KICK"))
+            proc.setFactoryKickModule (juce::String (kick));
+
+        if (const auto* snare = std::getenv ("GLORP_PROBE_FACTORY_SNARE"))
+            proc.setFactorySnareModule (juce::String (snare));
+
+        if (const auto* toms = std::getenv ("GLORP_PROBE_FACTORY_TOMS"))
+            for (int i = 0; i < glorp::factory::tomSlots; ++i)
+                proc.setFactoryTomModule (i, juce::String (toms));
+
+        if (factoryModule[0] != '\0')
+        {
+            proc.setFactoryKickModule (juce::String (factoryModule));
+            proc.setFactorySnareModule (juce::String (factoryModule));
+            for (int i = 0; i < glorp::factory::tomSlots; ++i)
+                proc.setFactoryTomModule (i, juce::String (factoryModule));
+        }
 
         if (const auto* disable = std::getenv ("GLORP_PROBE_FACTORY_DISABLE"))
         {
@@ -38,6 +54,9 @@ int main (int argc, char** argv)
         }
 
         std::cout << "Factory module: '" << factoryModule << "'" << std::endl;
+        for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)
+            if (proc.getSampler().getMicStripParams (i).phaseInvert)
+                std::cout << "Phase inverted: " << proc.getSampler().micStripTitle (i).toStdString() << std::endl;
         std::cout << "Factory title: " << proc.getSampler().kitTitleString().toStdString() << std::endl;
         std::cout << "Pieces:" << std::endl;
         for (const auto& piece : proc.getFactoryPieces())

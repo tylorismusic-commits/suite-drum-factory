@@ -121,7 +121,9 @@ namespace
         kit.title = "CrocellKit";
         kit.license = "CC BY 4.0";
         kit.channels.push_back ({ "SnareTop", "Snare Top", "SnareTop", 0.0f, false });
+        addFactoryPiece (kit, "kdruml", "KDrumL", "SnareTop", 35);
         addFactoryPiece (kit, "snare", "Snare", "SnareTop", 38);
+        addFactoryPiece (kit, "tom1", "Tom1", "SnareTop", 47);
         addFactoryPiece (kit, "ftom1", "FTom1", "SnareTop", 43);
         addFactoryPiece (kit, "crashl", "CrashL", "SnareTop", 49);
         return kit;
@@ -138,49 +140,64 @@ namespace
 
         const auto base = makeFactoryBase();
         const auto shell = makeFactoryShell();
+        const std::vector<std::pair<std::string, const DrumKit*>> kits {
+            { "naked", &base }, { "crocell", &shell }
+        };
 
         factory::Selection baseSelection;
-        auto baseResult = factory::build (base, "naked", nullptr, {}, baseSelection);
+        auto baseResult = factory::build (kits, baseSelection);
         check (baseResult.error.empty(), "base-only assembly succeeds");
         checkEq (static_cast<int> (baseResult.kit.instruments.size()), 4, "base-only keeps all pieces");
-        checkEq (static_cast<int> (baseResult.pieces.size()), 4, "base-only lists all candidates");
+        checkEq (static_cast<int> (baseResult.pieces.size()), 4, "base-only lists all active pieces");
 
-        factory::Selection shellSelection;
-        shellSelection.shellModule = "crocell";
-        auto shellResult = factory::build (base, "naked", &shell, "crocell", shellSelection);
-        check (shellResult.error.empty(), "shell assembly succeeds");
-        checkEq (static_cast<int> (shellResult.kit.instruments.size()), 3, "shell replaces base shells");
-        checkEq (static_cast<int> (shellResult.kit.logicalPieces.size()), 3, "shell pieces replace base pieces");
-        checkEq (shellResult.kit.logicalPieces[0].id, std::string ("crash_1"), "base cymbal kept");
-        checkEq (shellResult.kit.logicalPieces[1].sourceModule, std::string ("crocell"), "module piece tagged");
-        checkEq (static_cast<int> (shellResult.kit.channels.size()), 2, "module mic added");
-        checkEq (shellResult.kit.channels[1].name, std::string ("crocell_SnareTop"), "module mic namespaced");
-        checkEq (shellResult.kit.instruments[1].channelMaps[0].out,
+        factory::Selection mixed;
+        mixed.kickModule = "crocell";
+        mixed.snareModule = "crocell";
+        mixed.tomModules[0] = "crocell";
+        mixed.tomModules[1] = "crocell";
+        auto mixedResult = factory::build (kits, mixed);
+        check (mixedResult.error.empty(), "mixed shell assembly succeeds");
+        checkEq (static_cast<int> (mixedResult.kit.instruments.size()), 5, "kick, snare and two toms from module");
+        checkEq (mixedResult.kit.logicalPieces[0].id, std::string ("crash_1"), "base cymbal kept");
+        checkEq (mixedResult.kit.logicalPieces[1].sourceModule, std::string ("crocell"), "module piece tagged");
+        checkEq (static_cast<int> (mixedResult.kit.channels.size()), 2, "module mic added");
+        checkEq (mixedResult.kit.channels[1].name, std::string ("crocell_SnareTop"), "module mic namespaced");
+        checkEq (mixedResult.kit.instruments[1].channelMaps[0].out,
                  std::string ("crocell_SnareTop"), "module channel map remapped");
-        checkEq (shellResult.kit.instruments[1].resolvedChannels[0][0].kitChannel,
+        checkEq (mixedResult.kit.instruments[1].resolvedChannels[0][0].kitChannel,
                  std::string ("crocell_SnareTop"), "module resolved channel remapped");
-        checkEq (shellResult.kit.suggestedMap.count (49) == 1 ? shellResult.kit.suggestedMap.at (49) : std::string(),
+        checkEq (mixedResult.kit.suggestedMap.count (49) == 1 ? mixedResult.kit.suggestedMap.at (49) : std::string(),
                  std::string ("Crash 1 head"), "module cymbal does not replace the Naked crash");
-        check (shellResult.kit.suggestedMap.count (38) == 1, "module snare note kept once");
+
+        bool moduleCymbalLoaded = false;
+        for (const auto& lp : mixedResult.kit.logicalPieces)
+            if (lp.sourceId == "crashl")
+                moduleCymbalLoaded = true;
+        check (! moduleCymbalLoaded, "module cymbal excluded");
+
+        factory::Selection partial;
+        partial.kickModule = "naked";
+        partial.snareModule = "naked";
+        partial.tomModules[0] = "crocell";
+        auto partialResult = factory::build (kits, partial);
+        checkEq (static_cast<int> (partialResult.kit.instruments.size()), 4, "one module tom mixes with Naked shells");
+        checkEq (partialResult.kit.logicalPieces.back().sourceModule, std::string ("crocell"), "tom source tagged");
 
         factory::Selection disabled;
-        disabled.shellModule = "crocell";
-        disabled.disabled.insert (factory::pieceKey ("crocell", "snare"));
-        auto disabledResult = factory::build (base, "naked", &shell, "crocell", disabled);
-        checkEq (static_cast<int> (disabledResult.kit.instruments.size()), 2, "disabled module piece removed");
+        disabled.disabled.insert (factory::pieceKey ("naked", "crash_1"));
+        auto disabledResult = factory::build (kits, disabled);
+        checkEq (static_cast<int> (disabledResult.kit.instruments.size()), 3, "disabled cymbal removed");
         bool disabledStillListed = false;
         for (const auto& p : disabledResult.pieces)
-            if (p.moduleId == "crocell" && p.id == "snare")
+            if (p.moduleId == "naked" && p.id == "crash_1")
                 disabledStillListed = true;
         check (disabledStillListed, "disabled piece still listed");
 
-        factory::Selection allShellsOff;
-        allShellsOff.shellModule = "crocell";
-        allShellsOff.disabled.insert (factory::pieceKey ("crocell", "snare"));
-        allShellsOff.disabled.insert (factory::pieceKey ("crocell", "ftom1"));
-        auto allOffResult = factory::build (base, "naked", &shell, "crocell", allShellsOff);
-        checkEq (static_cast<int> (allOffResult.kit.instruments.size()), 1, "base cymbal remains when module shells are off");
-        checkEq (static_cast<int> (allOffResult.pieces.size()), 3, "cymbals and module shells still listed");
+        factory::Selection missingTom;
+        missingTom.tomModules[4] = "crocell";
+        auto missingResult = factory::build (kits, missingTom);
+        checkEq (static_cast<int> (missingResult.kit.instruments.size()), 4, "unavailable tom slot stays empty");
+        check (! missingResult.kit.warnings.empty(), "unavailable tom slot warns");
     }
 
     void section (const std::string& name)

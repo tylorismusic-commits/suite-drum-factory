@@ -498,6 +498,8 @@ void DrumKitView::applyKitVisuals(const DrumKit &kit)
         dp.id = lp.id;
         dp.name = lp.name;
         dp.graphic = lp.graphic;
+        dp.sourceModule = lp.sourceModule;
+        dp.sourceId = lp.sourceId;
         for (const auto &z : lp.zones)
         {
             if (z.samplerIndex >= 0)
@@ -645,6 +647,13 @@ void DrumKitView::setInstrumentNames(const std::vector<juce::String> &names)
 {
     instrumentNames = names;
     repaint();
+}
+
+juce::Rectangle<float> DrumKitView::boundsForClassicPiece(KitPiece piece) const noexcept
+{
+    if (piece == KitPiece::count)
+        return {};
+    return pieces[static_cast<size_t>(piece)].bounds;
 }
 
 juce::Rectangle<int> DrumKitView::dirtyBoundsForPiece(KitPiece piece) const noexcept

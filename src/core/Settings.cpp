@@ -104,7 +104,12 @@ void Settings::writeState(juce::MemoryBlock &destination) const
     root.setAttribute("midiThruDestination", midiThruDestination);
     root.setAttribute("lastLayerFolder", lastLayerFolder);
     root.setAttribute("midiLibraryPath", midiLibraryPath);
-    root.setAttribute("factoryShellModule", factoryShellModule);
+    root.setAttribute("factoryKickModule", factoryKickModule);
+    root.setAttribute("factorySnareModule", factorySnareModule);
+
+    auto *factoryToms = root.createNewChildElement("FactoryTomModules");
+    for (const auto &id : factoryTomModules)
+        factoryToms->createNewChildElement("tom")->setAttribute("module", id);
 
     auto *factoryPieces = root.createNewChildElement("FactoryDisabledPieces");
     for (const auto &key : factoryDisabledPieces)
@@ -147,7 +152,13 @@ void Settings::readState(const juce::MemoryBlock &source)
     midiThruDestination = root->getStringAttribute("midiThruDestination", midiThruDestination);
     lastLayerFolder = root->getStringAttribute("lastLayerFolder", lastLayerFolder);
     midiLibraryPath = root->getStringAttribute("midiLibraryPath", midiLibraryPath);
-    factoryShellModule = root->getStringAttribute("factoryShellModule", factoryShellModule);
+    factoryKickModule = root->getStringAttribute("factoryKickModule", factoryKickModule);
+    factorySnareModule = root->getStringAttribute("factorySnareModule", factorySnareModule);
+    factoryTomModules.clear();
+    if (auto *toms = root->getChildByName("FactoryTomModules"))
+        for (auto *t : toms->getChildIterator())
+            factoryTomModules.add(t->getStringAttribute("module"));
+
     factoryDisabledPieces.clear();
     if (auto *pieces = root->getChildByName("FactoryDisabledPieces"))
         for (auto *p : pieces->getChildIterator())

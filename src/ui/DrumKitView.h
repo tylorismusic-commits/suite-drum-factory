@@ -73,6 +73,10 @@ class DrumKitView
 
     KitPiece pieceAt(juce::Point<float> pos) const;
 
+    /// Screen-space bounds of a built-in kit piece, used by overlays when the
+    /// kit is drawn as a single composite image.
+    juce::Rectangle<float> boundsForClassicPiece(KitPiece piece) const noexcept;
+
     void paint(juce::Graphics &) override;
     void resized() override;
     void timerCallback() override;
@@ -117,6 +121,8 @@ class DrumKitView
         std::string id;
         std::string name;
         std::string graphic;
+        std::string sourceModule;
+        std::string sourceId;
         std::vector<int> samplerIndices;
         std::vector<std::string> instrumentNames;
         PieceCoords coords;

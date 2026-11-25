@@ -1,4 +1,5 @@
 #include "FactoryKit.h"
+#include "GlorpKit.h"
 
 #include <algorithm>
 #include <cctype>
@@ -42,12 +43,42 @@ std::string firstExisting(const std::vector<fs::path> &candidates)
     return {};
 }
 
-std::string displayFor(const DrumKit &kit, const std::string &moduleName, const Instrument &inst)
+int firstZoneNote(const DrumKit::LogicalPiece &piece)
 {
-    if (moduleName.empty())
-        return inst.displayName.empty() ? inst.name : inst.displayName;
-    return moduleName + " " + (inst.displayName.empty() ? inst.name : inst.displayName);
+    for (const auto &zone : piece.zones)
+        if (zone.note >= 0)
+            return zone.note;
+    return -1;
 }
+
+std::vector<const DrumKit::LogicalPiece *> sortedTomPieces(const DrumKit &kit)
+{
+    std::vector<const DrumKit::LogicalPiece *> toms;
+    for (const auto &lp : kit.logicalPieces)
+        if (classifyPiece(lp.name, lp.id) == PieceClass::tom)
+            toms.push_back(&lp);
+
+    std::stable_sort(toms.begin(), toms.end(),
+                     [](const DrumKit::LogicalPiece *a, const DrumKit::LogicalPiece *b)
+                     {
+                         const int an = firstZoneNote(*a);
+                         const int bn = firstZoneNote(*b);
+                         if (an != bn)
+                             return an > bn;
+                         return a->id < b->id;
+                     });
+    return toms;
+}
+
+const DrumKit *findKit(const std::vector<std::pair<std::string, const DrumKit *>> &kits,
+                       const std::string &moduleId)
+{
+    for (const auto &[id, kit] : kits)
+        if (id == moduleId)
+            return kit;
+    return nullptr;
+}
+
 } // namespace
 
 //==============================================================================
@@ -86,6 +117,85 @@ std::string pieceKey(const std::string &moduleId, const std::string &pieceId)
 }
 
 //==============================================================================
+bool readCatalog(const std::string &moduleId, const std::string &path, Catalog &catalog)
+{
+    catalog = {};
+    catalog.moduleId = moduleId;
+    catalog.moduleName = moduleName(moduleId);
+
+    GlorpKitReader reader;
+    if (!reader.open(path))
+        return false;
+
+    GlorpKitManifest manifest;
+    if (reader.quickReadManifest(path, manifest))
+        catalog.title = manifest.title;
+    if (catalog.title.empty())
+        catalog.title = catalog.moduleName;
+
+    for (const auto &entry : reader.listEntries())
+    {
+        if (entry.size() < 15 || entry.compare(entry.size() - 15, 15, "/instrument.xml") != 0)
+            continue;
+
+        const auto xml = reader.readEntryString(entry);
+        if (xml.empty())
+            continue;
+
+        std::string error;
+        auto root = parseXml(xml, error);
+        if (root == nullptr || root->tag != "glorp-instrument")
+            continue;
+
+        CatalogPiece piece;
+        piece.name = root->attribute("name");
+        if (piece.name.empty())
+            continue;
+
+        // instruments/<piece-id>/instrument.xml
+        const auto firstSlash = entry.find('/');
+        const auto secondSlash = entry.find('/', firstSlash + 1);
+        if (firstSlash != std::string::npos && secondSlash != std::string::npos)
+            piece.id = entry.substr(firstSlash + 1, secondSlash - firstSlash - 1);
+        if (piece.id.empty())
+            piece.id = piece.name;
+
+        for (auto *zone : root->childrenNamed("zone"))
+        {
+            const int note = zone->attributeInt("note", -1);
+            if (note >= 0)
+            {
+                piece.note = note;
+                break;
+            }
+        }
+
+        piece.pieceClass = classifyPiece(piece.name, piece.id);
+        catalog.pieces.push_back(std::move(piece));
+    }
+
+    catalog.valid = !catalog.pieces.empty();
+    return catalog.valid;
+}
+
+std::vector<CatalogPiece> tomsOf(const Catalog &catalog)
+{
+    std::vector<CatalogPiece> toms;
+    for (const auto &piece : catalog.pieces)
+        if (piece.pieceClass == PieceClass::tom)
+            toms.push_back(piece);
+
+    std::stable_sort(toms.begin(), toms.end(),
+                     [](const CatalogPiece &a, const CatalogPiece &b)
+                     {
+                         if (a.note != b.note)
+                             return a.note > b.note;
+                         return a.id < b.id;
+                     });
+    return toms;
+}
+
+//==============================================================================
 const std::vector<ModuleInfo> &modules()
 {
     static const std::vector<ModuleInfo> list {
@@ -95,6 +205,16 @@ const std::vector<ModuleInfo> &modules()
         {"monster", "Monster", "Monster Drumkit.glorpkit", "Monster Drumkit"},
     };
     return list;
+}
+
+std::string moduleName(const std::string &moduleId)
+{
+    if (moduleId == "naked")
+        return "Naked Drums";
+    for (const auto &m : modules())
+        if (m.id == moduleId)
+            return m.name;
+    return moduleId;
 }
 
 std::string findKitPath(const std::string &kitFile, const std::string &folder)
@@ -128,205 +248,260 @@ std::string moduleKitPath(const std::string &moduleId)
     return {};
 }
 
+std::vector<std::string> Selection::usedModules() const
+{
+    std::vector<std::string> used;
+    auto add = [&used](const std::string &id)
+    {
+        if (id.empty())
+            return;
+        if (std::find(used.begin(), used.end(), id) == used.end())
+            used.push_back(id);
+    };
+
+    add("naked");
+    add(kickModule);
+    add(snareModule);
+    for (const auto &id : tomModules)
+        add(id);
+
+    return used;
+}
+
 //==============================================================================
-BuildResult build(const DrumKit &base,
-                  const std::string &baseModuleId,
-                  const DrumKit *shell,
-                  const std::string &shellModuleId,
+BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &kits,
                   const Selection &selection)
 {
     BuildResult result;
     auto &out = result.kit;
 
-    const bool hasShell = shell != nullptr && !shellModuleId.empty() && !shell->instruments.empty();
-    const std::string shellName = [&]
+    const auto *base = findKit(kits, "naked");
+    if (base == nullptr || base->instruments.empty())
     {
-        for (const auto &m : modules())
-            if (m.id == shellModuleId)
-                return m.name;
-        return shellModuleId;
-    }();
+        result.error = "Naked Drums is not loaded.";
+        return result;
+    }
+
+    const auto usedModules = selection.usedModules();
+    for (const auto &id : usedModules)
+        if (findKit(kits, id) == nullptr)
+        {
+            result.error = "Module '" + id + "' is not loaded.";
+            return result;
+        }
 
     // -- identity ----------------------------------------------------------
-    out.title = base.title.empty() ? "Naked Drums" : base.title;
-    if (hasShell)
+    out.title = base->title.empty() ? "Naked Drums" : base->title;
+    out.license = base->license;
+    out.author = base->author;
+    out.description = base->description;
+    out.version = base->version;
+    out.declaredSampleRate = base->declaredSampleRate;
+    out.hitGlowColor = base->hitGlowColor;
+    out.imagePath = base->imagePath;
+    out.imageClickMap = base->imageClickMap;
+    out.isArchive = base->isArchive;
+    out.archivePath = base->archivePath;
+    out.xmlPath = base->xmlPath;
+    out.isNativeGlorpKit = base->isNativeGlorpKit;
+    out.warnings = base->warnings;
+
+    std::vector<std::string> sourceNames;
+    for (const auto &id : usedModules)
     {
-        const auto shellTitle = shell->title.empty() ? shellName : shell->title;
-        out.title = out.title + " + " + shellTitle;
-        out.license = base.license;
-        if (!shell->license.empty())
-            out.license += out.license.empty() ? shell->license : " / " + shell->license;
+        if (id == "naked")
+            continue;
+        const auto name = moduleName(id);
+        if (std::find(sourceNames.begin(), sourceNames.end(), name) == sourceNames.end())
+            sourceNames.push_back(name);
     }
-    else
+    for (const auto &name : sourceNames)
+        out.title += " + " + name;
+
+    for (const auto &id : usedModules)
     {
-        out.license = base.license;
+        const auto *kit = findKit(kits, id);
+        if (kit == nullptr || id == "naked" || kit->license.empty())
+            continue;
+        if (!out.license.empty())
+            out.license += " / ";
+        out.license += kit->license;
     }
-    out.author = base.author;
-    out.description = base.description;
-    out.version = base.version;
-    out.declaredSampleRate = base.declaredSampleRate;
-    out.hitGlowColor = base.hitGlowColor;
-    out.imagePath = base.imagePath;
-    out.imageClickMap = base.imageClickMap;
-    out.isArchive = base.isArchive;
-    out.archivePath = base.archivePath;
-    out.xmlPath = base.xmlPath;
-    out.isNativeGlorpKit = base.isNativeGlorpKit;
-    out.warnings = base.warnings;
 
     // -- channels ----------------------------------------------------------
-    out.channels = base.channels;
+    out.channels = base->channels;
 
-    std::map<std::string, std::string> shellChannelNames;
-    if (hasShell)
+    std::map<std::string, std::map<std::string, std::string>> channelNames;
+    for (const auto &id : usedModules)
     {
-        for (auto ch : shell->channels)
+        if (id == "naked")
+            continue;
+
+        const auto *kit = findKit(kits, id);
+        if (kit == nullptr)
+            continue;
+
+        auto &names = channelNames[id];
+        const auto name = moduleName(id);
+        for (auto ch : kit->channels)
         {
             if (ch.name.empty())
                 continue;
 
             const auto original = ch.name;
-            ch.name = shellModuleId + "_" + original;
+            ch.name = id + "_" + original;
             if (!ch.title.empty())
-                ch.title = shellName + " " + ch.title;
+                ch.title = name + " " + ch.title;
             else
                 ch.title = ch.name;
 
-            shellChannelNames[original] = ch.name;
+            names[original] = ch.name;
             out.channels.push_back(std::move(ch));
         }
     }
 
-    // -- candidate pieces --------------------------------------------------
-    struct Candidate
-    {
-        const DrumKit *source = nullptr;
-        const DrumKit::LogicalPiece *piece = nullptr;
-        PieceClass pieceClass = PieceClass::aux;
-        bool include = false;
-        bool fromShell = false;
-        bool listInMenu = true;
-    };
-
-    std::vector<Candidate> candidates;
-
-    for (const auto &lp : base.logicalPieces)
-    {
-        const auto cls = classifyPiece(lp.name, lp.id);
-        const bool isShell = isShellClass(cls);
-        Candidate c;
-        c.source = &base;
-        c.piece = &lp;
-        c.pieceClass = cls;
-        c.fromShell = false;
-        c.listInMenu = !(hasShell && isShell);
-        c.include = !(hasShell && isShell)
-                    && selection.disabled.count(pieceKey(baseModuleId, lp.id)) == 0;
-        candidates.push_back(c);
-    }
-
-    if (hasShell)
-    {
-        for (const auto &lp : shell->logicalPieces)
-        {
-            const auto cls = classifyPiece(lp.name, lp.id);
-            if (!isShellClass(cls))
-                continue;
-
-            Candidate c;
-            c.source = shell;
-            c.piece = &lp;
-            c.pieceClass = cls;
-            c.fromShell = true;
-            c.include = selection.disabled.count(pieceKey(shellModuleId, lp.id)) == 0;
-            candidates.push_back(c);
-        }
-    }
-
-    // -- append instruments and logical pieces ----------------------------
+    // -- pieces ------------------------------------------------------------
     struct Suggestion
     {
         int note = -1;
         std::string name;
-        PieceClass pieceClass = PieceClass::aux;
     };
     std::vector<Suggestion> suggestions;
 
-    for (const auto &c : candidates)
+    auto moduleDisplay = [](const std::string &moduleId, const DrumKit &kit, const Instrument &inst)
     {
-        const auto &srcKit = *c.source;
-        const auto &srcLp = *c.piece;
-        const auto &moduleId = c.fromShell ? shellModuleId : baseModuleId;
+        const auto baseName = inst.displayName.empty() ? inst.name : inst.displayName;
+        if (moduleId == "naked")
+            return baseName;
+        return moduleName(moduleId) + " " + baseName;
+    };
 
-        if (!c.listInMenu)
-            continue;
-
+    auto appendPiece = [&](const std::string &moduleId,
+                           const DrumKit &sourceKit,
+                           const DrumKit::LogicalPiece &srcLp,
+                           bool include)
+    {
         PieceEntry entry;
         entry.moduleId = moduleId;
-        entry.moduleName = c.fromShell ? shellName : "Naked";
+        entry.moduleName = moduleName(moduleId);
         entry.id = srcLp.id;
         entry.name = srcLp.name;
-        entry.pieceClass = c.pieceClass;
+        entry.pieceClass = classifyPiece(srcLp.name, srcLp.id);
         result.pieces.push_back(std::move(entry));
 
-        if (!c.include)
-            continue;
+        if (!include)
+            return;
 
         DrumKit::LogicalPiece lp = srcLp;
         lp.sourceModule = moduleId;
         lp.sourceId = srcLp.id;
-        if (c.fromShell)
+
+        if (moduleId != "naked")
         {
             lp.id = moduleId + "_" + srcLp.id;
-            lp.name = shellName + " " + srcLp.name;
+            lp.name = moduleName(moduleId) + " " + srcLp.name;
         }
+
+        const auto channelIt = channelNames.find(moduleId);
 
         for (auto &zi : lp.zones)
         {
             const int oldIndex = zi.samplerIndex;
-            if (oldIndex < 0 || oldIndex >= static_cast<int>(srcKit.instruments.size()))
+            if (oldIndex < 0 || oldIndex >= static_cast<int>(sourceKit.instruments.size()))
                 continue;
 
-            Instrument inst = srcKit.instruments[static_cast<size_t>(oldIndex)];
+            Instrument inst = sourceKit.instruments[static_cast<size_t>(oldIndex)];
             inst.index = static_cast<int>(out.instruments.size());
             inst.sourceModule = moduleId;
 
-            if (c.fromShell)
+            if (moduleId != "naked" && channelIt != channelNames.end())
             {
-                // Module mics are namespaced so Crocell's SnareTop and Naked's
-                // snare_top_1 remain two independent mixer strips.
                 for (auto &cm : inst.channelMaps)
                 {
-                    const auto it = shellChannelNames.find(cm.out);
-                    if (it != shellChannelNames.end())
+                    const auto it = channelIt->second.find(cm.out);
+                    if (it != channelIt->second.end())
                         cm.out = it->second;
                 }
                 for (auto &hit : inst.resolvedChannels)
                     for (auto &source : hit)
                     {
-                        const auto it = shellChannelNames.find(source.kitChannel);
-                        if (it != shellChannelNames.end())
+                        const auto it = channelIt->second.find(source.kitChannel);
+                        if (it != channelIt->second.end())
                             source.kitChannel = it->second;
                     }
 
-                // Choke targets are stored by instrument name, so they need
-                // the same prefix as the display name.
                 for (auto &choke : inst.chokes)
-                    choke.instrument = shellName + " " + choke.instrument;
-
-                inst.displayName = displayFor(srcKit, shellName, inst);
+                    choke.instrument = moduleName(moduleId) + " " + choke.instrument;
             }
 
+            inst.displayName = moduleDisplay(moduleId, sourceKit, inst);
+
             if (zi.note >= 0)
-                suggestions.push_back({zi.note, inst.displayName, c.pieceClass});
+                suggestions.push_back({zi.note, inst.displayName});
             if (zi.altNote >= 0)
-                suggestions.push_back({zi.altNote, inst.displayName, c.pieceClass});
+                suggestions.push_back({zi.altNote, inst.displayName});
 
             zi.samplerIndex = inst.index;
             out.instruments.push_back(std::move(inst));
         }
 
         out.logicalPieces.push_back(std::move(lp));
+    };
+
+    auto enabled = [&selection](const std::string &moduleId, const std::string &pieceId)
+    {
+        return selection.disabled.count(pieceKey(moduleId, pieceId)) == 0;
+    };
+
+    // Cymbals, hi-hat, ride and auxiliary base pieces are always Naked.
+    for (const auto &lp : base->logicalPieces)
+    {
+        if (isShellClass(classifyPiece(lp.name, lp.id)))
+            continue;
+        appendPiece("naked", *base, lp, enabled("naked", lp.id));
+    }
+
+    // Kick: every kick piece from the chosen source (Crocell has two).
+    if (!selection.kickModule.empty())
+    {
+        const auto *kit = findKit(kits, selection.kickModule);
+        if (kit != nullptr)
+            for (const auto &lp : kit->logicalPieces)
+                if (classifyPiece(lp.name, lp.id) == PieceClass::kick)
+                    appendPiece(selection.kickModule, *kit, lp, enabled(selection.kickModule, lp.id));
+    }
+
+    // Snare: every snare piece from the chosen source (Crocell has a rest too).
+    if (!selection.snareModule.empty())
+    {
+        const auto *kit = findKit(kits, selection.snareModule);
+        if (kit != nullptr)
+            for (const auto &lp : kit->logicalPieces)
+                if (classifyPiece(lp.name, lp.id) == PieceClass::snare)
+                    appendPiece(selection.snareModule, *kit, lp, enabled(selection.snareModule, lp.id));
+    }
+
+    // Toms: each slot can come from a different module.
+    for (int slot = 0; slot < tomSlots; ++slot)
+    {
+        const auto &moduleId = selection.tomModules[static_cast<size_t>(slot)];
+        if (moduleId.empty())
+            continue;
+
+        const auto *kit = findKit(kits, moduleId);
+        if (kit == nullptr)
+            continue;
+
+        const auto toms = sortedTomPieces(*kit);
+        if (slot >= static_cast<int>(toms.size()))
+        {
+            out.warnings.push_back(moduleName(moduleId) + " has only " + std::to_string(toms.size())
+                                   + " toms; tom slot " + std::to_string(slot + 1) + " is empty.");
+            continue;
+        }
+
+        const auto *lp = toms[static_cast<size_t>(slot)];
+        appendPiece(moduleId, *kit, *lp, enabled(moduleId, lp->id));
     }
 
     if (out.instruments.empty())
@@ -358,80 +533,90 @@ BuildResult build(const DrumKit &base,
     }
 
     // -- factory mixer values ---------------------------------------------
-    out.factoryMicLevels = base.factoryMicLevels;
-    out.factoryMicPans = base.factoryMicPans;
-    out.factoryMicPhaseInvert = base.factoryMicPhaseInvert;
-    out.factoryInstrumentLevels = base.factoryInstrumentLevels;
-    out.factoryInstrumentPans = base.factoryInstrumentPans;
+    out.factoryMicLevels = base->factoryMicLevels;
+    out.factoryMicPans = base->factoryMicPans;
+    out.factoryMicPhaseInvert = base->factoryMicPhaseInvert;
+    out.factoryInstrumentLevels = base->factoryInstrumentLevels;
+    out.factoryInstrumentPans = base->factoryInstrumentPans;
 
-    if (hasShell)
+    for (const auto &id : usedModules)
     {
-        for (const auto &[name, value] : shell->factoryMicLevels)
+        if (id == "naked")
+            continue;
+        const auto *kit = findKit(kits, id);
+        if (kit == nullptr)
+            continue;
+
+        const auto &names = channelNames[id];
+        for (const auto &[name, value] : kit->factoryMicLevels)
         {
-            const auto it = shellChannelNames.find(name);
-            out.factoryMicLevels[it != shellChannelNames.end() ? it->second : name] = value;
+            const auto it = names.find(name);
+            out.factoryMicLevels[it != names.end() ? it->second : name] = value;
         }
-        for (const auto &[name, value] : shell->factoryMicPans)
+        for (const auto &[name, value] : kit->factoryMicPans)
         {
-            const auto it = shellChannelNames.find(name);
-            out.factoryMicPans[it != shellChannelNames.end() ? it->second : name] = value;
+            const auto it = names.find(name);
+            out.factoryMicPans[it != names.end() ? it->second : name] = value;
         }
-        for (const auto &[name, value] : shell->factoryMicPhaseInvert)
+        for (const auto &[name, value] : kit->factoryMicPhaseInvert)
         {
-            const auto it = shellChannelNames.find(name);
-            out.factoryMicPhaseInvert[it != shellChannelNames.end() ? it->second : name] = value;
+            const auto it = names.find(name);
+            out.factoryMicPhaseInvert[it != names.end() ? it->second : name] = value;
         }
-        out.warnings.insert(out.warnings.end(), shell->warnings.begin(), shell->warnings.end());
+        out.warnings.insert(out.warnings.end(), kit->warnings.begin(), kit->warnings.end());
     }
 
     return result;
 }
 
-BuildResult buildFromDisk(const std::string &basePath,
-                          const std::string &shellModuleId,
-                          const Selection &selection)
+BuildResult buildFromDisk(const Selection &selection)
 {
     BuildResult result;
 
+    const auto basePath = baseKitPath();
     if (basePath.empty())
     {
         result.error = "Naked Drums is not installed. Add Naked Drums.glorpkit to the kit folder.";
         return result;
     }
 
-    auto base = DrumKit::load(basePath);
-    if (!base.error.empty() || base.instruments.empty())
+    std::map<std::string, DrumKit> loaded;
+    loaded["naked"] = DrumKit::load(basePath);
+    if (!loaded["naked"].error.empty() || loaded["naked"].instruments.empty())
     {
-        result.error = base.error.empty() ? "Naked Drums could not be loaded." : base.error;
+        result.error = loaded["naked"].error.empty() ? "Naked Drums could not be loaded." : loaded["naked"].error;
         return result;
     }
 
-    DrumKit shell;
-    DrumKit *shellPtr = nullptr;
-    std::string shellId;
-
-    if (!shellModuleId.empty())
+    for (const auto &id : selection.usedModules())
     {
-        const auto path = moduleKitPath(shellModuleId);
+        if (id == "naked" || loaded.count(id) != 0)
+            continue;
+
+        const auto path = moduleKitPath(id);
         if (path.empty())
         {
-            result.error = "Shell module '" + shellModuleId + "' is not installed.";
+            result.error = "Shell module '" + moduleName(id) + "' is not installed.";
             return result;
         }
 
-        shell = DrumKit::load(path);
-        if (!shell.error.empty() || shell.instruments.empty())
+        auto kit = DrumKit::load(path);
+        if (!kit.error.empty() || kit.instruments.empty())
         {
-            result.error = shell.error.empty() ? ("Shell module '" + shellModuleId + "' could not be loaded.")
-                                               : shell.error;
+            result.error = kit.error.empty() ? ("Shell module '" + moduleName(id) + "' could not be loaded.")
+                                             : kit.error;
             return result;
         }
 
-        shellPtr = &shell;
-        shellId = shellModuleId;
+        loaded[id] = std::move(kit);
     }
 
-    return build(base, "naked", shellPtr, shellId, selection);
+    std::vector<std::pair<std::string, const DrumKit *>> kits;
+    kits.reserve(loaded.size());
+    for (const auto &[id, kit] : loaded)
+        kits.emplace_back(id, &kit);
+
+    return build(kits, selection);
 }
 
 } // namespace factory
