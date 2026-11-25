@@ -1,0 +1,413 @@
+/*
+    Editor.h - Suite Drums Glorp main editor window.
+*/
+
+#pragma once
+
+#include "DrumKitView.h"
+#include "EDrumWizard.h"
+#include "GlorpLookAndFeel.h"
+#include "Knob.h"
+#include "MinimalInstrumentGrid.h"
+#include "MixerView.h"
+#include "MidiBrowser.h"
+#include "MidiPage.h"
+#include "PluginProcessor.h"
+#include "Scope.h"
+
+#include <juce_opengl/juce_opengl.h>
+
+#include <memory>
+#include <vector>
+
+namespace glorp
+{
+
+class Editor
+    : public juce::Component
+    , public juce::Timer
+    , public juce::FileDragAndDropTarget
+    , public juce::DragAndDropContainer
+    , private PluginProcessor::Listener
+{
+  public:
+    explicit Editor(PluginProcessor &);
+    ~Editor() override;
+
+    enum class EditorView
+    {
+        kitView,
+        mixerView,
+        midiView,
+        loopsView
+    };
+
+    void setViewMode(EditorView mode);
+    EditorView getViewMode() const noexcept { return currentView; }
+
+    void paint(juce::Graphics &) override;
+    void resized() override;
+    void timerCallback() override;
+    bool keyPressed(const juce::KeyPress &) override;
+    void mouseDown(const juce::MouseEvent &) override;
+
+    bool isInterestedInFileDrag(const juce::StringArray &files) override;
+    void filesDropped(const juce::StringArray &files, int x, int y) override;
+
+    void selectInstrument(int samplerIndex);
+    void openEDrumWizard();
+
+    struct ZoneInfo
+    {
+        int samplerIndex = 0;
+        juce::String zoneName;
+    };
+
+    struct LogicalInstrument
+    {
+        juce::String name;
+        KitPiece piece {KitPiece::count};
+        std::vector<ZoneInfo> zones;
+        int selectedZoneIndex = 0;
+        int outputBus = 0;
+    };
+
+    const std::vector<LogicalInstrument> &getLogicalInstruments() const noexcept { return logicalInstruments; }
+    void selectLogicalInstrument(int index);
+    void selectZone(int logicalIndex, int zoneIndex, bool triggerPreview = false);
+    int getActiveSamplerIndex() const;
+    DrumKitView &getKitView() noexcept { return kitView; }
+    MinimalInstrumentGrid *getMinimalGrid() noexcept { return minimalGrid.get(); }
+    Scope &getScope() noexcept { return scope; }
+    MixerView *getMixerView() noexcept { return mixerView.get(); }
+    GlorpLookAndFeel *getGlorpLookAndFeel() const noexcept { return lookAndFeel.get(); }
+    void applyTheme(const Theme &newTheme);
+    void applyTextScale(float newScale);
+    void applyWindowScale(float factor);
+    int layerSlotForSelection() const;
+    void openLayerDrawer(int slot);
+    void closeLayerDrawer();
+    void updateLayerButton();
+    void refreshMixerAfterLayerChange();
+    void previewLayerSlot(int slot);
+
+    void setOpenGlEnabled(bool enabled);
+    bool isOpenGlEnabled() const noexcept;
+    void parentHierarchyChanged() override;
+
+    void startExternalMidiDrag(juce::Component *source, const juce::File &file);
+    bool shouldDropFilesWhenDraggedExternally(const juce::DragAndDropTarget::SourceDetails &sourceDetails,
+                                              juce::StringArray &files,
+                                              bool &canMoveFiles) override;
+
+  private:
+    void kitChanged() override;
+    void parametersChanged() override;
+    void busRoutingChanged() override;
+
+    void updateOpenGlAttachment();
+    void syncTopLevelWindowTheme();
+
+    void buildHeaderMenu();
+    void buildControls();
+    void buildLogicalInstruments();
+    void rebuildZoneButtons();
+
+    void bindInstrumentKnobs();
+    void updateInstrumentDisplay();
+    void syncMinimalGridItems();
+    void refreshHeaderButtonLabels();
+
+    juce::String noteLabelFor(int instrument) const;
+
+    juce::PopupMenu buildFileMenu();
+    juce::PopupMenu buildPresetsMenu();
+    juce::PopupMenu buildMidiMenu();
+    juce::PopupMenu buildSettingsMenu();
+
+    void armLearn(int samplerIndex);
+    void promptLoadKitFile();
+    void promptSaveMapPreset();
+
+    PluginProcessor &processor;
+
+    // Header buttons (hand-drawn text buttons)
+    class MenuButton : public juce::Button
+    {
+      public:
+        explicit MenuButton(const juce::String &name) : juce::Button(name) {}
+        void setActive(bool a)
+        {
+            active = a;
+            repaint();
+        }
+        bool getActive() const noexcept { return active; }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+
+      private:
+        bool active = false;
+        Theme theme = Theme::suite();
+    };
+
+    class InstrumentSelectorButton : public juce::Button
+    {
+      public:
+        InstrumentSelectorButton() : juce::Button("instSelect") {}
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+        void setInstrumentName(const juce::String &name)
+        {
+            currentName = name;
+            repaint();
+        }
+        const juce::String &getInstrumentName() const noexcept { return currentName; }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+
+      private:
+        juce::String currentName {"SNARE"};
+        Theme theme = Theme::suite();
+    };
+
+    class KitSelectorButton : public juce::Button
+    {
+      public:
+        KitSelectorButton() : juce::Button("kitSelect") {}
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+        void setKitName(const juce::String &name)
+        {
+            currentName = name;
+            repaint();
+        }
+        const juce::String &getKitName() const noexcept { return currentName; }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+
+      private:
+        juce::String currentName {"NO KIT LOADED"};
+        Theme theme = Theme::suite();
+    };
+
+    class OutputBusButton : public juce::Button
+    {
+      public:
+        OutputBusButton() : juce::Button("outBus") {}
+        void setBusIndex(int busIdx)
+        {
+            currentBus = busIdx;
+            repaint();
+        }
+        int getBusIndex() const noexcept { return currentBus; }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+
+      private:
+        int currentBus = 0;
+        Theme theme = Theme::suite();
+    };
+
+    class ZoneButton : public juce::Button
+    {
+      public:
+        ZoneButton(const juce::String &name, bool active);
+        void setActive(bool active);
+        bool getActive() const noexcept { return isActive; }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+
+      private:
+        bool isActive = false;
+        Theme theme = Theme::suite();
+    };
+
+    class LearnButton : public juce::Button
+    {
+      public:
+        LearnButton() : juce::Button("LEARN") {}
+        void setLearning(bool learning);
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+
+      private:
+        bool isLearning_ = false;
+        Theme theme = Theme::suite();
+    };
+
+    class CurveButton : public juce::Button
+    {
+      public:
+        CurveButton() : juce::Button("CURVE") {}
+        void setCurve(VelocityCurve c)
+        {
+            currentCurve = c;
+            repaint();
+        }
+        VelocityCurve getCurve() const noexcept { return currentCurve; }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+
+      private:
+        VelocityCurve currentCurve = VelocityCurve::linear;
+        Theme theme = Theme::suite();
+    };
+
+    class LayerButton : public juce::Button
+    {
+      public:
+        LayerButton() : juce::Button("LAYER") {}
+        void setLoaded(bool isLoaded)
+        {
+            loaded = isLoaded;
+            repaint();
+        }
+        bool isLoaded() const noexcept { return loaded; }
+        void setMissing(bool isMissing)
+        {
+            missing = isMissing;
+            repaint();
+        }
+        void setOpen(bool isOpen)
+        {
+            open = isOpen;
+            repaint();
+        }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+
+      private:
+        bool loaded = false;
+        bool missing = false;
+        bool open = false;
+        Theme theme = Theme::suite();
+    };
+
+    class VelocityCurvePreview : public juce::Component
+    {
+      public:
+        VelocityCurvePreview();
+        void setCurve(VelocityCurve c)
+        {
+            currentCurve = c;
+            repaint();
+        }
+        VelocityCurve getCurve() const noexcept { return currentCurve; }
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+
+        std::function<void()> onClick;
+
+        void paint(juce::Graphics &g) override;
+        void mouseDown(const juce::MouseEvent &e) override;
+
+      private:
+        VelocityCurve currentCurve = VelocityCurve::linear;
+        Theme theme = Theme::suite();
+    };
+
+    MenuButton homeTabButton {"HOME"};
+    MenuButton viewToggleButton {"MIXER VIEW"};
+    MenuButton midiMapButton {"MIDI MAP"};
+    MenuButton loopsButton {"LOOPS"};
+    MenuButton stopLoopButton {"STOP"};
+    MenuButton fileButton {"FILE"};
+    MenuButton presetsButton {"PRESETS"};
+    MenuButton midiButton {"MIDI"};
+    MenuButton settingsButton {"SETTINGS"};
+
+    KitSelectorButton kitSelectorButton;
+    DrumKitView kitView;
+    std::unique_ptr<MinimalInstrumentGrid> minimalGrid;
+    Scope scope;
+
+    std::unique_ptr<MixerView> mixerView;
+    std::unique_ptr<MidiPage> midiPage;
+    std::unique_ptr<MidiBrowser> midiBrowser;
+    EditorView currentView = EditorView::kitView;
+
+    juce::OpenGLContext openGlContext;
+    bool windowIconApplied = false;
+
+    // Left Panel: "INSTRUMENT SETTINGS"
+    InstrumentSelectorButton instSelectorButton;
+    OutputBusButton outBusButton;
+
+    std::vector<std::unique_ptr<ZoneButton>> zoneButtons;
+
+    std::unique_ptr<Knob> instVolumeKnob;
+    std::unique_ptr<Knob> instPanKnob;
+    std::unique_ptr<Knob> instPitchKnob;
+    std::unique_ptr<Knob> instDynamicsKnob;
+    std::unique_ptr<Knob> instAttackKnob;
+    std::unique_ptr<Knob> instDampKnob;
+    LayerButton instLayerButton;
+
+    class LayerDrawer;
+    std::unique_ptr<LayerDrawer> layerDrawer;
+    int layerDrawerSlot = -1;
+
+    CurveButton instCurveButton;
+    VelocityCurvePreview instCurvePreview;
+    LearnButton instLearnButton;
+
+    // E-Drum Setup Wizard Overlay
+    std::unique_ptr<EDrumWizard> edrumWizard;
+
+    // Bottom-Right: Master Volume Knob
+    std::unique_ptr<Knob> masterVolumeKnob;
+
+    std::vector<LogicalInstrument> logicalInstruments;
+    int selectedLogicalIndex = 0;
+    int learningInstrument = -1;
+    bool wasLearning = false;
+
+    float leftPanelHeight = 440.0f;
+    juce::Rectangle<float> minimalControlsCardRect;
+    juce::Rectangle<float> minimalZoneGroupRect;
+    juce::Rectangle<float> minimalMasterCardRect;
+    float minimalMasterLevelL = 0.0f;
+    float minimalMasterLevelR = 0.0f;
+
+    juce::String statusText;
+    juce::String kitErrorText;
+    juce::File pendingMidiDragFile;
+
+    Theme theme = Theme::suite();
+    std::unique_ptr<GlorpLookAndFeel> lookAndFeel;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Editor)
+};
+
+} // namespace glorp

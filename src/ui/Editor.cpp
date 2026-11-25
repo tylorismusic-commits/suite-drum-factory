@@ -1,0 +1,3819 @@
+#include "Editor.h"
+#include "Config.h"
+#include "DebugLog.h"
+
+namespace glorp
+{
+
+//==============================================================================
+void Editor::MenuButton::paintButton(juce::Graphics &g, bool isHover, bool isDown)
+{
+    auto b = getLocalBounds().toFloat().reduced(2.0f);
+
+    if (theme.minimalStyle)
+    {
+        if (active)
+        {
+            g.setColour(theme.accent);
+            g.fillRoundedRectangle(b, 5.0f);
+        }
+        else if (isHover || isDown)
+        {
+            g.setColour(isDown ? theme.panelEdge : theme.panel);
+            g.fillRoundedRectangle(b, 5.0f);
+            g.setColour(theme.panelEdge);
+            g.drawRoundedRectangle(b.reduced(0.5f), 5.0f, 1.0f);
+        }
+
+        g.setFont(displayFont(12.5f));
+        g.setColour(active ? juce::Colours::white : (isHover ? theme.ink : theme.inkSoft));
+        g.drawFittedText(getButtonText(), b.reduced(4.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+        return;
+    }
+
+    if (active || isHover || isDown)
+    {
+        g.setColour(theme.accent.withAlpha(active ? 0.22f : (isDown ? 0.24f : 0.12f)));
+        g.fillRoundedRectangle(b, 4.0f);
+        drawSketchRect(g, b, theme.accent, active ? 1.8f : 1.5f, 7);
+    }
+
+    g.setFont(displayFont(19.0f));
+    g.setColour((active || isHover) ? theme.accent : theme.ink);
+    g.drawFittedText(getName(), b.reduced(2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+}
+
+void Editor::InstrumentSelectorButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+
+    if (theme.minimalStyle)
+    {
+        g.setColour(theme.trough);
+        g.fillRoundedRectangle(b, 5.0f);
+        g.setColour(isHover ? theme.accent : theme.panelEdge);
+        g.drawRoundedRectangle(b.reduced(0.5f), 5.0f, 1.0f);
+
+        const float dotRadius = 3.5f;
+        g.setColour(theme.accent);
+        g.fillEllipse(b.getX() + 10.0f - dotRadius, b.getCentreY() - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
+
+        juce::Path chevron;
+        const float cx = b.getRight() - 12.0f;
+        const float cy = b.getCentreY();
+        chevron.startNewSubPath(cx - 3.5f, cy - 2.0f);
+        chevron.lineTo(cx, cy + 2.0f);
+        chevron.lineTo(cx + 3.5f, cy - 2.0f);
+        g.setColour(theme.inkSoft);
+        g.strokePath(chevron, juce::PathStrokeType(1.5f));
+
+        auto textArea = b.withTrimmedLeft(20.0f).withTrimmedRight(18.0f);
+        g.setFont(displayFont(13.5f));
+        g.setColour(theme.ink);
+        g.drawFittedText(
+            currentName.toUpperCase(), textArea.toNearestInt(), juce::Justification::centredLeft, 1, 0.72f);
+        return;
+    }
+
+    // Inner background
+    g.setColour(theme.panel);
+    g.fillRoundedRectangle(b, 4.0f);
+
+    // Orange sketched border
+    const auto borderCol = theme.accent;
+    g.setColour(borderCol);
+    drawSketchRect(g, b, borderCol, isHover ? 1.8f : 1.4f, 9);
+
+    // Orange bullet dot
+    const float dotRadius = 4.0f;
+    const float dotX = b.getX() + 12.0f;
+    const float dotY = b.getCentreY();
+    g.setColour(borderCol);
+    g.fillEllipse(dotX - dotRadius, dotY - dotRadius, dotRadius * 2.0f, dotRadius * 2.0f);
+
+    // Down chevron on right
+    juce::Path chevron;
+    const float cx = b.getRight() - 14.0f;
+    const float cy = b.getCentreY();
+    chevron.startNewSubPath(cx - 4.0f, cy - 2.0f);
+    chevron.lineTo(cx, cy + 2.5f);
+    chevron.lineTo(cx + 4.0f, cy - 2.0f);
+    g.setColour(borderCol);
+    g.strokePath(chevron, juce::PathStrokeType(1.5f));
+
+    // Instrument Name text
+    auto textArea = b.withTrimmedLeft(22.0f).withTrimmedRight(20.0f);
+    g.setFont(displayFont(16.0f));
+    g.setColour(theme.isDark ? theme.accent : (isHover ? borderCol : theme.ink));
+    g.drawText(currentName.toUpperCase(), textArea, juce::Justification::centred, true);
+}
+
+void Editor::KitSelectorButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+
+    if (theme.minimalStyle)
+    {
+        drawMinimalCard(g, b, theme, 5.0f, isHover ? theme.accent : theme.panelEdge, 1.0f);
+
+        g.setFont(uiFont(10.5f).boldened());
+        g.setColour(theme.inkSoft);
+        g.drawText("ACTIVE KIT",
+                   juce::Rectangle<float>(b.getX() + 12.0f, b.getY(), 72.0f, b.getHeight()),
+                   juce::Justification::centredLeft,
+                   false);
+
+        juce::Path chevron;
+        const float cx = b.getRight() - 14.0f;
+        const float cy = b.getCentreY();
+        chevron.startNewSubPath(cx - 4.0f, cy - 2.0f);
+        chevron.lineTo(cx, cy + 2.5f);
+        chevron.lineTo(cx + 4.0f, cy - 2.0f);
+        g.setColour(isHover ? theme.accent : theme.inkSoft);
+        g.strokePath(chevron, juce::PathStrokeType(1.5f));
+
+        auto textArea = b.withTrimmedLeft(88.0f).withTrimmedRight(28.0f);
+        g.setFont(displayFont(13.5f));
+        g.setColour(theme.ink);
+        g.drawText(currentName.toUpperCase(), textArea, juce::Justification::centred, true);
+        return;
+    }
+
+    // Inner background
+    g.setColour(theme.panel);
+    g.fillRoundedRectangle(b, 4.0f);
+
+    // Sketched border with orange hover accent
+    const auto borderCol = isHover ? theme.accent : theme.panelEdge;
+    drawSketchRect(g, b, borderCol, isHover ? 1.8f : 1.4f, 11);
+
+    // Small comic "KIT:" label on left
+    g.setFont(displayFont(12.0f));
+    g.setColour(theme.inkSoft);
+    g.drawText("KIT:",
+               juce::Rectangle<float>(b.getX() + 10.0f, b.getY(), 32.0f, b.getHeight()),
+               juce::Justification::centredLeft,
+               false);
+
+    // Down chevron on right
+    juce::Path chevron;
+    const float cx = b.getRight() - 14.0f;
+    const float cy = b.getCentreY();
+    chevron.startNewSubPath(cx - 4.0f, cy - 2.0f);
+    chevron.lineTo(cx, cy + 2.5f);
+    chevron.lineTo(cx + 4.0f, cy - 2.0f);
+    g.setColour(isHover ? theme.accent : theme.ink);
+    g.strokePath(chevron, juce::PathStrokeType(1.5f));
+
+    // Kit title text in center
+    auto textArea = b.withTrimmedLeft(44.0f).withTrimmedRight(24.0f);
+    g.setFont(displayFont(15.0f));
+    g.setColour(isHover ? theme.accent : theme.ink);
+    g.drawText(currentName.toUpperCase(), textArea, juce::Justification::centred, true);
+}
+
+void Editor::OutputBusButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+
+    g.setColour(theme.minimalStyle ? theme.trough : theme.panel);
+    g.fillRoundedRectangle(b, theme.minimalStyle ? 4.0f : 3.0f);
+
+    const auto borderCol =
+        isHover ? theme.accent
+                : (theme.minimalStyle ? theme.panelEdge
+                                      : (theme.isDark ? theme.panelEdge.withAlpha(0.6f) : juce::Colour(0x66111215)));
+    drawSketchRect(g, b, borderCol, 1.0f, 4);
+
+    const juce::String text = "OUT: " + juce::String(currentBus * 2 + 1) + "-" + juce::String(currentBus * 2 + 2)
+                              + (currentBus == 0 ? " (MAIN)  ▼" : "  ▼");
+
+    g.setFont(theme.minimalStyle ? uiFont(10.5f).boldened() : displayFont(12.5f));
+    g.setColour(isHover ? theme.accent : (theme.minimalStyle ? theme.inkSoft : theme.ink));
+    g.drawFittedText(text, b.reduced(3.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+}
+
+Editor::ZoneButton::ZoneButton(const juce::String &name, bool active) : juce::Button(name), isActive(active)
+{
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void Editor::ZoneButton::setActive(bool active)
+{
+    if (isActive != active)
+    {
+        isActive = active;
+        repaint();
+    }
+}
+
+void Editor::ZoneButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+
+    if (theme.minimalStyle)
+    {
+        g.setColour(isActive ? theme.accent : (isHover ? theme.panelEdge.withAlpha(0.45f) : theme.trough));
+        g.fillRoundedRectangle(b, 4.0f);
+        g.setColour(isActive ? theme.accent : (isHover ? theme.accent.withAlpha(0.7f) : theme.panelEdge));
+        g.drawRoundedRectangle(b.reduced(0.5f), 4.0f, 1.0f);
+
+        g.setFont(displayFont(11.0f));
+        g.setColour(isActive ? juce::Colours::white : (isHover ? theme.ink : theme.inkSoft));
+        g.drawFittedText(
+            getName().toUpperCase(), b.reduced(4.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.70f);
+        return;
+    }
+
+    g.setColour(theme.panel);
+    g.fillRoundedRectangle(b, 3.0f);
+
+    if (isActive)
+    {
+        const auto orangeCol = theme.accent;
+        drawSketchRect(g, b, orangeCol, isHover ? 1.8f : 1.4f, 5);
+        g.setFont(displayFont(13.5f));
+        g.setColour(orangeCol);
+        g.drawFittedText(getName(), b.reduced(3.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+    }
+    else
+    {
+        const auto borderCol =
+            isHover ? theme.accent : (theme.isDark ? theme.panelEdge.withAlpha(0.4f) : juce::Colour(0x66111215));
+        drawSketchRect(g, b, borderCol, 1.0f, 3);
+        g.setFont(displayFont(13.0f));
+        g.setColour(isHover ? theme.accent : theme.inkSoft);
+        g.drawFittedText(getName(), b.reduced(3.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+    }
+}
+
+void Editor::LearnButton::setLearning(bool learning)
+{
+    if (isLearning_ != learning)
+    {
+        isLearning_ = learning;
+        repaint();
+    }
+}
+
+void Editor::LearnButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+
+    if (theme.minimalStyle)
+    {
+        const auto activeCol = isLearning_ ? theme.accentWarm : (isHover ? theme.accent : theme.trough);
+        g.setColour(isLearning_ ? activeCol : (isHover ? theme.accent.withAlpha(0.18f) : theme.trough));
+        g.fillRoundedRectangle(b, 4.0f);
+        g.setColour(isLearning_ ? theme.accentWarm : (isHover ? theme.accent : theme.panelEdge));
+        g.drawRoundedRectangle(b.reduced(0.5f), 4.0f, 1.0f);
+
+        g.setFont(displayFont(11.5f));
+        g.setColour(isLearning_ ? juce::Colours::white : (isHover ? theme.accent : theme.ink));
+        g.drawFittedText(isLearning_ ? "HIT PAD..." : "LEARN",
+                         b.reduced(3.0f, 0.0f).toNearestInt(),
+                         juce::Justification::centred,
+                         1,
+                         0.72f);
+        return;
+    }
+
+    g.setColour(theme.panel);
+    g.fillRoundedRectangle(b, 3.0f);
+
+    const auto orangeCol = theme.accent;
+    drawSketchRect(g, b, isLearning_ ? orangeCol : (isHover ? orangeCol : theme.panelEdge), isHover ? 1.8f : 1.4f, 7);
+
+    g.setFont(displayFont(14.5f));
+    if (isLearning_)
+    {
+        g.setColour(orangeCol);
+        g.drawFittedText("HIT PAD...", b.reduced(2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+    }
+    else
+    {
+        g.setColour(isHover ? orangeCol : (theme.isDark ? theme.accent : theme.ink));
+        g.drawFittedText("LEARN", b.reduced(2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+    }
+}
+
+void Editor::CurveButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+    g.setColour(theme.minimalStyle ? theme.trough : theme.panel);
+    g.fillRoundedRectangle(b, theme.minimalStyle ? 4.0f : 3.0f);
+
+    const auto orangeCol = theme.accent;
+    drawSketchRect(g,
+                   b,
+                   isHover ? orangeCol
+                           : (theme.minimalStyle
+                                  ? theme.panelEdge
+                                  : (theme.isDark ? theme.panelEdge.withAlpha(0.6f) : juce::Colour(0xff7a7d7a))),
+                   isHover ? 1.5f : 1.0f,
+                   6);
+
+    juce::String label = "CURVE: LIN";
+    switch (currentCurve)
+    {
+        case VelocityCurve::logarithmic:
+            label = "CURVE: LOG";
+            break;
+        case VelocityCurve::exponential:
+            label = "CURVE: EXP";
+            break;
+        case VelocityCurve::sCurve:
+            label = "CURVE: S-CURV";
+            break;
+        case VelocityCurve::linear:
+        default:
+            break;
+    }
+
+    g.setFont(theme.minimalStyle ? uiFont(10.5f).boldened() : displayFont(13.5f));
+    g.setColour(isHover ? orangeCol : theme.ink);
+    g.drawFittedText(label, b.reduced(3.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.72f);
+}
+
+void Editor::LayerButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+    const auto accent = theme.accent;
+
+    g.setColour(open ? accent.withAlpha(0.18f) : (theme.minimalStyle ? theme.trough : theme.panel));
+    g.fillRoundedRectangle(b, theme.minimalStyle ? 4.0f : 3.0f);
+
+    drawSketchRect(g,
+                   b,
+                   (isHover || open) ? accent
+                                     : (theme.minimalStyle
+                                            ? theme.panelEdge
+                                            : (theme.isDark ? theme.panelEdge.withAlpha(0.6f)
+                                                            : juce::Colour(0xff7a7d7a))),
+                   (isHover || open) ? 1.5f : 1.0f,
+                   6);
+
+    auto textArea = b.reduced(3.0f, 0.0f);
+
+    if (loaded || missing)
+    {
+        const float dotR = 3.0f;
+        const float dotX = b.getX() + 9.0f;
+        const float dotY = b.getCentreY();
+        g.setColour(missing ? theme.warning : accent);
+        g.fillEllipse(dotX - dotR, dotY - dotR, dotR * 2.0f, dotR * 2.0f);
+        textArea = textArea.withTrimmedLeft(10.0f);
+    }
+
+    g.setFont(theme.minimalStyle ? uiFont(10.5f).boldened() : displayFont(13.5f));
+    g.setColour(missing ? theme.warning : ((isHover || open || loaded) ? accent : theme.ink));
+    g.drawFittedText("LAYER",
+                     textArea.toNearestInt(),
+                     juce::Justification::centred,
+                     1,
+                     0.72f);
+}
+
+Editor::VelocityCurvePreview::VelocityCurvePreview()
+{
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void Editor::VelocityCurvePreview::mouseDown(const juce::MouseEvent & /*e*/)
+{
+    if (onClick != nullptr)
+        onClick();
+}
+
+void Editor::VelocityCurvePreview::paint(juce::Graphics &g)
+{
+    auto b = getLocalBounds().toFloat().reduced(2.0f);
+    const auto ink = theme.ink;
+
+    // Comic drop shadow (light mode only)
+    if (!theme.isDark)
+    {
+        g.setColour(ink.withAlpha(0.35f));
+        g.fillRoundedRectangle(b.translated(3.0f, 3.0f), 5.0f);
+    }
+
+    // Viewport background
+    g.setColour(theme.panel);
+    g.fillRoundedRectangle(b, 5.0f);
+
+    // Sketched ink border
+    drawSketchRect(g, b, theme.panelEdge, 1.8f, 42);
+
+    // Plot area margins: left for 'out', bottom for 'in'
+    const float labelMarginL = 18.0f;
+    const float labelMarginB = 16.0f;
+    const float padR = 10.0f;
+    const float padT = 10.0f;
+
+    const auto plotArea = juce::Rectangle<float>(b.getX() + labelMarginL,
+                                                 b.getY() + padT,
+                                                 std::max(10.0f, b.getWidth() - labelMarginL - padR),
+                                                 std::max(10.0f, b.getHeight() - padT - labelMarginB));
+
+    // Graph paper background: trough color
+    g.setColour(theme.trough);
+    g.fillRect(plotArea);
+
+    // Pencil grid lines at 25%, 50%, 75%
+    g.setColour(theme.isDark ? juce::Colour(0x28ffffff) : juce::Colour(0x444b4e54));
+    for (int step = 1; step <= 3; ++step)
+    {
+        const float frac = step * 0.25f;
+        const float gx = plotArea.getX() + frac * plotArea.getWidth();
+        const float gy = plotArea.getY() + frac * plotArea.getHeight();
+
+        static constexpr float dashLengths[] = {3.0f, 2.0f};
+        g.drawDashedLine(juce::Line<float>(gx, plotArea.getY(), gx, plotArea.getBottom()), dashLengths, 2, 0.8f);
+        g.drawDashedLine(juce::Line<float>(plotArea.getX(), gy, plotArea.getRight(), gy), dashLengths, 2, 0.8f);
+    }
+
+    // Border around plot area
+    drawSketchRect(g, plotArea, theme.isDark ? theme.panelEdge.withAlpha(0.6f) : ink, 1.2f, 88);
+
+    // Axis labels: "OUT" on left, "IN" on bottom in comic font
+    g.setFont(displayFont(9.5f));
+    g.setColour(theme.ink);
+
+    // "OUT" stacked vertically
+    const auto leftLabelArea =
+        juce::Rectangle<float>(b.getX() + 2.0f, plotArea.getY(), labelMarginL - 4.0f, plotArea.getHeight());
+    g.drawFittedText("O\nU\nT", leftLabelArea.toNearestInt(), juce::Justification::centred, 3);
+
+    // "IN" centered along bottom
+    const auto bottomLabelArea =
+        juce::Rectangle<float>(plotArea.getX(), plotArea.getBottom() + 1.0f, plotArea.getWidth(), labelMarginB - 2.0f);
+    g.drawText("IN", bottomLabelArea, juce::Justification::centred, false);
+
+    // Plot response curve: y = f(x)
+    juce::Path curvePath;
+    const int numSegments = 48;
+    for (int i = 0; i <= numSegments; ++i)
+    {
+        const float x = static_cast<float>(i) / static_cast<float>(numSegments);
+        float y = x;
+        switch (currentCurve)
+        {
+            case VelocityCurve::logarithmic:
+                y = std::sqrt(x);
+                break;
+            case VelocityCurve::exponential:
+                y = x * x;
+                break;
+            case VelocityCurve::sCurve:
+                y = x * x * (3.0f - 2.0f * x);
+                break;
+            case VelocityCurve::linear:
+            default:
+                y = x;
+                break;
+        }
+
+        const float px = plotArea.getX() + x * plotArea.getWidth();
+        const float py = plotArea.getBottom() - y * plotArea.getHeight();
+
+        if (i == 0)
+            curvePath.startNewSubPath(px, py);
+        else
+            curvePath.lineTo(px, py);
+    }
+
+    // Bold comic ink outline under the curve (or clean minimal curve fill)
+    if (theme.minimalStyle)
+    {
+        juce::Path fillPath(curvePath);
+        fillPath.lineTo(plotArea.getRight(), plotArea.getBottom());
+        fillPath.lineTo(plotArea.getX(), plotArea.getBottom());
+        fillPath.closeSubPath();
+        g.setColour(theme.accent.withAlpha(0.18f));
+        g.fillPath(fillPath);
+
+        g.setColour(theme.accent);
+        g.strokePath(curvePath,
+                     juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+    else
+    {
+        g.setColour(theme.isDark ? juce::Colours::black : ink);
+        g.strokePath(curvePath,
+                     juce::PathStrokeType(3.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        // Vibrant comic curve stroke
+        g.setColour(theme.accent);
+        g.strokePath(curvePath,
+                     juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // Anchor points
+    auto drawDot = [&](float xNorm, float yNorm, juce::Colour col)
+    {
+        const float dotX = plotArea.getX() + xNorm * plotArea.getWidth();
+        const float dotY = plotArea.getBottom() - yNorm * plotArea.getHeight();
+        if (theme.minimalStyle)
+        {
+            g.setColour(col);
+            g.fillEllipse(dotX - 2.8f, dotY - 2.8f, 5.6f, 5.6f);
+            g.setColour(juce::Colours::white.withAlpha(0.85f));
+            g.drawEllipse(dotX - 2.8f, dotY - 2.8f, 5.6f, 5.6f, 0.8f);
+        }
+        else
+        {
+            g.setColour(theme.isDark ? theme.panelEdge : ink);
+            g.fillEllipse(dotX - 3.5f, dotY - 3.5f, 7.0f, 7.0f);
+            g.setColour(col);
+            g.fillEllipse(dotX - 2.0f, dotY - 2.0f, 4.0f, 4.0f);
+        }
+    };
+
+    float midY = 0.5f;
+    switch (currentCurve)
+    {
+        case VelocityCurve::logarithmic:
+            midY = std::sqrt(0.5f);
+            break;
+        case VelocityCurve::exponential:
+            midY = 0.25f;
+            break;
+        case VelocityCurve::sCurve:
+            midY = 0.5f;
+            break;
+        case VelocityCurve::linear:
+        default:
+            midY = 0.5f;
+            break;
+    }
+
+    drawDot(0.0f, 0.0f, juce::Colour(0xff2ecc71)); // Comic Green origin
+    drawDot(0.5f, midY, juce::Colour(0xfff1c40f)); // Comic Yellow midpoint
+    drawDot(1.0f, 1.0f, juce::Colour(0xffe74c3c)); // Comic Red peak
+}
+
+//==============================================================================
+namespace
+{
+class LayerWaveform : public juce::Component
+{
+  public:
+    void setPeaks(const std::vector<float> &newPeaks, bool hasSample, bool sampleMissing)
+    {
+        peaks = newPeaks;
+        loaded = hasSample;
+        missing = sampleMissing;
+        repaint();
+    }
+
+    void setTheme(const Theme &newTheme)
+    {
+        theme = newTheme;
+        repaint();
+    }
+
+    void paint(juce::Graphics &g) override
+    {
+        auto b = getLocalBounds().toFloat().reduced(1.0f);
+        g.setColour(theme.trough);
+        g.fillRoundedRectangle(b, 5.0f);
+        drawSketchRect(g, b, theme.panelEdge, 1.0f, 9);
+
+        auto plot = b.reduced(8.0f, 7.0f);
+
+        g.setColour(theme.panelEdge.withAlpha(0.55f));
+        g.drawLine(plot.getX(), plot.getCentreY(), plot.getRight(), plot.getCentreY(), 1.0f);
+
+        if (!loaded || peaks.empty())
+        {
+            g.setFont(uiFont(10.5f).boldened());
+            g.setColour(missing ? theme.warning : theme.inkSoft);
+            g.drawFittedText(missing ? "SAMPLE MISSING - RELINK" : "NO ONE-SHOT LOADED",
+                             plot.toNearestInt(),
+                             juce::Justification::centred,
+                             1,
+                             0.8f);
+            return;
+        }
+
+        const int n = static_cast<int>(peaks.size());
+        const float step = plot.getWidth() / static_cast<float>(juce::jmax(1, n));
+        const float barW = juce::jmax(1.4f, step * 0.58f);
+        g.setColour(theme.accent);
+
+        for (int i = 0; i < n; ++i)
+        {
+            const float peak = juce::jlimit(0.0f, 1.0f, peaks[static_cast<size_t>(i)]);
+            const float h = juce::jmax(1.0f, peak * plot.getHeight() * 0.48f);
+            const float x = plot.getX() + static_cast<float>(i) * step + (step - barW) * 0.5f;
+            g.fillRoundedRectangle(x, plot.getCentreY() - h, barW, h * 2.0f, barW * 0.5f);
+        }
+
+        g.setColour(theme.accentAlt.withAlpha(0.7f));
+        g.drawLine(plot.getX(), plot.getBottom(), plot.getX(), plot.getY(), 1.0f);
+    }
+
+  private:
+    std::vector<float> peaks;
+    bool loaded = false;
+    bool missing = false;
+    Theme theme = Theme::suite();
+};
+} // namespace
+
+//==============================================================================
+class Editor::LayerDrawer : public juce::Component
+    , public juce::FileDragAndDropTarget
+{
+  public:
+    LayerDrawer(PluginProcessor &processorIn)
+        : processor(processorIn)
+        , loadButton("LOAD WAV")
+        , clearButton("CLEAR")
+        , invertButton("INVERT")
+        , alignButton("ALIGN")
+        , playButton("PLAY")
+        , kitButton("KIT")
+        , bothButton("BOTH")
+        , layerButton("LAYER")
+        , openMixerButton("OPEN IN MIXER")
+        , closeButton("CLOSE")
+    {
+        addAndMakeVisible(waveform);
+        addAndMakeVisible(loadButton);
+        addAndMakeVisible(clearButton);
+        addAndMakeVisible(invertButton);
+        addAndMakeVisible(alignButton);
+        addAndMakeVisible(playButton);
+        addAndMakeVisible(kitButton);
+        addAndMakeVisible(bothButton);
+        addAndMakeVisible(layerButton);
+        addAndMakeVisible(openMixerButton);
+        addAndMakeVisible(closeButton);
+
+        blendKnob = std::make_unique<Knob>("BLEND", 0.0f, 1.0f, 0.5f);
+        attackKnob = std::make_unique<Knob>("ATTACK", 0.0f, 200.0f, 0.0f, "ms");
+        decayKnob = std::make_unique<Knob>("DECAY", 0.0f, 2000.0f, 120.0f, "ms");
+        sustainKnob = std::make_unique<Knob>("SUSTAIN", 0.0f, 1.0f, 1.0f);
+        releaseKnob = std::make_unique<Knob>("RELEASE", 0.0f, 2000.0f, 80.0f, "ms");
+        delayKnob = std::make_unique<Knob>("DELAY", 0.0f, 20.0f, 0.0f, "ms");
+        trimKnob = std::make_unique<Knob>("TRIM", 0.0f, 1000.0f, 0.0f, "ms");
+
+        addAndMakeVisible(*blendKnob);
+        addAndMakeVisible(*attackKnob);
+        addAndMakeVisible(*decayKnob);
+        addAndMakeVisible(*sustainKnob);
+        addAndMakeVisible(*releaseKnob);
+        addAndMakeVisible(*delayKnob);
+        addAndMakeVisible(*trimKnob);
+
+        for (auto *knob : {blendKnob.get(), attackKnob.get(), decayKnob.get(),
+                           sustainKnob.get(), releaseKnob.get(), delayKnob.get(), trimKnob.get()})
+            knob->onValueChanged = [this](float) { pushParams(); };
+
+        invertButton.setClickingTogglesState(true);
+        invertButton.onClick = [this]
+        {
+            pushParams();
+            repaint();
+        };
+
+        loadButton.onClick = [this] { loadSample(); };
+        clearButton.onClick = [this] { clearSample(); };
+        alignButton.onClick = [this] { autoAlign(); };
+        playButton.onClick = [this] { triggerPreview(); };
+        kitButton.onClick = [this] { setAuditionMode(1); };
+        bothButton.onClick = [this] { setAuditionMode(0); };
+        layerButton.onClick = [this] { setAuditionMode(2); };
+        openMixerButton.onClick = [this]
+        {
+            if (onOpenInMixer != nullptr)
+                onOpenInMixer(processor.getSampler().getUserLayerMicIndex(slot));
+        };
+        closeButton.onClick = [this]
+        {
+            if (onClose != nullptr)
+                onClose();
+        };
+    }
+
+    ~LayerDrawer() override = default;
+
+    std::function<void()> onClose;
+    std::function<void(int)> onOpenInMixer;
+    std::function<void()> onChanged;
+    std::function<void()> onPreview;
+
+    void setSlot(int newSlot)
+    {
+        slot = juce::jlimit(0, 1, newSlot);
+        processor.getSampler().setUserLayerAudition(slot, 0);
+        statusMessage.clear();
+        refresh();
+    }
+
+    bool isInterestedInFileDrag(const juce::StringArray &files) override
+    {
+        for (const auto &f : files)
+            if (juce::File(f).hasFileExtension("wav"))
+                return true;
+        return false;
+    }
+
+    void fileDragEnter(const juce::StringArray &, int, int) override
+    {
+        dragHighlight = true;
+        repaint();
+    }
+
+    void fileDragExit(const juce::StringArray &) override
+    {
+        dragHighlight = false;
+        repaint();
+    }
+
+    void filesDropped(const juce::StringArray &files, int, int) override
+    {
+        dragHighlight = false;
+        repaint();
+
+        for (const auto &f : files)
+        {
+            const juce::File file(f);
+            if (file.hasFileExtension("wav"))
+            {
+                importSampleFile(file);
+                break;
+            }
+        }
+    }
+
+    int getSlot() const noexcept { return slot; }
+
+    void setTheme(const Theme &newTheme)
+    {
+        theme = newTheme;
+        waveform.setTheme(theme);
+
+        for (auto *knob : {blendKnob.get(), attackKnob.get(), decayKnob.get(),
+                           sustainKnob.get(), releaseKnob.get(), delayKnob.get(), trimKnob.get()})
+            if (knob != nullptr)
+                knob->setTheme(theme);
+
+        if (blendKnob != nullptr)
+            blendKnob->setAccentColour(theme.accentAlt);
+        if (attackKnob != nullptr)
+            attackKnob->setAccentColour(theme.accentWarm);
+        if (decayKnob != nullptr)
+            decayKnob->setAccentColour(theme.accentWarm);
+        if (sustainKnob != nullptr)
+            sustainKnob->setAccentColour(theme.accentWarm);
+        if (releaseKnob != nullptr)
+            releaseKnob->setAccentColour(theme.accentWarm);
+        if (delayKnob != nullptr)
+            delayKnob->setAccentColour(theme.accent);
+        if (trimKnob != nullptr)
+            trimKnob->setAccentColour(theme.accent);
+
+        repaint();
+    }
+
+    void refresh()
+    {
+        if (refreshing)
+            return;
+
+        refreshing = true;
+        const auto &sampler = processor.getSampler();
+        const auto params = sampler.getUserLayerParams(slot);
+
+        blendKnob->setValue(params.blend);
+        attackKnob->setValue(params.attackMs);
+        decayKnob->setValue(params.decayMs);
+        sustainKnob->setValue(params.sustain);
+        releaseKnob->setValue(params.releaseMs);
+        delayKnob->setValue(params.delayMs);
+        trimKnob->setValue(params.trimMs);
+        invertButton.setToggleState(params.polarityInvert, juce::dontSendNotification);
+
+        sampleLabel = sampler.getUserLayerName(slot);
+        const bool loaded = sampler.isUserLayerLoaded(slot);
+        const bool missing = sampler.isUserLayerMissing(slot);
+        clearButton.setEnabled(loaded || missing);
+        alignButton.setEnabled(loaded);
+        openMixerButton.setEnabled(loaded || missing);
+        loadButton.setButtonText(missing ? "RELINK" : "LOAD WAV");
+        bothButton.setEnabled(true);
+        layerButton.setEnabled(loaded);
+        kitButton.setEnabled(true);
+        playButton.setEnabled(true);
+
+        const int audition = sampler.getUserLayerAudition(slot);
+        kitButton.setToggleState(audition == 1, juce::dontSendNotification);
+        bothButton.setToggleState(audition == 0, juce::dontSendNotification);
+        layerButton.setToggleState(audition == 2, juce::dontSendNotification);
+
+        std::vector<float> peaks;
+        sampler.getUserLayerPeaks(slot, 80, peaks);
+        waveform.setPeaks(peaks, loaded, missing);
+
+        refreshing = false;
+        repaint();
+    }
+
+    void paint(juce::Graphics &g) override
+    {
+        auto b = getLocalBounds().toFloat();
+
+        g.setColour(juce::Colours::black.withAlpha(theme.isDark ? 0.42f : 0.18f));
+        g.fillRoundedRectangle(b.translated(3.0f, 4.0f), 9.0f);
+
+        drawMinimalCard(g, b, theme, 9.0f, dragHighlight ? theme.accentAlt : theme.accent.withAlpha(0.65f),
+                        dragHighlight ? 2.0f : 1.4f);
+
+        g.setColour(theme.accent);
+        g.fillRoundedRectangle(b.getX(), b.getY() + 10.0f, 3.0f, b.getHeight() - 20.0f, 1.5f);
+
+        // Header
+        g.setFont(displayFont(15.0f));
+        g.setColour(theme.ink);
+        g.drawText(slot == 0 ? "KICK LAYER" : "SNARE LAYER",
+                   headerTextBounds,
+                   juce::Justification::centredLeft,
+                   false);
+
+        g.setFont(uiFont(9.5f).boldened());
+        g.setColour(theme.inkSoft);
+        g.drawText("ONE-SHOT BLEND, ADSR & PHASE",
+                   headerSubBounds,
+                   juce::Justification::centredLeft,
+                   false);
+
+        // Sample name well
+        auto well = sampleWellBounds;
+        g.setColour(theme.trough);
+        g.fillRoundedRectangle(well, 4.0f);
+        drawSketchRect(g, well, theme.panelEdge, 1.0f, 11);
+
+        const bool loaded = processor.getSampler().isUserLayerLoaded(slot);
+        const bool missing = processor.getSampler().isUserLayerMissing(slot);
+        g.setFont(uiFont(11.0f).boldened());
+        g.setColour(missing ? theme.warning : (loaded ? theme.ink : theme.inkSoft));
+        g.drawFittedText(missing ? sampleLabel + "  (missing)" : (loaded ? sampleLabel : "No sample loaded"),
+                         well.reduced(9.0f, 2.0f).toNearestInt(),
+                         juce::Justification::centredLeft,
+                         1,
+                         0.72f);
+
+        // Section captions
+        g.setFont(uiFont(8.5f).boldened());
+        g.setColour(theme.inkSoft);
+        g.drawText("SHAPE", shapeCaptionBounds, juce::Justification::centredLeft, false);
+        g.drawText("PHASE", phaseCaptionBounds, juce::Justification::centredLeft, false);
+        g.drawText("AUDITION", auditionLabelBounds, juce::Justification::centredLeft, false);
+
+        if (!phaseHintBounds.isEmpty())
+        {
+            g.setColour(theme.inkSoft.withAlpha(0.9f));
+            g.setFont(uiFont(8.5f));
+            g.drawFittedText("Align matches polarity and delay\nto the kit close mic.",
+                             phaseHintBounds.toNearestInt(),
+                             juce::Justification::centredLeft,
+                             2,
+                             0.78f);
+        }
+
+        if (!statusMessage.isEmpty())
+        {
+            g.setColour(theme.warning);
+            g.drawFittedText(statusMessage,
+                             statusBounds.toNearestInt(),
+                             juce::Justification::centredLeft,
+                             1,
+                             0.72f);
+        }
+        else if (missing)
+        {
+            g.setColour(theme.warning);
+            g.drawFittedText("Sample missing - press RELINK",
+                             statusBounds.toNearestInt(),
+                             juce::Justification::centredLeft,
+                             1,
+                             0.72f);
+        }
+
+        if (dragHighlight)
+        {
+            g.setColour(theme.accentAlt);
+            g.setFont(displayFont(11.0f));
+            g.drawFittedText("DROP WAV TO LOAD",
+                             waveform.getBounds().reduced(6),
+                             juce::Justification::centred,
+                             1,
+                             0.8f);
+        }
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced(14, 12);
+        auto header = r.removeFromTop(22);
+        closeButton.setBounds(header.removeFromRight(54));
+        headerTextBounds = header.withWidth(header.getWidth() - 8).toFloat();
+        headerSubBounds = headerTextBounds.withTrimmedTop(14.0f).withHeight(10.0f);
+        headerTextBounds = headerTextBounds.withHeight(18.0f);
+
+        r.removeFromTop(4);
+
+        auto sampleRow = r.removeFromTop(25);
+        auto clearArea = sampleRow.removeFromRight(54);
+        sampleRow.removeFromRight(5);
+        auto loadArea = sampleRow.removeFromRight(68);
+        sampleRow.removeFromRight(7);
+        sampleWellBounds = sampleRow.toFloat();
+        loadButton.setBounds(loadArea);
+        clearButton.setBounds(clearArea);
+
+        r.removeFromTop(6);
+        waveform.setBounds(r.removeFromTop(52));
+
+        r.removeFromTop(5);
+        shapeCaptionBounds = r.removeFromTop(10).toFloat();
+        r.removeFromTop(1);
+
+        auto knobRow = r.removeFromTop(72);
+        const int n = 5;
+        const int gap = 4;
+        const int knobW = (knobRow.getWidth() - gap * (n - 1)) / n;
+        auto placeKnob = [&](Knob &knob, int index)
+        {
+            knob.setBounds(knobRow.getX() + index * (knobW + gap), knobRow.getY(), knobW, knobRow.getHeight());
+        };
+        placeKnob(*blendKnob, 0);
+        placeKnob(*attackKnob, 1);
+        placeKnob(*decayKnob, 2);
+        placeKnob(*sustainKnob, 3);
+        placeKnob(*releaseKnob, 4);
+
+        r.removeFromTop(4);
+        phaseCaptionBounds = r.removeFromTop(10).toFloat();
+        r.removeFromTop(1);
+
+        auto phaseRow = r.removeFromTop(56);
+        auto invertArea = phaseRow.removeFromLeft(76).withSizeKeepingCentre(76, 26);
+        phaseRow.removeFromLeft(6);
+        auto delayArea = phaseRow.removeFromLeft(64);
+        phaseRow.removeFromLeft(6);
+        auto trimArea = phaseRow.removeFromLeft(64);
+        phaseRow.removeFromLeft(6);
+        auto alignArea = phaseRow.removeFromLeft(76).withSizeKeepingCentre(76, 26);
+        invertButton.setBounds(invertArea);
+        alignButton.setBounds(alignArea);
+        delayKnob->setBounds(delayArea);
+        trimKnob->setBounds(trimArea);
+
+        phaseHintBounds = phaseRow.reduced(8.0f, 2.0f).toFloat();
+
+        r.removeFromTop(4);
+        auto auditionRow = r.removeFromTop(26);
+        auditionLabelBounds = auditionRow.removeFromLeft(66).toFloat();
+        auditionRow.removeFromLeft(2);
+        const int playW = 54;
+        const int modeW = 44;
+        const int modeGap = 4;
+        playButton.setBounds(auditionRow.removeFromLeft(playW).withSizeKeepingCentre(playW, 24));
+        auditionRow.removeFromLeft(modeGap);
+        kitButton.setBounds(auditionRow.removeFromLeft(modeW).withSizeKeepingCentre(modeW, 24));
+        auditionRow.removeFromLeft(modeGap);
+        bothButton.setBounds(auditionRow.removeFromLeft(48).withSizeKeepingCentre(48, 24));
+        auditionRow.removeFromLeft(modeGap);
+        layerButton.setBounds(auditionRow.removeFromLeft(56).withSizeKeepingCentre(56, 24));
+
+        r.removeFromTop(4);
+        auto bottom = r.removeFromTop(26);
+        openMixerButton.setBounds(bottom.removeFromRight(148));
+        bottom.removeFromRight(8);
+        statusBounds = bottom.toFloat();
+    }
+
+  private:
+    static juce::File userLayerDirectory()
+    {
+        auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                       .getChildFile(config::CONFIG_DIR_NAME)
+                       .getChildFile("user_layers");
+        dir.createDirectory();
+        return dir;
+    }
+
+    void loadSample()
+    {
+        auto &settings = processor.getSettings();
+        auto startDir = juce::File(settings.lastLayerFolder);
+
+        if (!startDir.isDirectory())
+            startDir = juce::File::getSpecialLocation(juce::File::userMusicDirectory);
+
+        auto chooser = std::make_shared<juce::FileChooser>("Select a one-shot WAV", startDir, "*.wav");
+
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                             [this, chooser](const juce::FileChooser &fc)
+                             {
+                                 const auto chosen = fc.getResult();
+                                 if (chosen.existsAsFile())
+                                     importSampleFile(chosen);
+                             });
+    }
+
+    void importSampleFile(const juce::File &chosen)
+    {
+        if (!chosen.existsAsFile() || !chosen.hasFileExtension("wav"))
+        {
+            statusMessage = "WAV files only";
+            repaint();
+            return;
+        }
+
+        auto target = chosen;
+        const auto dir = userLayerDirectory();
+
+        if (chosen.getParentDirectory() != dir)
+        {
+            target = dir.getNonexistentChildFile(chosen.getFileNameWithoutExtension(),
+                                                 chosen.getFileExtension(),
+                                                 false);
+            if (!chosen.copyFileTo(target))
+            {
+                statusMessage = "Could not copy sample";
+                repaint();
+                return;
+            }
+        }
+
+        auto params = processor.getSampler().getUserLayerParams(slot);
+        juce::String error;
+
+        if (!processor.getSampler().loadUserLayer(slot, target.getFullPathName(), params, error))
+        {
+            statusMessage = error.isNotEmpty() ? error : "Could not load sample";
+            repaint();
+            return;
+        }
+
+        auto &settings = processor.getSettings();
+        settings.lastLayerFolder = chosen.getParentDirectory().getFullPathName();
+        settings.markDirty();
+        settings.saveIfChanged();
+
+        statusMessage.clear();
+        processor.getSampler().setUserLayerAudition(slot, 0);
+        refresh();
+
+        if (onChanged != nullptr)
+            onChanged();
+
+        triggerPreview();
+    }
+
+    void clearSample()
+    {
+        processor.getSampler().setUserLayerAudition(slot, 0);
+        processor.getSampler().clearUserLayer(slot);
+        statusMessage.clear();
+        refresh();
+
+        if (onChanged != nullptr)
+            onChanged();
+    }
+
+    void autoAlign()
+    {
+        if (!processor.getSampler().isUserLayerLoaded(slot))
+            return;
+
+        processor.getSampler().autoAlignUserLayer(slot);
+        const auto params = processor.getSampler().getUserLayerParams(slot);
+
+        statusMessage = "Aligned: trim " + juce::String(params.trimMs, 0) + " ms, delay "
+                        + juce::String(params.delayMs, 1) + " ms"
+                        + (params.polarityInvert ? " (inverted)" : "");
+        refresh();
+        triggerPreview();
+
+        if (onChanged != nullptr)
+            onChanged();
+    }
+
+    void setAuditionMode(int mode)
+    {
+        processor.getSampler().setUserLayerAudition(slot, mode);
+        refresh();
+        triggerPreview();
+    }
+
+    void triggerPreview()
+    {
+        if (onPreview != nullptr)
+            onPreview();
+    }
+
+    void pushParams()
+    {
+        if (refreshing || slot < 0)
+            return;
+
+        auto params = processor.getSampler().getUserLayerParams(slot);
+        params.blend = blendKnob->getValue();
+        params.attackMs = attackKnob->getValue();
+        params.decayMs = decayKnob->getValue();
+        params.sustain = sustainKnob->getValue();
+        params.releaseMs = releaseKnob->getValue();
+        params.delayMs = delayKnob->getValue();
+        params.trimMs = trimKnob->getValue();
+        params.polarityInvert = invertButton.getToggleState();
+
+        processor.getSampler().setUserLayerParams(slot, params);
+
+        statusMessage.clear();
+        repaint();
+    }
+
+    PluginProcessor &processor;
+    int slot = 0;
+    bool refreshing = false;
+    Theme theme = Theme::suite();
+    juce::String sampleLabel;
+    juce::String statusMessage;
+
+    LayerWaveform waveform;
+    std::unique_ptr<Knob> blendKnob;
+    std::unique_ptr<Knob> attackKnob;
+    std::unique_ptr<Knob> decayKnob;
+    std::unique_ptr<Knob> sustainKnob;
+    std::unique_ptr<Knob> releaseKnob;
+    std::unique_ptr<Knob> delayKnob;
+    std::unique_ptr<Knob> trimKnob;
+
+    juce::TextButton loadButton;
+    juce::TextButton clearButton;
+    juce::TextButton invertButton;
+    juce::TextButton alignButton;
+    juce::TextButton playButton;
+    juce::TextButton kitButton;
+    juce::TextButton bothButton;
+    juce::TextButton layerButton;
+    juce::TextButton openMixerButton;
+    juce::TextButton closeButton;
+
+    juce::Rectangle<float> headerTextBounds;
+    juce::Rectangle<float> headerSubBounds;
+    juce::Rectangle<float> sampleWellBounds;
+    juce::Rectangle<float> shapeCaptionBounds;
+    juce::Rectangle<float> phaseCaptionBounds;
+    juce::Rectangle<float> phaseHintBounds;
+    juce::Rectangle<float> auditionLabelBounds;
+    juce::Rectangle<float> statusBounds;
+    bool dragHighlight = false;
+};
+
+//==============================================================================
+Editor::Editor(PluginProcessor &p) : processor(p)
+{
+    glorp::setUiTextScale(processor.getSettings().uiTextScale);
+    theme = Theme::suite();
+    glorp::setCleanStyleEnabled(theme.cleanStyle);
+    glorp::setMinimalStyleEnabled(theme.minimalStyle);
+
+    lookAndFeel = std::make_unique<GlorpLookAndFeel>();
+    lookAndFeel->setTheme(theme);
+    setLookAndFeel(lookAndFeel.get());
+
+    addAndMakeVisible(kitView);
+    addAndMakeVisible(scope);
+
+    minimalGrid = std::make_unique<MinimalInstrumentGrid>();
+    addChildComponent(*minimalGrid);
+    minimalGrid->onCellClicked = [this](int logicalIdx, float velocity)
+    {
+        selectLogicalInstrument(logicalIdx);
+        const int targetZone = (logicalIdx >= 0 && logicalIdx < static_cast<int>(logicalInstruments.size()))
+                                   ? logicalInstruments[static_cast<size_t>(logicalIdx)].selectedZoneIndex
+                                   : 0;
+        selectZone(logicalIdx, targetZone, false);
+
+        const int samplerIdx = getActiveSamplerIndex();
+        if (samplerIdx >= 0)
+        {
+            const auto note = processor.getMidiMap().noteForInstrument(samplerIdx);
+            const int midiNote = (note >= 0) ? note : 36;
+            processor.getSampler().noteOn(
+                samplerIdx, midiNote, velocity, processor.getSampler().currentSamplePosition());
+        }
+    };
+
+    mixerView = std::make_unique<MixerView>(processor);
+    addChildComponent(*mixerView);
+
+    midiPage = std::make_unique<MidiPage>(processor);
+    addChildComponent(*midiPage);
+    midiPage->onCloseRequested = [this] { setViewMode(EditorView::kitView); };
+
+    midiBrowser = std::make_unique<MidiBrowser>(processor);
+    addChildComponent(*midiBrowser);
+    midiBrowser->onCloseRequested = [this] { setViewMode(EditorView::kitView); };
+    midiBrowser->onExportDrag = [this](juce::Component *source, const juce::File &file)
+    { startExternalMidiDrag(source, file); };
+
+    edrumWizard = std::make_unique<EDrumWizard>(processor);
+    addChildComponent(*edrumWizard);
+    edrumWizard->onClose = [this]
+    {
+        updateInstrumentDisplay();
+        repaint();
+    };
+
+    buildHeaderMenu();
+    buildControls();
+
+    // Sound and animation when an instrument in the kit view is clicked
+    kitView.onPieceHit = [this](KitPiece piece, float velocity)
+    {
+        int targetLogicalIdx = -1;
+        for (size_t i = 0; i < logicalInstruments.size(); ++i)
+        {
+            if (logicalInstruments[i].piece == piece)
+            {
+                targetLogicalIdx = static_cast<int>(i);
+                break;
+            }
+        }
+
+        if (targetLogicalIdx >= 0)
+        {
+            selectLogicalInstrument(targetLogicalIdx);
+            const int targetZone = (targetLogicalIdx < static_cast<int>(logicalInstruments.size()))
+                                       ? logicalInstruments[targetLogicalIdx].selectedZoneIndex
+                                       : 0;
+            selectZone(targetLogicalIdx, targetZone, false);
+
+            const int samplerIdx = getActiveSamplerIndex();
+            if (samplerIdx >= 0)
+            {
+                const auto note = processor.getMidiMap().noteForInstrument(samplerIdx);
+                const int midiNote = (note >= 0) ? note : 36;
+
+                const auto instName = processor.getSampler().instrumentName(samplerIdx);
+                processor.getSampler().noteOn(
+                    samplerIdx, midiNote, velocity, processor.getSampler().currentSamplePosition());
+
+                scope.hitReceived(instName, piece, midiNote, velocity);
+            }
+
+            kitView.triggerHitForPiece(piece, velocity);
+        }
+    };
+
+    kitView.onPieceClicked = [this](KitPiece piece)
+    {
+        for (size_t i = 0; i < logicalInstruments.size(); ++i)
+        {
+            if (logicalInstruments[i].piece == piece)
+            {
+                selectLogicalInstrument(static_cast<int>(i));
+                const int targetZone = logicalInstruments[i].selectedZoneIndex;
+                selectZone(static_cast<int>(i), targetZone, false);
+                break;
+            }
+        }
+    };
+
+    kitView.onDynamicPieceHit = [this](int dynamicIndex, const juce::String &pieceName, float velocity)
+    {
+        int targetLogicalIdx = -1;
+        if (dynamicIndex >= 0 && dynamicIndex < static_cast<int>(logicalInstruments.size())
+            && logicalInstruments[dynamicIndex].name.equalsIgnoreCase(pieceName))
+        {
+            targetLogicalIdx = dynamicIndex;
+        }
+
+        if (targetLogicalIdx < 0)
+        {
+            for (size_t i = 0; i < logicalInstruments.size(); ++i)
+            {
+                if (logicalInstruments[i].name.equalsIgnoreCase(pieceName))
+                {
+                    targetLogicalIdx = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+
+        if (targetLogicalIdx < 0 && dynamicIndex >= 0 && dynamicIndex < static_cast<int>(logicalInstruments.size()))
+            targetLogicalIdx = dynamicIndex;
+
+        if (targetLogicalIdx >= 0)
+        {
+            selectLogicalInstrument(targetLogicalIdx);
+            const int targetZone = (targetLogicalIdx < static_cast<int>(logicalInstruments.size()))
+                                       ? logicalInstruments[targetLogicalIdx].selectedZoneIndex
+                                       : 0;
+            selectZone(targetLogicalIdx, targetZone, false);
+
+            const int samplerIdx = getActiveSamplerIndex();
+            if (samplerIdx >= 0)
+            {
+                const auto note = processor.getMidiMap().noteForInstrument(samplerIdx);
+                const int midiNote = (note >= 0) ? note : 36;
+
+                const auto instName = processor.getSampler().instrumentName(samplerIdx);
+                processor.getSampler().noteOn(
+                    samplerIdx, midiNote, velocity, processor.getSampler().currentSamplePosition());
+
+                scope.hitReceived(instName, logicalInstruments[targetLogicalIdx].piece, midiNote, velocity);
+            }
+        }
+    };
+
+    kitView.onDynamicPieceClicked = [this](int dynamicIndex, const juce::String &pieceName)
+    {
+        int targetLogicalIdx = -1;
+        if (dynamicIndex >= 0 && dynamicIndex < static_cast<int>(logicalInstruments.size())
+            && logicalInstruments[dynamicIndex].name.equalsIgnoreCase(pieceName))
+        {
+            targetLogicalIdx = dynamicIndex;
+        }
+        if (targetLogicalIdx < 0)
+        {
+            for (size_t i = 0; i < logicalInstruments.size(); ++i)
+            {
+                if (logicalInstruments[i].name.equalsIgnoreCase(pieceName))
+                {
+                    targetLogicalIdx = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        if (targetLogicalIdx < 0 && dynamicIndex >= 0 && dynamicIndex < static_cast<int>(logicalInstruments.size()))
+            targetLogicalIdx = dynamicIndex;
+
+        if (targetLogicalIdx >= 0)
+        {
+            selectLogicalInstrument(targetLogicalIdx);
+            const int targetZone = logicalInstruments[targetLogicalIdx].selectedZoneIndex;
+            selectZone(targetLogicalIdx, targetZone, false);
+        }
+    };
+
+    processor.addListener(this);
+    kitView.setMouseClickGrabsKeyboardFocus(false);
+    scope.setInterceptsMouseClicks(false, false);
+    setWantsKeyboardFocus(true);
+    setOpaque(true);
+
+    setSize(processor.getSettings().editorWidth, processor.getSettings().editorHeight);
+
+    kitChanged();
+    applyTheme(theme);
+    updateOpenGlAttachment();
+    startTimerHz(30);
+}
+
+Editor::~Editor()
+{
+    if (openGlContext.isAttached())
+        openGlContext.detach();
+    stopTimer();
+    processor.removeListener(this);
+
+    setLookAndFeel(nullptr);
+}
+
+void Editor::syncTopLevelWindowTheme() {}
+
+void Editor::parentHierarchyChanged()
+{
+    updateOpenGlAttachment();
+    syncTopLevelWindowTheme();
+
+    if (auto *top = getTopLevelComponent())
+    {
+        auto icon = juce::ImageFileFormat::loadFrom(GlorpAssets::suite_drums_icon_png,
+                                                    (size_t) GlorpAssets::suite_drums_icon_pngSize);
+        if (icon.isValid())
+        {
+            if (auto *dw = dynamic_cast<juce::DocumentWindow *>(top))
+                dw->setIcon(icon);
+            if (auto *peer = top->getPeer())
+            {
+                peer->setIcon(icon);
+                windowIconApplied = true;
+            }
+        }
+    }
+}
+
+void Editor::updateOpenGlAttachment()
+{
+    const bool wantGl = processor.getSettings().openGlEnabled && (getPeer() != nullptr);
+    if (wantGl)
+    {
+        if (!openGlContext.isAttached())
+        {
+            openGlContext.setComponentPaintingEnabled(true);
+            openGlContext.setContinuousRepainting(false);
+            openGlContext.attachTo(*this);
+        }
+    }
+    else
+    {
+        if (openGlContext.isAttached())
+            openGlContext.detach();
+    }
+}
+
+void Editor::setOpenGlEnabled(bool enabled)
+{
+    auto &settings = processor.getSettings();
+    settings.openGlEnabled = enabled;
+    settings.markDirty();
+    settings.saveIfChanged();
+    updateOpenGlAttachment();
+    repaint();
+}
+
+bool Editor::isOpenGlEnabled() const noexcept
+{
+    return processor.getSettings().openGlEnabled;
+}
+
+void Editor::startExternalMidiDrag(juce::Component *source, const juce::File &file)
+{
+    pendingMidiDragFile = file;
+    startDragging("suite-midi-export", source, juce::ScaledImage(), true);
+}
+
+bool Editor::shouldDropFilesWhenDraggedExternally(const juce::DragAndDropTarget::SourceDetails &sourceDetails,
+                                                  juce::StringArray &files,
+                                                  bool &canMoveFiles)
+{
+    if (sourceDetails.description.toString() == "suite-midi-export"
+        && pendingMidiDragFile.existsAsFile())
+    {
+        files.add(pendingMidiDragFile.getFullPathName());
+        canMoveFiles = false;
+        return true;
+    }
+
+    return false;
+}
+
+void Editor::applyTheme(const Theme &newTheme)
+{
+    theme = newTheme;
+    glorp::setCleanStyleEnabled(theme.cleanStyle);
+    glorp::setMinimalStyleEnabled(theme.minimalStyle);
+
+    if (lookAndFeel != nullptr)
+        lookAndFeel->setTheme(theme);
+
+    kitSelectorButton.setTheme(theme);
+    instSelectorButton.setTheme(theme);
+    outBusButton.setTheme(theme);
+    instLearnButton.setTheme(theme);
+    instCurveButton.setTheme(theme);
+    instCurvePreview.setTheme(theme);
+    instLayerButton.setTheme(theme);
+    for (auto &zb : zoneButtons)
+        if (zb != nullptr)
+            zb->setTheme(theme);
+
+    homeTabButton.setTheme(theme);
+    viewToggleButton.setTheme(theme);
+    midiMapButton.setTheme(theme);
+    loopsButton.setTheme(theme);
+    stopLoopButton.setTheme(theme);
+    fileButton.setTheme(theme);
+    presetsButton.setTheme(theme);
+    midiButton.setTheme(theme);
+    settingsButton.setTheme(theme);
+
+    if (instVolumeKnob != nullptr)
+    {
+        instVolumeKnob->setTheme(theme);
+        instVolumeKnob->setAccentColour(theme.accent);
+    }
+    if (instPanKnob != nullptr)
+    {
+        instPanKnob->setTheme(theme);
+        instPanKnob->setAccentColour(theme.cymbal);
+        instPanKnob->setBipolar(true);
+    }
+    if (instPitchKnob != nullptr)
+    {
+        instPitchKnob->setTheme(theme);
+        instPitchKnob->setAccentColour(theme.accentAlt);
+        instPitchKnob->setBipolar(true);
+    }
+    if (instDynamicsKnob != nullptr)
+    {
+        instDynamicsKnob->setTheme(theme);
+        instDynamicsKnob->setAccentColour(theme.accentWarm);
+    }
+    if (instAttackKnob != nullptr)
+    {
+        instAttackKnob->setTheme(theme);
+        instAttackKnob->setAccentColour(theme.accentWarm);
+    }
+    if (instDampKnob != nullptr)
+    {
+        instDampKnob->setTheme(theme);
+        instDampKnob->setAccentColour(theme.accentWarm);
+    }
+    if (masterVolumeKnob != nullptr)
+    {
+        masterVolumeKnob->setTheme(theme);
+        masterVolumeKnob->setAccentColour(theme.accent);
+    }
+
+    kitView.setTheme(theme);
+    if (minimalGrid != nullptr)
+        minimalGrid->setTheme(theme);
+    scope.setTheme(theme);
+
+    if (layerDrawer != nullptr)
+        layerDrawer->setTheme(theme);
+
+    if (mixerView != nullptr)
+        mixerView->setTheme(theme);
+
+    if (midiPage != nullptr)
+        midiPage->setTheme(theme);
+
+    if (midiBrowser != nullptr)
+        midiBrowser->setTheme(theme);
+
+    sendLookAndFeelChange();
+    syncTopLevelWindowTheme();
+
+    // Re-apply visibility constraints (e.g. hiding kitView & scope in Minimal mode)
+    setViewMode(currentView);
+}
+
+void Editor::applyTextScale(float newScale)
+{
+    auto &settings = processor.getSettings();
+    settings.uiTextScale = juce::jlimit(0.85f, 1.35f, newScale);
+    settings.markDirty();
+    settings.saveIfChanged();
+
+    glorp::setUiTextScale(settings.uiTextScale);
+
+    kitView.setTheme(theme);
+    scope.setTheme(theme);
+    if (mixerView != nullptr)
+        mixerView->setTheme(theme);
+    if (midiPage != nullptr)
+        midiPage->refresh();
+    if (midiBrowser != nullptr)
+        midiBrowser->refreshIfNeeded();
+    if (edrumWizard != nullptr)
+        edrumWizard->repaint();
+
+    if (lookAndFeel != nullptr)
+    {
+        lookAndFeel->setTheme(theme);
+        sendLookAndFeelChange();
+    }
+
+    resized();
+    repaint();
+}
+
+void Editor::applyWindowScale(float factor)
+{
+    auto &settings = processor.getSettings();
+    settings.uiScale = juce::jlimit(1.0f, 2.5f, factor);
+    settings.markDirty();
+    settings.saveIfChanged();
+
+    if (auto *top = getTopLevelComponent())
+        top->setSize(juce::roundToInt(900.0f * settings.uiScale),
+                     juce::roundToInt(620.0f * settings.uiScale));
+
+    resized();
+    repaint();
+}
+
+int Editor::layerSlotForSelection() const
+{
+    if (logicalInstruments.empty() || selectedLogicalIndex < 0
+        || selectedLogicalIndex >= static_cast<int>(logicalInstruments.size()))
+        return -1;
+
+    const auto name = logicalInstruments[static_cast<size_t>(selectedLogicalIndex)].name.toLowerCase();
+
+    if (name.contains("kick") || name.contains("kdrum") || name.contains("bdrum")
+        || name.contains("bassdrum") || name.contains("bass drum"))
+        return 0;
+
+    if (name.contains("snare"))
+        return 1;
+
+    return -1;
+}
+
+void Editor::openLayerDrawer(int slot)
+{
+    if (slot < 0 || slot > 1)
+        return;
+
+    if (layerDrawer == nullptr)
+    {
+        layerDrawer = std::make_unique<LayerDrawer>(processor);
+        layerDrawer->onClose = [this] { closeLayerDrawer(); };
+        layerDrawer->onOpenInMixer = [this](int micIndex)
+        {
+            closeLayerDrawer();
+            setViewMode(EditorView::mixerView);
+            if (mixerView != nullptr && micIndex >= 0)
+                mixerView->focusChannel(micIndex);
+        };
+        layerDrawer->onChanged = [this] { refreshMixerAfterLayerChange(); };
+        layerDrawer->onPreview = [this]
+        {
+            if (layerDrawer != nullptr)
+                previewLayerSlot(layerDrawer->getSlot());
+        };
+        addChildComponent(*layerDrawer);
+    }
+
+    if (layerDrawerSlot >= 0 && layerDrawerSlot != slot)
+        processor.getSampler().setUserLayerAudition(layerDrawerSlot, 0);
+
+    layerDrawerSlot = slot;
+    layerDrawer->setSlot(slot);
+    layerDrawer->setTheme(theme);
+    layerDrawer->setVisible(true);
+    resized();
+    layerDrawer->toFront(true);
+    updateLayerButton();
+}
+
+void Editor::closeLayerDrawer()
+{
+    if (layerDrawer != nullptr)
+        layerDrawer->setVisible(false);
+
+    if (layerDrawerSlot >= 0)
+        processor.getSampler().setUserLayerAudition(layerDrawerSlot, 0);
+
+    layerDrawerSlot = -1;
+    updateLayerButton();
+}
+
+void Editor::updateLayerButton()
+{
+    const int slot = layerSlotForSelection();
+    const bool shouldShow = (currentView == EditorView::kitView) && slot >= 0;
+    const bool wasShown = instLayerButton.isVisible();
+
+    instLayerButton.setVisible(shouldShow);
+
+    if (!shouldShow)
+    {
+        if (layerDrawer != nullptr && layerDrawer->isVisible())
+            closeLayerDrawer();
+        if (wasShown)
+            resized();
+        return;
+    }
+
+    instLayerButton.setLoaded(processor.getSampler().isUserLayerLoaded(slot));
+    instLayerButton.setMissing(processor.getSampler().isUserLayerMissing(slot));
+    instLayerButton.setOpen(layerDrawer != nullptr && layerDrawer->isVisible() && layerDrawerSlot == slot);
+
+    if (layerDrawer != nullptr && layerDrawer->isVisible() && layerDrawerSlot != slot)
+        openLayerDrawer(slot);
+    else if (layerDrawer != nullptr && layerDrawer->isVisible() && layerDrawerSlot == slot)
+        layerDrawer->refresh();
+
+    if (wasShown != shouldShow)
+        resized();
+}
+
+void Editor::refreshMixerAfterLayerChange()
+{
+    if (mixerView != nullptr)
+        mixerView->refreshChannels();
+
+    updateLayerButton();
+    repaint();
+}
+
+void Editor::previewLayerSlot(int slot)
+{
+    if (slot < 0 || slot > 1)
+        return;
+
+    auto &sampler = processor.getSampler();
+    int instrument = -1;
+
+    for (int i = 0; i < sampler.numInstruments(); ++i)
+    {
+        if (sampler.layerSlotForInstrument(i) == slot)
+        {
+            instrument = i;
+            break;
+        }
+    }
+
+    if (instrument < 0)
+        return;
+
+    int note = processor.getMidiMap().noteForInstrument(instrument);
+    if (note < 0)
+        note = 36;
+
+    sampler.noteOn(instrument, note, 0.9f, sampler.currentSamplePosition());
+
+    if (!theme.minimalStyle)
+        kitView.triggerHitForSamplerIndex(instrument, 0.9f);
+}
+
+void Editor::refreshHeaderButtonLabels()
+{
+    const bool isKit = (currentView == EditorView::kitView);
+    const bool isMixer = (currentView == EditorView::mixerView);
+    const bool isMidi = (currentView == EditorView::midiView);
+    const bool isLoops = (currentView == EditorView::loopsView);
+
+    homeTabButton.setVisible(theme.minimalStyle);
+    midiMapButton.setActive(isMidi);
+    loopsButton.setActive(isLoops);
+    stopLoopButton.setActive(midiBrowser != nullptr && midiBrowser->isAuditioning());
+
+    if (theme.minimalStyle)
+    {
+        homeTabButton.setButtonText("HOME");
+        homeTabButton.setActive(isKit);
+        viewToggleButton.setButtonText("MIXER");
+        viewToggleButton.setActive(isMixer);
+    }
+    else
+    {
+        viewToggleButton.setButtonText((isKit || isMidi || isLoops) ? "MIXER VIEW" : "KIT VIEW");
+        viewToggleButton.setActive(isMixer);
+    }
+}
+
+void Editor::setViewMode(EditorView mode)
+{
+    currentView = mode;
+    const bool isKit = (currentView == EditorView::kitView);
+    const bool isMixer = (currentView == EditorView::mixerView);
+    const bool isMidi = (currentView == EditorView::midiView);
+    const bool isLoops = (currentView == EditorView::loopsView);
+    const bool isMinimal = theme.minimalStyle;
+
+    if (edrumWizard != nullptr)
+        edrumWizard->close();
+
+    refreshHeaderButtonLabels();
+
+    kitView.setVisible(isKit && !isMinimal);
+    if (minimalGrid != nullptr)
+        minimalGrid->setVisible(isKit && isMinimal);
+    kitSelectorButton.setVisible(isKit);
+    instSelectorButton.setVisible(isKit);
+    outBusButton.setVisible(isKit);
+    for (auto &z : zoneButtons)
+        z->setVisible(isKit);
+
+    if (instVolumeKnob != nullptr)
+        instVolumeKnob->setVisible(isKit);
+    if (instPanKnob != nullptr)
+        instPanKnob->setVisible(isKit);
+    if (instPitchKnob != nullptr)
+        instPitchKnob->setVisible(isKit);
+    if (instDynamicsKnob != nullptr)
+        instDynamicsKnob->setVisible(isKit);
+    if (instAttackKnob != nullptr)
+        instAttackKnob->setVisible(isKit);
+    if (instDampKnob != nullptr)
+        instDampKnob->setVisible(isKit);
+
+    instCurveButton.setVisible(isKit);
+    instCurvePreview.setVisible(isKit);
+    instLearnButton.setVisible(isKit);
+    instLayerButton.setVisible(isKit);
+    if (!isKit)
+        closeLayerDrawer();
+    updateLayerButton();
+    scope.setVisible(!isMinimal && isKit);
+    if (masterVolumeKnob != nullptr)
+        masterVolumeKnob->setVisible(isKit);
+
+    if (mixerView != nullptr)
+    {
+        mixerView->setVisible(isMixer);
+        if (isMixer)
+            mixerView->refreshChannels();
+    }
+
+    if (midiPage != nullptr)
+    {
+        midiPage->setVisible(isMidi);
+        if (isMidi)
+            midiPage->refresh();
+    }
+
+    if (midiBrowser != nullptr)
+    {
+        midiBrowser->setVisible(isLoops);
+        if (isLoops)
+            midiBrowser->refreshIfNeeded();
+    }
+
+    resized();
+    repaint();
+}
+
+bool Editor::keyPressed(const juce::KeyPress &key)
+{
+    if (key.getKeyCode() == juce::KeyPress::escapeKey
+        && layerDrawer != nullptr && layerDrawer->isVisible())
+    {
+        closeLayerDrawer();
+        return true;
+    }
+
+    // Developer toggle shortcut: Ctrl + Shift + E or Cmd + Shift + E
+    if (key.getModifiers().isCommandDown() && key.getModifiers().isShiftDown()
+        && (key.getKeyCode() == 'E' || key.getKeyCode() == 'e'))
+    {
+        kitView.setEditMode(!kitView.isEditMode());
+        return true;
+    }
+
+    return false;
+}
+
+void Editor::mouseDown(const juce::MouseEvent &e)
+{
+    // Developer gesture: Alt-click or triple-click the top-left wordmark to toggle WYSIWYG edit mode
+    const auto logoTarget = juce::Rectangle<float>(24.0f, 8.0f, 220.0f, 54.0f);
+    if (logoTarget.contains(e.position) && (e.mods.isAltDown() || e.getNumberOfClicks() >= 3))
+    {
+        kitView.setEditMode(!kitView.isEditMode());
+        return;
+    }
+
+    if (layerDrawer != nullptr && layerDrawer->isVisible()
+        && !layerDrawer->getBounds().contains(e.getPosition()))
+        closeLayerDrawer();
+}
+
+bool Editor::isInterestedInFileDrag(const juce::StringArray &files)
+{
+    for (const auto &f : files)
+    {
+        const auto ext = juce::File(f).getFileExtension().toLowerCase();
+        if (ext == ".glorpkit" || ext == ".zip" || ext == ".xml")
+            return true;
+    }
+    return false;
+}
+
+void Editor::filesDropped(const juce::StringArray &files, int /*x*/, int /*y*/)
+{
+    for (const auto &f : files)
+    {
+        const auto ext = juce::File(f).getFileExtension().toLowerCase();
+        if (ext == ".glorpkit" || ext == ".zip" || ext == ".xml")
+        {
+            processor.loadKit(f);
+            break;
+        }
+    }
+}
+
+//==============================================================================
+void Editor::buildHeaderMenu()
+{
+    addChildComponent(homeTabButton);
+    addAndMakeVisible(viewToggleButton);
+    addAndMakeVisible(midiMapButton);
+    addAndMakeVisible(loopsButton);
+    addAndMakeVisible(stopLoopButton);
+    addAndMakeVisible(fileButton);
+    addAndMakeVisible(presetsButton);
+    addAndMakeVisible(midiButton);
+    addAndMakeVisible(settingsButton);
+
+    homeTabButton.onClick = [this] { setViewMode(EditorView::kitView); };
+
+    viewToggleButton.onClick = [this]
+    {
+        if (theme.minimalStyle)
+            setViewMode(EditorView::mixerView);
+        else
+            setViewMode(currentView == EditorView::mixerView ? EditorView::kitView : EditorView::mixerView);
+    };
+
+    midiMapButton.onClick = [this] { setViewMode(EditorView::midiView); };
+    loopsButton.onClick = [this] { setViewMode(EditorView::loopsView); };
+    stopLoopButton.onClick = [this]
+    {
+        if (midiBrowser != nullptr)
+            midiBrowser->stopAudition();
+
+        stopLoopButton.setActive(false);
+    };
+
+    auto showMenu = [this](juce::PopupMenu &m, juce::Component *target)
+    {
+        juce::PopupMenu::Options opts;
+        opts = opts.withTargetComponent(target).withParentComponent(this);
+        m.showMenuAsync(opts);
+    };
+
+    fileButton.onClick = [this, showMenu]
+    {
+        auto menu = buildFileMenu();
+        showMenu(menu, &fileButton);
+    };
+
+    presetsButton.onClick = [this, showMenu]
+    {
+        auto menu = buildPresetsMenu();
+        showMenu(menu, &presetsButton);
+    };
+
+    midiButton.onClick = [this, showMenu]
+    {
+        auto menu = buildMidiMenu();
+        showMenu(menu, &midiButton);
+    };
+
+    settingsButton.onClick = [this, showMenu]
+    {
+        auto menu = buildSettingsMenu();
+        showMenu(menu, &settingsButton);
+    };
+}
+
+void Editor::promptLoadKitFile()
+{
+    auto chooser = std::make_shared<juce::FileChooser>("Select DrumKit (.glorpkit, .xml, .zip)",
+                                                       juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                                                       "*.glorpkit;*.xml;*.zip");
+
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                         [this, chooser](const juce::FileChooser &fc)
+                         {
+                             const auto chosen = fc.getResult();
+                             if (chosen.existsAsFile())
+                                 processor.loadKit(chosen.getFullPathName());
+                         });
+}
+
+void Editor::openEDrumWizard()
+{
+    if (edrumWizard != nullptr)
+    {
+        edrumWizard->setBounds(getLocalBounds());
+        edrumWizard->open();
+        edrumWizard->toFront(true);
+    }
+}
+
+juce::PopupMenu Editor::buildFileMenu()
+{
+    juce::PopupMenu menu;
+
+    menu.addItem("Load DrumKit (.glorpkit, .xml)...", [this] { promptLoadKitFile(); });
+
+    menu.addSeparator();
+
+    // Discovered drumkits list
+    const auto &kitList = processor.getKitList();
+    if (!kitList.empty())
+    {
+        juce::PopupMenu kitsSubmenu;
+        for (const auto &entry : kitList)
+        {
+            const juce::String path(entry.drumkitPath);
+            const bool isCurrent = (processor.getSettings().lastKitPath == path);
+            kitsSubmenu.addItem(entry.displayName, true, isCurrent, [this, path] { processor.loadKit(path); });
+        }
+        menu.addSubMenu("Available Kits", kitsSubmenu);
+    }
+
+    // Recent kits list
+    const auto &recents = processor.getSettings().recentKits;
+    if (!recents.isEmpty())
+    {
+        juce::PopupMenu recentsSubmenu;
+        for (int i = 0; i < recents.size(); ++i)
+        {
+            const auto path = recents[i];
+            const auto name = juce::File(path).getFileName();
+            recentsSubmenu.addItem(name, [this, path] { processor.loadKit(path); });
+        }
+        menu.addSubMenu("Recent Kits", recentsSubmenu);
+    }
+
+    menu.addSeparator();
+
+    menu.addItem("Add Kit Folder...",
+                 [this]
+                 {
+                     auto chooser = std::make_shared<juce::FileChooser>(
+                         "Select Folder Containing DrumKits",
+                         juce::File::getSpecialLocation(juce::File::userHomeDirectory));
+
+                     chooser->launchAsync(juce::FileBrowserComponent::openMode
+                                              | juce::FileBrowserComponent::canSelectDirectories,
+                                          [this, chooser](const juce::FileChooser &fc)
+                                          {
+                                              const auto chosen = fc.getResult();
+                                              if (chosen.isDirectory())
+                                              {
+                                                  processor.getSettings().addKitPath(chosen.getFullPathName());
+                                                  processor.getSettings().saveIfChanged();
+                                                  processor.refreshKitList();
+                                                  kitChanged();
+                                              }
+                                          });
+                 });
+
+    menu.addSeparator();
+
+    const bool multiOut = processor.getSampler().isMultiOutMode();
+    menu.addItem("Multi-Output Mode (16 Stems)",
+                 true,
+                 multiOut,
+                 [this, multiOut]
+                 {
+                     processor.getSampler().setMultiOutMode(!multiOut);
+                     statusText = (!multiOut) ? "Multi-out mode active (16 stereo buses)"
+                                              : "Stereo mix mode active (all to 1-2)";
+                     repaint();
+                 });
+
+    menu.addSeparator();
+    menu.addItem("Panic (All Notes Off)", [this] { processor.getSampler().allNotesOff(); });
+
+    return menu;
+}
+
+juce::PopupMenu Editor::buildPresetsMenu()
+{
+    juce::PopupMenu menu;
+    const auto presets = MidiMap::availablePresets();
+    bool addedUserSection = false;
+
+    for (const auto &preset : presets)
+    {
+        if (!preset.isBuiltIn && !addedUserSection)
+        {
+            menu.addSeparator();
+            addedUserSection = true;
+        }
+
+        const bool isCurrent = (processor.getSettings().lastMapPreset == preset.name);
+        menu.addItem(preset.name,
+                     true,
+                     isCurrent,
+                     [this, preset]
+                     {
+                         processor.applyMapPreset(preset.name);
+                         updateInstrumentDisplay();
+                         statusText = "Applied preset: " + preset.name;
+                         repaint();
+                     });
+    }
+
+    menu.addSeparator();
+
+    menu.addItem("Save Current Map As...", [this] { promptSaveMapPreset(); });
+
+    menu.addItem("Rescan Presets",
+                 [this]
+                 {
+                     statusText = "Presets rescanned";
+                     repaint();
+                 });
+
+    menu.addSeparator();
+    menu.addItem("MIDI Thru (No Kit)",
+                 true,
+                 processor.isMidiThruEnabled(),
+                 [this]
+                 {
+                     const bool enabled = !processor.isMidiThruEnabled();
+                     processor.setMidiThruEnabled(enabled);
+                     statusText = enabled ? "MIDI Thru enabled: notes are remapped to the destination map"
+                                          : "MIDI Thru disabled";
+                     repaint();
+                 });
+
+    juce::PopupMenu destinations;
+    for (const auto &preset : presets)
+    {
+        const bool isCurrent = processor.getMidiThruDestination().equalsIgnoreCase(preset.name);
+        destinations.addItem(preset.name,
+                             true,
+                             isCurrent,
+                             [this, preset]
+                             {
+                                 processor.setMidiThruDestination(preset.name);
+                                 processor.setMidiThruEnabled(true);
+                                 statusText = "MIDI Thru -> " + preset.name;
+                                 repaint();
+                             });
+    }
+    menu.addSubMenu("MIDI Thru Destination", destinations);
+
+    menu.addItem("Close Kit (MIDI Thru)",
+                 [this]
+                 {
+                     processor.closeKit();
+                     statusText = "Kit closed. MIDI Thru can drive another instrument.";
+                     repaint();
+                 });
+
+    return menu;
+}
+
+void Editor::promptSaveMapPreset()
+{
+    auto *alert = new juce::AlertWindow(
+        "Save MIDI Map Preset", "Enter a name for this MIDI mapping preset:", juce::AlertWindow::QuestionIcon, this);
+    alert->setLookAndFeel(&getLookAndFeel());
+    alert->addTextEditor("presetName", processor.suggestedPresetSaveName(), "Preset Name");
+    alert->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<Editor> safeThis(this);
+    alert->enterModalState(true,
+                           juce::ModalCallbackFunction::create(
+                               [safeThis, alert](int result)
+                               {
+                                   if (result == 1 && safeThis != nullptr)
+                                   {
+                                       const auto name = alert->getTextEditorContents("presetName").trim();
+                                       if (name.isNotEmpty())
+                                       {
+                                           const auto savedPath = safeThis->processor.saveCustomMapPreset(name);
+                                           if (savedPath.isNotEmpty())
+                                           {
+                                               safeThis->updateInstrumentDisplay();
+                                               safeThis->statusText = "Saved preset '" + name + "'";
+                                               safeThis->repaint();
+                                           }
+                                       }
+                                   }
+                                   delete alert;
+                               }));
+}
+
+juce::PopupMenu Editor::buildMidiMenu()
+{
+    juce::PopupMenu menu;
+    auto &map = processor.getMidiMap();
+
+    menu.addItem("E-Drum Setup Wizard...", [this] { openEDrumWizard(); });
+    menu.addSeparator();
+
+    const bool continuousCC4 = (processor.getSampler().getHiHatMode() == HiHatMode::continuousCC4);
+    menu.addItem("Hi-Hat: Continuous CC#4 (E-Drum Crossfade)",
+                 true,
+                 continuousCC4,
+                 [this]
+                 {
+                     processor.getSampler().setHiHatMode(HiHatMode::continuousCC4);
+                     statusText = "Hi-Hat: Continuous CC#4 Mode active";
+                     repaint();
+                 });
+    menu.addItem("Hi-Hat: Discrete Notes (DAW / Keyboard)",
+                 true,
+                 !continuousCC4,
+                 [this]
+                 {
+                     processor.getSampler().setHiHatMode(HiHatMode::discreteNotes);
+                     statusText = "Hi-Hat: Discrete Notes Mode active";
+                     repaint();
+                 });
+    menu.addSeparator();
+
+    menu.addItem("Panic (All Notes Off)", [this] { processor.getSampler().allNotesOff(); });
+    menu.addSeparator();
+
+    if (map.isLearning())
+        menu.addItem("Cancel MIDI Learn",
+                     [this]
+                     {
+                         processor.getMidiMap().cancelLearn();
+                         learningInstrument = -1;
+                         updateInstrumentDisplay();
+                     });
+
+    menu.addItem("Clear Note Map",
+                 [this]
+                 {
+                     processor.getMidiMap().clearAssignments();
+                     updateInstrumentDisplay();
+                 });
+
+    menu.addItem("Clear All MIDI Bindings",
+                 [this]
+                 {
+                     processor.getMidiMap().clearBindings();
+                     statusText = "MIDI bindings cleared";
+                 });
+
+    return menu;
+}
+
+juce::PopupMenu Editor::buildSettingsMenu()
+{
+    juce::PopupMenu menu;
+
+    {
+        juce::PopupMenu windowMenu;
+        struct WindowOption
+        {
+            const char *label;
+            float factor;
+        };
+        const WindowOption options[] = {
+            {"100% (Standard)", 1.00f},
+            {"125% (Large)", 1.25f},
+            {"150% (Extra Large)", 1.50f},
+        };
+        const float curWindowScale = processor.getSettings().uiScale;
+        for (const auto &opt : options)
+        {
+            const bool active = std::abs(curWindowScale - opt.factor) < 0.01f;
+            windowMenu.addItem(opt.label,
+                               true,
+                               active,
+                               [this, opt]
+                               {
+                                   applyWindowScale(opt.factor);
+                                   statusText = juce::String("Window scale: ") + opt.label;
+                                   repaint();
+                               });
+        }
+        menu.addSubMenu("Window Scale", windowMenu);
+    }
+
+    {
+        juce::PopupMenu scaleMenu;
+        struct ScaleOption
+        {
+            const char *label;
+            float factor;
+        };
+        const ScaleOption options[] = {
+            {"90% (Compact)", 0.90f},
+            {"100% (Standard)", 1.00f},
+            {"115% (Large)", 1.15f},
+            {"130% (Extra Large)", 1.30f},
+        };
+        const float curScale = processor.getSettings().uiTextScale;
+        for (const auto &opt : options)
+        {
+            const bool active = std::abs(curScale - opt.factor) < 0.025f;
+            scaleMenu.addItem(opt.label,
+                              true,
+                              active,
+                              [this, opt]
+                              {
+                                  applyTextScale(opt.factor);
+                                  statusText = juce::String("Text scale: ") + opt.label;
+                                  repaint();
+                              });
+        }
+        menu.addSubMenu("Text Size (UI Scale)", scaleMenu);
+        menu.addSeparator();
+    }
+
+    const bool glEnabled = isOpenGlEnabled();
+    menu.addItem("GPU Hardware Acceleration (OpenGL)",
+                 true,
+                 glEnabled,
+                 [this, glEnabled]
+                 {
+                     setOpenGlEnabled(!glEnabled);
+                     statusText = (!glEnabled) ? "OpenGL GPU rendering enabled" : "Software rendering active";
+                     repaint();
+                 });
+
+    menu.addSeparator();
+    menu.addItem("Reset All Instrument Controls",
+                 [this]
+                 {
+                     processor.getSampler().resetInstrumentParams();
+                     updateInstrumentDisplay();
+                     repaint();
+                 });
+
+    menu.addItem(
+        "Save / Open Debug Log...",
+        [this]
+        {
+            auto &sampler = processor.getSampler();
+            const auto &map = processor.getMidiMap();
+            auto &engine = processor.getAudioEngine();
+
+            juce::String report;
+            report << "OS: " << juce::SystemStats::getOperatingSystemName()
+                   << " | Arch: " << (juce::SystemStats::isOperatingSystem64Bit() ? "x86_64/64-bit" : "32-bit") << "\n"
+                   << "Sample Rate: " << juce::String(engine.getCurrentSampleRate(), 1) << " Hz"
+                   << " | Block Size: " << juce::String(engine.getCurrentBlockSize()) << " samples\n"
+                   << "OpenGL: " << (isOpenGlEnabled() ? "ON" : "OFF") << "\n"
+                   << "Suite theme | Text Scale: "
+                   << juce::String(juce::roundToInt(glorp::getUiTextScale() * 100.0f)) << "%\n"
+                   << "Window Size: " << juce::String(getWidth()) << "x" << juce::String(getHeight()) << "\n"
+                   << "Hi-Hat Mode: "
+                   << (sampler.getHiHatMode() == HiHatMode::continuousCC4 ? "Continuous CC#4" : "Discrete Notes")
+                   << "\n"
+                   << "Loaded Kit: " << processor.getCurrentKitPath() << " (" << juce::String(sampler.numInstruments())
+                   << " instruments)\n"
+                   << "Last Preset: " << processor.getSettings().lastMapPreset << "\n"
+                   << "Instruments & MIDI Note Map:\n";
+
+            for (int i = 0; i < sampler.numInstruments(); ++i)
+            {
+                const int note = map.noteForInstrument(i);
+                report << "  [" << juce::String(i) << "] " << sampler.instrumentName(i) << " -> "
+                       << (note >= 0 ? (juce::MidiMessage::getMidiNoteName(note, true, true, 3) + " (MIDI #"
+                                        + juce::String(note) + ")")
+                                     : juce::String("UNMAPPED"))
+                       << "\n";
+            }
+
+            DebugLog::instance().writeDiagnosticReport(report);
+            const auto logFile = DebugLog::instance().getLogFile();
+            logFile.revealToUser();
+
+            statusText = "Debug log saved: " + logFile.getFullPathName();
+            repaint();
+
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
+                                                   "Suite Drums Glorp Debug Log",
+                                                   "Diagnostic snapshot and live MIDI log saved to:\n\n"
+                                                       + logFile.getFullPathName()
+                                                       + "\n\nAttach this file when reporting issues on GitHub.",
+                                                   "OK",
+                                                   this);
+        });
+
+    menu.addSeparator();
+    menu.addItem("About Suite Drums Glorp",
+                 [this]
+                 {
+                     juce::AlertWindow::showMessageBoxAsync(
+                         juce::AlertWindow::InfoIcon,
+                         "Suite Drums Glorp",
+                         "Suite Drums Glorp VST3 / LV2 Drum Instrument\n\n"
+                         "Plays GlorpKit and DrumGizmo kits with natural WSOLA tuning,\n"
+                         "interactive MIDI learn, and individual output buses.\n\n"
+                         "Part of the Suite series. Based on GlorpDrums by asuka-glorp.\n"
+                         "AGPL-3.0.",
+                         "OK",
+                         this);
+                 });
+
+    return menu;
+}
+
+//==============================================================================
+void Editor::buildControls()
+{
+    // Left Panel: Instrument Selector Button
+    addAndMakeVisible(instSelectorButton);
+    instSelectorButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        for (size_t i = 0; i < logicalInstruments.size(); ++i)
+        {
+            const auto &inst = logicalInstruments[i];
+            menu.addItem(inst.name,
+                         true,
+                         static_cast<int>(i) == selectedLogicalIndex,
+                         [this, i]
+                         {
+                             selectLogicalInstrument(static_cast<int>(i));
+                             selectZone(static_cast<int>(i), 0, false);
+                         });
+        }
+
+        juce::PopupMenu::Options opts;
+        opts = opts.withTargetComponent(&instSelectorButton).withParentComponent(this);
+        menu.showMenuAsync(opts);
+    };
+
+    // Kit Selector Dropdown Button (centered above drum kit graphic)
+    addAndMakeVisible(kitSelectorButton);
+    kitSelectorButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        const auto &kitList = processor.getKitList();
+        const auto currentPath = processor.getCurrentKitPath();
+
+        menu.addSectionHeader("AVAILABLE KITS");
+        bool hasKits = false;
+        for (const auto &entry : kitList)
+        {
+            if (!entry.valid)
+                continue;
+
+            hasKits = true;
+            const juce::String path(entry.drumkitPath);
+            const bool isCurrent = (path == currentPath);
+            menu.addItem(entry.displayName, true, isCurrent, [this, path] { processor.loadKit(path); });
+        }
+
+        if (!hasKits)
+            menu.addItem("(No kits found in scan folders)", false, false, nullptr);
+
+        menu.addSeparator();
+        menu.addItem("Browse for DrumKit (.glorpkit, .xml)...", [this] { promptLoadKitFile(); });
+
+        menu.addItem("Rescan Kit Folders",
+                     [this]
+                     {
+                         processor.refreshKitList();
+                         kitChanged();
+                     });
+
+        juce::PopupMenu::Options opts;
+        opts = opts.withTargetComponent(&kitSelectorButton).withParentComponent(this);
+        menu.showMenuAsync(opts);
+    };
+
+    // Left Panel: Output Bus Selector Button
+    addAndMakeVisible(outBusButton);
+    outBusButton.onClick = [this]
+    {
+        if (logicalInstruments.empty() || selectedLogicalIndex < 0
+            || selectedLogicalIndex >= static_cast<int>(logicalInstruments.size()))
+            return;
+
+        auto &inst = logicalInstruments[selectedLogicalIndex];
+        juce::PopupMenu menu;
+
+        for (int b = 0; b < 16; ++b)
+        {
+            const juce::String busLabel = "Out " + juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2)
+                                          + (b == 0 ? " (Main / Stereo Mix)" : "");
+            menu.addItem(
+                busLabel,
+                true,
+                b == inst.outputBus,
+                [this, b]
+                {
+                    if (selectedLogicalIndex >= 0 && selectedLogicalIndex < static_cast<int>(logicalInstruments.size()))
+                    {
+                        auto &currentInst = logicalInstruments[selectedLogicalIndex];
+                        currentInst.outputBus = b;
+                        outBusButton.setBusIndex(b);
+
+                        for (const auto &z : currentInst.zones)
+                            processor.setInstrumentOutputBus(z.samplerIndex, b);
+                        statusText = currentInst.name + " routed to Out " + juce::String(b * 2 + 1) + "/"
+                                     + juce::String(b * 2 + 2);
+                        repaint();
+                    }
+                });
+        }
+
+        juce::PopupMenu::Options opts;
+        opts = opts.withTargetComponent(&outBusButton).withParentComponent(this);
+        menu.showMenuAsync(opts);
+    };
+
+    // Left Panel: 4 Knobs (2x2 Grid)
+    instVolumeKnob = std::make_unique<Knob>("VOLUME");
+    instVolumeKnob->setDoubleClickReturnValue(true, 0.5);
+    addAndMakeVisible(*instVolumeKnob);
+
+    instPanKnob = std::make_unique<Knob>("PAN");
+    instPanKnob->setDoubleClickReturnValue(true, 0.5);
+    addAndMakeVisible(*instPanKnob);
+
+    instPitchKnob = std::make_unique<Knob>("PITCH");
+    instPitchKnob->setDoubleClickReturnValue(true, 0.5);
+    addAndMakeVisible(*instPitchKnob);
+
+    instDynamicsKnob = std::make_unique<Knob>("DYN");
+    instDynamicsKnob->setDoubleClickReturnValue(true, 0.5);
+    addAndMakeVisible(*instDynamicsKnob);
+
+    instPitchKnob->setLabel("TUNE");
+
+    instAttackKnob = std::make_unique<Knob>("ATTACK", -1.0f, 1.0f, 0.0f, "");
+    instAttackKnob->setDoubleClickReturnValue(true, 0.0);
+    instAttackKnob->setBipolar(true);
+    instAttackKnob->onValueChanged = [this](float v)
+    {
+        const int samplerIdx = getActiveSamplerIndex();
+        if (samplerIdx < 0)
+            return;
+        auto p = processor.getSampler().getInstrumentParams(samplerIdx);
+        p.attackAmount = juce::jlimit(-1.0f, 1.0f, v);
+        processor.getSampler().setInstrumentParams(samplerIdx, p);
+    };
+    addAndMakeVisible(*instAttackKnob);
+
+    instDampKnob = std::make_unique<Knob>("DAMP");
+    instDampKnob->setDoubleClickReturnValue(true, 0.0);
+    instDampKnob->onValueChanged = [this](float v)
+    {
+        const int samplerIdx = getActiveSamplerIndex();
+        if (samplerIdx < 0)
+            return;
+        auto p = processor.getSampler().getInstrumentParams(samplerIdx);
+        p.damping = juce::jlimit(0.0f, 1.0f, v);
+        processor.getSampler().setInstrumentParams(samplerIdx, p);
+    };
+    addAndMakeVisible(*instDampKnob);
+
+    // Left Panel: Velocity Curve Button & DrumGizmo-style Curve Preview
+    addAndMakeVisible(instCurveButton);
+    addAndMakeVisible(instCurvePreview);
+    addChildComponent(instLayerButton);
+    instLayerButton.onClick = [this]
+    {
+        const int slot = layerSlotForSelection();
+        if (slot < 0)
+            return;
+
+        if (layerDrawer != nullptr && layerDrawer->isVisible() && layerDrawerSlot == slot)
+            closeLayerDrawer();
+        else
+            openLayerDrawer(slot);
+    };
+    instCurvePreview.onClick = [this] { instCurveButton.triggerClick(); };
+    instCurveButton.onClick = [this]
+    {
+        const int samplerIdx = getActiveSamplerIndex();
+        if (samplerIdx < 0)
+            return;
+
+        const auto currentParams = processor.getSampler().getInstrumentParams(samplerIdx);
+        juce::PopupMenu menu;
+        menu.addSectionHeader("VELOCITY RESPONSE");
+        menu.addItem("Linear (1:1 Natural)",
+                     true,
+                     currentParams.velocityCurve == VelocityCurve::linear,
+                     [this, samplerIdx]
+                     {
+                         auto p = processor.getSampler().getInstrumentParams(samplerIdx);
+                         p.velocityCurve = VelocityCurve::linear;
+                         processor.getSampler().setInstrumentParams(samplerIdx, p);
+                         updateInstrumentDisplay();
+                     });
+        menu.addItem("Logarithmic (Boost Soft Hits)",
+                     true,
+                     currentParams.velocityCurve == VelocityCurve::logarithmic,
+                     [this, samplerIdx]
+                     {
+                         auto p = processor.getSampler().getInstrumentParams(samplerIdx);
+                         p.velocityCurve = VelocityCurve::logarithmic;
+                         processor.getSampler().setInstrumentParams(samplerIdx, p);
+                         updateInstrumentDisplay();
+                     });
+        menu.addItem("Exponential (Tight / Hard Hits)",
+                     true,
+                     currentParams.velocityCurve == VelocityCurve::exponential,
+                     [this, samplerIdx]
+                     {
+                         auto p = processor.getSampler().getInstrumentParams(samplerIdx);
+                         p.velocityCurve = VelocityCurve::exponential;
+                         processor.getSampler().setInstrumentParams(samplerIdx, p);
+                         updateInstrumentDisplay();
+                     });
+        menu.addItem("S-Curve (Enhanced Mid-Dynamics)",
+                     true,
+                     currentParams.velocityCurve == VelocityCurve::sCurve,
+                     [this, samplerIdx]
+                     {
+                         auto p = processor.getSampler().getInstrumentParams(samplerIdx);
+                         p.velocityCurve = VelocityCurve::sCurve;
+                         processor.getSampler().setInstrumentParams(samplerIdx, p);
+                         updateInstrumentDisplay();
+                     });
+
+        juce::PopupMenu::Options opts;
+        opts = opts.withTargetComponent(&instCurveButton).withParentComponent(this);
+        menu.showMenuAsync(opts);
+    };
+
+    // Left Panel: Learn Button
+    addAndMakeVisible(instLearnButton);
+    instLearnButton.onClick = [this]
+    {
+        const int samplerIdx = getActiveSamplerIndex();
+        if (samplerIdx >= 0)
+            armLearn(samplerIdx);
+    };
+
+    // Bottom-Right: Master Volume Knob
+    masterVolumeKnob = std::make_unique<Knob>("VOLUME");
+    if (auto *p = processor.findParameter("masterLevel"))
+    {
+        masterVolumeKnob->setDoubleClickReturnValue(true, 0.8);
+        masterVolumeKnob->attachToParameter(p);
+    }
+    addAndMakeVisible(*masterVolumeKnob);
+
+    bindInstrumentKnobs();
+    updateInstrumentDisplay();
+}
+
+void Editor::buildLogicalInstruments()
+{
+    logicalInstruments.clear();
+    const auto &sampler = processor.getSampler();
+    const int count = sampler.numInstruments();
+
+    if (count == 0)
+    {
+        LogicalInstrument dummy;
+        dummy.name = "SNARE";
+        dummy.piece = KitPiece::snare;
+        dummy.zones.push_back({0, "Snare"});
+        logicalInstruments.push_back(dummy);
+        rebuildZoneButtons();
+        return;
+    }
+
+    if (processor.getCurrentKit().isNativeGlorpKit)
+    {
+        for (const auto &p : processor.getCurrentKit().logicalPieces)
+        {
+            LogicalInstrument li;
+            li.name = juce::String(p.name);
+            li.piece = DrumKitView::pieceForName(p.name);
+            if (li.piece == KitPiece::count)
+                li.piece = DrumKitView::pieceForName(p.id);
+            // Do not fall back to the graphic for named pieces. Auxiliary
+            // pieces often reuse a snare/crash graphic (cowbell, stick click,
+            // hand clap), and that made the classic kit view trigger them when
+            // the actual snare was clicked.
+            li.outputBus = p.outputBus;
+            for (const auto &z : p.zones)
+                li.zones.push_back({z.samplerIndex, juce::String(z.name)});
+            logicalInstruments.push_back(std::move(li));
+        }
+        selectedLogicalIndex = juce::jlimit(0, static_cast<int>(logicalInstruments.size()) - 1, selectedLogicalIndex);
+        rebuildZoneButtons();
+        return;
+    }
+
+    const auto parseParent = [](const juce::String &rawName) -> std::pair<juce::String, juce::String>
+    {
+        const auto trimmed = rawName.trim();
+        if (trimmed.isEmpty())
+            return {"Drum", "Drum"};
+
+        // 1. Specific multi-zone snare pieces
+        if (trimmed.equalsIgnoreCase("RimClick") || trimmed.equalsIgnoreCase("CrossStick")
+            || trimmed.equalsIgnoreCase("Rimshot") || trimmed.equalsIgnoreCase("SnareRimShot")
+            || trimmed.equalsIgnoreCase("SnareRim") || trimmed.equalsIgnoreCase("SnareRest")
+            || trimmed.startsWithIgnoreCase("Snare"))
+        {
+            juce::String zone = trimmed;
+            if (zone.startsWithIgnoreCase("Snare") && zone.length() > 5)
+                zone = zone.substring(5);
+            return {"Snare", zone};
+        }
+
+        // 2. Toms with numbers and zones (Tom1Head, Tom1Rim, Tom2Head, Tom2Rim, FTomHead, FTomRim)
+        if (trimmed.startsWithIgnoreCase("Tom1"))
+        {
+            juce::String zone = trimmed.length() > 4 ? trimmed.substring(4) : "Tom1";
+            return {"Tom 1", zone};
+        }
+        if (trimmed.startsWithIgnoreCase("Tom2"))
+        {
+            juce::String zone = trimmed.length() > 4 ? trimmed.substring(4) : "Tom2";
+            return {"Tom 2", zone};
+        }
+        if (trimmed.startsWithIgnoreCase("FTom") || trimmed.startsWithIgnoreCase("FloorTom"))
+        {
+            juce::String zone = trimmed;
+            if (zone.startsWithIgnoreCase("FloorTom") && zone.length() > 8)
+                zone = zone.substring(8);
+            else if (zone.startsWithIgnoreCase("FTom") && zone.length() > 4)
+                zone = zone.substring(4);
+            return {"Floor Tom", zone};
+        }
+
+        // 3. Crash 1 and Crash 2 with zones (Crash1Edge, Crash1Bow, Crash1Choke, Crash2Edge, etc.)
+        if (trimmed.startsWithIgnoreCase("Crash1"))
+        {
+            juce::String zone = trimmed.length() > 6 ? trimmed.substring(6) : "Crash1";
+            return {"Crash 1", zone};
+        }
+        if (trimmed.startsWithIgnoreCase("Crash2"))
+        {
+            juce::String zone = trimmed.length() > 6 ? trimmed.substring(6) : "Crash2";
+            return {"Crash 2", zone};
+        }
+
+        // 4. Ride with zones (RideBow, RideBell, RideEdge, RideChoke, RideRBell, RideR)
+        if (trimmed.startsWithIgnoreCase("RideR") && trimmed.length() > 5)
+            return {"RideR", trimmed.substring(5)};
+        if (trimmed.startsWithIgnoreCase("Ride") && trimmed.length() > 4 && !trimmed.equalsIgnoreCase("RideR"))
+            return {"Ride", trimmed.substring(4)};
+
+        // 5. Hihat with zones (HihatClosed, HihatSemiOpen, HihatOpen, HihatPedal)
+        if (trimmed.startsWithIgnoreCase("Hihat") && trimmed.length() > 5)
+            return {"Hihat", trimmed.substring(5)};
+
+        // 6. If name ends with digit(s) (e.g. Tom1, Tom2, FTom1, FTom2) -> individual instrument
+        const juce::juce_wchar lastChar = trimmed[trimmed.length() - 1];
+        if (juce::CharacterFunctions::isDigit(lastChar))
+            return {trimmed, trimmed};
+
+        // 7. If starts with known L/R prefix (e.g. ChinaL, ChinaR, CrashL, CrashR, KDrumL, KDrumR, RideR, SplashL,
+        // SplashR)
+        const char *knownLR[] = {"ChinaL",
+                                 "ChinaR",
+                                 "CrashL",
+                                 "CrashR",
+                                 "KDrumL",
+                                 "KDrumR",
+                                 "RideL",
+                                 "RideR",
+                                 "SplashL",
+                                 "SplashR",
+                                 "KickL",
+                                 "KickR",
+                                 nullptr};
+        for (int i = 0; knownLR[i] != nullptr; ++i)
+        {
+            if (trimmed.startsWithIgnoreCase(knownLR[i]))
+            {
+                juce::String parent = knownLR[i];
+                juce::String zone = trimmed;
+                if (zone.length() > parent.length())
+                    zone = zone.substring(parent.length());
+                return {parent, zone};
+            }
+        }
+
+        // 8. Known base roots with multi-zones
+        const char *knownRoots[] = {"Snare",
+                                    "Hihat",
+                                    "HiHat",
+                                    "Ride",
+                                    "Kick",
+                                    "KDrum",
+                                    "Crash",
+                                    "China",
+                                    "Splash",
+                                    "Cowbell",
+                                    "Tambourine",
+                                    nullptr};
+        for (int i = 0; knownRoots[i] != nullptr; ++i)
+        {
+            if (trimmed.startsWithIgnoreCase(knownRoots[i]))
+            {
+                juce::String parent = knownRoots[i];
+                if (parent.equalsIgnoreCase("hihat"))
+                    parent = "Hihat";
+                juce::String zone = trimmed;
+                if (zone.length() > parent.length())
+                    zone = zone.substring(parent.length());
+                return {parent, zone};
+            }
+        }
+
+        // 9. Default: parent is trimmed
+        return {trimmed, trimmed};
+    };
+
+    for (int i = 0; i < count; ++i)
+    {
+        const auto rawName = sampler.instrumentName(i);
+        auto [parentName, zoneName] = parseParent(rawName);
+
+        int matchIdx = -1;
+        for (size_t k = 0; k < logicalInstruments.size(); ++k)
+        {
+            if (logicalInstruments[k].name.equalsIgnoreCase(parentName))
+            {
+                matchIdx = static_cast<int>(k);
+                break;
+            }
+        }
+
+        if (matchIdx < 0)
+        {
+            LogicalInstrument newInst;
+            newInst.name = parentName;
+            newInst.piece = DrumKitView::pieceForName(rawName);
+            if (newInst.piece == KitPiece::count)
+                newInst.piece = DrumKitView::pieceForName(parentName);
+            newInst.outputBus = sampler.getInstrumentBus(i);
+            newInst.zones.push_back({i, zoneName});
+            logicalInstruments.push_back(newInst);
+        }
+        else
+        {
+            logicalInstruments[matchIdx].zones.push_back({i, zoneName});
+            if (logicalInstruments[matchIdx].piece == KitPiece::count)
+            {
+                auto p = DrumKitView::pieceForName(rawName);
+                if (p != KitPiece::count)
+                    logicalInstruments[matchIdx].piece = p;
+            }
+        }
+    }
+
+    for (auto &inst : logicalInstruments)
+        if (!inst.zones.empty())
+            inst.outputBus = sampler.getInstrumentBus(inst.zones.front().samplerIndex);
+
+    selectedLogicalIndex = juce::jlimit(0, static_cast<int>(logicalInstruments.size()) - 1, selectedLogicalIndex);
+    rebuildZoneButtons();
+    syncMinimalGridItems();
+}
+
+void Editor::syncMinimalGridItems()
+{
+    if (minimalGrid == nullptr)
+        return;
+
+    std::vector<MinimalInstrumentGrid::Item> gridItems;
+    gridItems.reserve(logicalInstruments.size());
+
+    for (size_t i = 0; i < logicalInstruments.size(); ++i)
+    {
+        const auto &inst = logicalInstruments[i];
+        MinimalInstrumentGrid::Item item;
+        item.name = inst.name;
+        item.zoneCount = static_cast<int>(inst.zones.size());
+        item.outputBus = inst.outputBus;
+
+        int samplerIdx = -1;
+        if (!inst.zones.empty())
+        {
+            const int zi = juce::jlimit(0, static_cast<int>(inst.zones.size()) - 1, inst.selectedZoneIndex);
+            item.activeZoneName = inst.zones[static_cast<size_t>(zi)].zoneName;
+            samplerIdx = inst.zones[static_cast<size_t>(zi)].samplerIndex;
+        }
+
+        if (samplerIdx >= 0)
+        {
+            const int note = processor.getMidiMap().noteForInstrument(samplerIdx);
+            if (note >= 0)
+                item.midiNoteText = juce::MidiMessage::getMidiNoteName(note, true, true, 3) + " " + juce::String(note);
+            else
+                item.midiNoteText = "--";
+        }
+
+        gridItems.push_back(std::move(item));
+    }
+
+    minimalGrid->setItems(std::move(gridItems));
+    minimalGrid->setSelectedIndex(selectedLogicalIndex);
+}
+
+void Editor::rebuildZoneButtons()
+{
+    for (auto &btn : zoneButtons)
+        removeChildComponent(btn.get());
+
+    zoneButtons.clear();
+
+    if (logicalInstruments.empty() || selectedLogicalIndex < 0
+        || selectedLogicalIndex >= static_cast<int>(logicalInstruments.size()))
+        return;
+
+    const auto &inst = logicalInstruments[selectedLogicalIndex];
+    for (size_t i = 0; i < inst.zones.size(); ++i)
+    {
+        const bool active = (static_cast<int>(i) == inst.selectedZoneIndex);
+        auto btn = std::make_unique<ZoneButton>(inst.zones[i].zoneName, active);
+        const int zoneIdx = static_cast<int>(i);
+
+        btn->onClick = [this, zoneIdx] { selectZone(selectedLogicalIndex, zoneIdx, true); };
+
+        btn->setTheme(theme);
+        if (currentView == EditorView::kitView)
+            addAndMakeVisible(*btn);
+        else
+            addChildComponent(*btn);
+        zoneButtons.push_back(std::move(btn));
+    }
+
+    resized();
+}
+
+int Editor::getActiveSamplerIndex() const
+{
+    if (logicalInstruments.empty() || selectedLogicalIndex < 0
+        || selectedLogicalIndex >= static_cast<int>(logicalInstruments.size()))
+        return -1;
+
+    const auto &inst = logicalInstruments[selectedLogicalIndex];
+    if (inst.zones.empty() || inst.selectedZoneIndex < 0
+        || inst.selectedZoneIndex >= static_cast<int>(inst.zones.size()))
+        return -1;
+
+    return inst.zones[inst.selectedZoneIndex].samplerIndex;
+}
+
+void Editor::selectLogicalInstrument(int index)
+{
+    if (logicalInstruments.empty())
+        return;
+
+    selectedLogicalIndex = juce::jlimit(0, static_cast<int>(logicalInstruments.size()) - 1, index);
+    instSelectorButton.setInstrumentName(logicalInstruments[selectedLogicalIndex].name);
+    outBusButton.setBusIndex(logicalInstruments[selectedLogicalIndex].outputBus);
+
+    rebuildZoneButtons();
+    selectZone(selectedLogicalIndex, logicalInstruments[selectedLogicalIndex].selectedZoneIndex, false);
+}
+
+void Editor::selectZone(int logicalIndex, int zoneIndex, bool triggerPreview)
+{
+    if (logicalInstruments.empty())
+        return;
+
+    selectedLogicalIndex = juce::jlimit(0, static_cast<int>(logicalInstruments.size()) - 1, logicalIndex);
+    auto &inst = logicalInstruments[selectedLogicalIndex];
+
+    if (!inst.zones.empty())
+        inst.selectedZoneIndex = juce::jlimit(0, static_cast<int>(inst.zones.size()) - 1, zoneIndex);
+    else
+        inst.selectedZoneIndex = 0;
+
+    for (size_t i = 0; i < zoneButtons.size(); ++i)
+        zoneButtons[i]->setActive(static_cast<int>(i) == inst.selectedZoneIndex);
+
+    bindInstrumentKnobs();
+    updateInstrumentDisplay();
+
+    const int samplerIdx = getActiveSamplerIndex();
+    if (triggerPreview && samplerIdx >= 0)
+    {
+        const auto note = processor.getMidiMap().noteForInstrument(samplerIdx);
+        const int midiNote = (note >= 0) ? note : 36;
+        processor.getSampler().noteOn(samplerIdx, midiNote, 1.0f, processor.getSampler().currentSamplePosition());
+        if (!theme.minimalStyle)
+        {
+            scope.hitReceived(inst.name, inst.piece, midiNote, 1.0f);
+
+            if (!kitView.triggerHitForSamplerIndex(samplerIdx, 1.0f))
+            {
+                if (inst.piece != KitPiece::count)
+                    kitView.triggerHitForPiece(inst.piece, 1.0f);
+            }
+        }
+        else if (minimalGrid != nullptr)
+        {
+            minimalGrid->triggerItemHit(selectedLogicalIndex, 1.0f);
+        }
+    }
+
+    if (minimalGrid != nullptr)
+        minimalGrid->setSelectedIndex(selectedLogicalIndex);
+
+    repaint();
+}
+
+void Editor::selectInstrument(int samplerIndex)
+{
+    for (size_t l = 0; l < logicalInstruments.size(); ++l)
+    {
+        for (size_t z = 0; z < logicalInstruments[l].zones.size(); ++z)
+        {
+            if (logicalInstruments[l].zones[z].samplerIndex == samplerIndex)
+            {
+                selectLogicalInstrument(static_cast<int>(l));
+                selectZone(static_cast<int>(l), static_cast<int>(z), false);
+                return;
+            }
+        }
+    }
+}
+
+void Editor::bindInstrumentKnobs()
+{
+    const int samplerIdx = getActiveSamplerIndex();
+    if (samplerIdx < 0)
+        return;
+
+    const auto prefix = "inst" + juce::String(samplerIdx) + ".";
+
+    if (auto *p = processor.findParameter(prefix + "level"))
+        instVolumeKnob->attachToParameter(p);
+
+    if (auto *p = processor.findParameter(prefix + "pan"))
+        instPanKnob->attachToParameter(p);
+
+    if (auto *p = processor.findParameter(prefix + "pitch"))
+        instPitchKnob->attachToParameter(p);
+
+    if (auto *p = processor.findParameter(prefix + "dynamics"))
+        instDynamicsKnob->attachToParameter(p);
+}
+
+void Editor::updateInstrumentDisplay()
+{
+    if (logicalInstruments.empty() || selectedLogicalIndex < 0
+        || selectedLogicalIndex >= static_cast<int>(logicalInstruments.size()))
+        return;
+
+    const auto &inst = logicalInstruments[selectedLogicalIndex];
+    instSelectorButton.setInstrumentName(inst.name);
+    outBusButton.setBusIndex(inst.outputBus);
+
+    const int samplerIdx = getActiveSamplerIndex();
+    if (samplerIdx >= 0)
+    {
+        const auto params = processor.getSampler().getInstrumentParams(samplerIdx);
+        instCurveButton.setCurve(params.velocityCurve);
+        instCurvePreview.setCurve(params.velocityCurve);
+        instAttackKnob->setValue(params.attackAmount);
+        instDampKnob->setNormalized(params.damping);
+    }
+
+    const bool isLearningThis = (learningInstrument >= 0 && learningInstrument == samplerIdx);
+    instLearnButton.setLearning(isLearningThis);
+    syncMinimalGridItems();
+    updateLayerButton();
+}
+
+void Editor::armLearn(int samplerIndex)
+{
+    if (samplerIndex < 0)
+        return;
+
+    auto &map = processor.getMidiMap();
+    if (learningInstrument == samplerIndex)
+    {
+        map.cancelLearn();
+        learningInstrument = -1;
+        statusText = "MIDI learn cancelled";
+    }
+    else
+    {
+        learningInstrument = samplerIndex;
+        map.beginLearn("note" + std::to_string(samplerIndex), true);
+        statusText = "MIDI learn armed - hit your drum pad";
+    }
+
+    updateInstrumentDisplay();
+    repaint();
+}
+
+juce::String Editor::noteLabelFor(int samplerIndex) const
+{
+    if (samplerIndex < 0)
+        return "--";
+
+    const auto note = processor.getMidiMap().noteForInstrument(samplerIndex);
+    if (note < 0)
+        return "--";
+
+    return juce::MidiMessage::getMidiNoteName(note, true, true, 3);
+}
+
+void Editor::kitChanged()
+{
+    kitErrorText = processor.getLastKitError();
+
+    juce::String title = processor.getSampler().kitTitleString();
+    if (title.isEmpty())
+    {
+        const auto p = processor.getCurrentKitPath();
+        if (p.isNotEmpty())
+            title = juce::File(p).getParentDirectory().getFileName();
+        else
+            title = "SUITE STARTER KIT";
+    }
+    kitSelectorButton.setKitName(title);
+
+    buildLogicalInstruments();
+
+    std::vector<juce::String> names;
+    for (int i = 0; i < processor.getSampler().numInstruments(); ++i)
+        names.push_back(processor.getSampler().instrumentName(i));
+
+    kitView.setInstrumentNames(names);
+    kitView.applyKitVisuals(processor.getCurrentKit());
+
+    if (!logicalInstruments.empty())
+    {
+        selectedLogicalIndex = juce::jlimit(0, static_cast<int>(logicalInstruments.size()) - 1, selectedLogicalIndex);
+        selectZone(selectedLogicalIndex, 0, false);
+    }
+
+    statusText = processor.getSampler().isKitLoaded()
+                     ? juce::String(processor.getSampler().numInstruments()) + " instruments, "
+                           + juce::String(processor.getSampler().usedBusCount()) + " output buses"
+                     : "Glorp Demo Kit ready";
+
+    if (mixerView != nullptr)
+        mixerView->refreshChannels();
+
+    if (midiPage != nullptr)
+        midiPage->refresh();
+
+    repaint();
+}
+
+void Editor::parametersChanged()
+{
+    updateInstrumentDisplay();
+    bindInstrumentKnobs();
+    repaint();
+}
+
+void Editor::busRoutingChanged()
+{
+    const int selectedZone = getActiveSamplerIndex();
+    buildLogicalInstruments();
+
+    if (selectedZone >= 0)
+    {
+        for (int i = 0; i < static_cast<int>(logicalInstruments.size()); ++i)
+        {
+            for (const auto &z : logicalInstruments[static_cast<size_t>(i)].zones)
+            {
+                if (z.samplerIndex == selectedZone)
+                {
+                    selectedLogicalIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    updateInstrumentDisplay();
+    bindInstrumentKnobs();
+
+    if (mixerView != nullptr)
+        mixerView->refreshBusStates();
+
+    repaint();
+}
+
+//==============================================================================
+void Editor::timerCallback()
+{
+    if (midiBrowser != nullptr)
+    {
+        const bool playing = midiBrowser->isAuditioning();
+        if (stopLoopButton.getActive() != playing)
+            stopLoopButton.setActive(playing);
+    }
+
+    if (!windowIconApplied)
+    {
+        if (auto *top = getTopLevelComponent())
+        {
+            if (auto *peer = top->getPeer())
+            {
+                auto icon = juce::ImageFileFormat::loadFrom(GlorpAssets::suite_drums_icon_png,
+                                                            (size_t) GlorpAssets::suite_drums_icon_pngSize);
+                if (icon.isValid())
+                {
+                    if (auto *dw = dynamic_cast<juce::DocumentWindow *>(top))
+                        dw->setIcon(icon);
+                    peer->setIcon(icon);
+                    windowIconApplied = true;
+                }
+            }
+        }
+    }
+
+    auto &sampler = processor.getSampler();
+    HitEvent event;
+
+    while (sampler.popHit(event))
+    {
+        if (theme.minimalStyle)
+        {
+            if (minimalGrid != nullptr)
+            {
+                for (size_t l = 0; l < logicalInstruments.size(); ++l)
+                {
+                    bool matched = false;
+                    for (const auto &z : logicalInstruments[l].zones)
+                    {
+                        if (z.samplerIndex == event.instrumentIndex)
+                        {
+                            minimalGrid->triggerItemHit(static_cast<int>(l), event.velocity);
+                            matched = true;
+                            break;
+                        }
+                    }
+                    if (matched)
+                        break;
+                }
+            }
+        }
+        else
+        {
+            if (!kitView.triggerHitForSamplerIndex(event.instrumentIndex, event.velocity))
+            {
+                const auto instName = processor.getSampler().instrumentName(event.instrumentIndex);
+                kitView.triggerHit(instName, event.velocity);
+            }
+
+            const auto instName = processor.getSampler().instrumentName(event.instrumentIndex);
+            const auto piece = DrumKitView::pieceForName(instName);
+            scope.hitReceived(instName, piece, event.note, event.velocity);
+        }
+    }
+
+    if (theme.minimalStyle)
+    {
+        if (minimalGrid != nullptr)
+            minimalGrid->tickAnimations();
+
+        const float pkL = std::clamp(sampler.getMasterPeakL(), 0.0f, 1.0f);
+        const float pkR = std::clamp(sampler.getMasterPeakR(), 0.0f, 1.0f);
+        const float nextL = (pkL > minimalMasterLevelL) ? pkL : minimalMasterLevelL * 0.85f;
+        const float nextR = (pkR > minimalMasterLevelR) ? pkR : minimalMasterLevelR * 0.85f;
+        const bool meterChanged =
+            (std::abs(nextL - minimalMasterLevelL) > 0.004f || std::abs(nextR - minimalMasterLevelR) > 0.004f);
+        minimalMasterLevelL = (nextL < 0.004f) ? 0.0f : nextL;
+        minimalMasterLevelR = (nextR < 0.004f) ? 0.0f : nextR;
+        if (meterChanged && currentView == EditorView::kitView && !minimalMasterCardRect.isEmpty())
+            repaint(minimalMasterCardRect.toNearestInt().expanded(2));
+    }
+    else
+    {
+        const float cc4 = processor.getHiHatCC4();
+        static float lastReportedCC4 = -1.0f;
+        if (std::abs(cc4 - lastReportedCC4) > 0.005f)
+        {
+            lastReportedCC4 = cc4;
+            scope.controllerReceived(4, static_cast<int>(cc4 * 127.0f));
+        }
+    }
+
+    processor.drainControlQueue();
+
+    const auto isLearning = processor.getMidiMap().isLearning();
+
+    if (wasLearning && !isLearning)
+    {
+        if (learningInstrument >= 0)
+        {
+            learningInstrument = -1;
+            processor.saveCustomMapPreset("Custom");
+            statusText = "MIDI learned (saved to Custom)";
+        }
+        updateInstrumentDisplay();
+        repaint();
+    }
+
+    wasLearning = isLearning;
+
+    static int debugFlushTick = 0;
+    if (++debugFlushTick >= 15)
+    {
+        debugFlushTick = 0;
+        if (DebugLog::instance().hasPendingEntries())
+            DebugLog::instance().flushToFile();
+    }
+}
+
+//==============================================================================
+void Editor::resized()
+{
+    const auto b = getLocalBounds();
+    const int w = b.getWidth();
+    const int h = b.getHeight();
+
+    if (theme.minimalStyle)
+    {
+        const float hdrScale = juce::jlimit(1.0f, 1.24f, glorp::getUiTextScale());
+        const int menuY = 12;
+        const int menuH = juce::roundToInt(30.0f * juce::jlimit(1.0f, 1.14f, hdrScale));
+        const int tabW = juce::roundToInt(74.0f * hdrScale);
+        const int fileW = juce::roundToInt(50.0f * hdrScale);
+        const int presetsW = juce::roundToInt(74.0f * hdrScale);
+        const int midiW = juce::roundToInt(48.0f * hdrScale);
+        const int settingsW = juce::roundToInt(78.0f * hdrScale);
+        const int gap = 6;
+
+        // Right group: utility menus
+        int rightX = w - 20;
+        rightX -= settingsW;
+        settingsButton.setBounds(rightX, menuY, settingsW, menuH);
+        rightX -= gap + midiW;
+        midiButton.setBounds(rightX, menuY, midiW, menuH);
+        rightX -= gap + presetsW;
+        presetsButton.setBounds(rightX, menuY, presetsW, menuH);
+        rightX -= gap + fileW;
+        fileButton.setBounds(rightX, menuY, fileW, menuH);
+
+        // Center-left segmented view tabs: HOME | MIXER | PRACTICE
+        const int tabsTotalW = tabW * 3 + 8;
+        const int tabStartX = std::max(222, std::min(rightX - 18 - tabsTotalW, (w - tabsTotalW) / 2 - 30));
+        homeTabButton.setBounds(tabStartX, menuY, tabW, menuH);
+        viewToggleButton.setBounds(tabStartX + tabW + 4, menuY, tabW, menuH);
+
+        // Left Column: Controls Card + Master Card
+        const int panelX = 20;
+        const int panelY = 66;
+        const int panelW = 248;
+        const int innerPad = 12;
+        const int innerW = panelW - innerPad * 2;
+
+        instSelectorButton.setBounds(panelX + innerPad, panelY + 26, innerW, 28);
+        outBusButton.setBounds(panelX + innerPad, panelY + 58, innerW, 22);
+
+        const int zoneBoxY = panelY + 88;
+        const int zoneInnerPad = 8;
+        const int zoneHeaderH = 18;
+        const int zoneButtonsY = zoneBoxY + zoneHeaderH + 4;
+        const int nZones = static_cast<int>(zoneButtons.size());
+        const int zCols = (nZones > 6) ? 3 : ((nZones <= 1) ? 1 : 2);
+        const int zGap = 4;
+        const int zBtnW = (innerW - zoneInnerPad * 2 - zGap * (zCols - 1)) / zCols;
+        const int zBtnH = (nZones > 6) ? 20 : 22;
+
+        int currentZoneBottom = zoneButtonsY + zBtnH;
+        if (!zoneButtons.empty())
+        {
+            currentZoneBottom = zoneButtonsY;
+            for (size_t i = 0; i < zoneButtons.size(); ++i)
+            {
+                const int row = static_cast<int>(i) / zCols;
+                const int col = static_cast<int>(i) % zCols;
+                const int bx = panelX + innerPad + zoneInnerPad + col * (zBtnW + zGap);
+                const int by = zoneButtonsY + row * (zBtnH + zGap);
+                zoneButtons[i]->setBounds(bx, by, zBtnW, zBtnH);
+                currentZoneBottom = std::max(currentZoneBottom, by + zBtnH);
+            }
+        }
+
+        // Zone setting knobs directly below zone selector inside grouped zone box
+        const int kW = 74;
+        const int kH = 74;
+        const int kCol1 = panelX + innerPad + zoneInnerPad + 10;
+        const int kCol2 = panelX + panelW - innerPad - zoneInnerPad - 10 - kW;
+        const int kRow1 = currentZoneBottom + 8;
+        const int kRow2 = kRow1 + kH + 6;
+
+        instVolumeKnob->setBounds(kCol1, kRow1, kW, kH);
+        instPanKnob->setBounds(kCol2, kRow1, kW, kH);
+        instPitchKnob->setBounds(kCol1, kRow2, kW, kH);
+        instDynamicsKnob->setBounds(kCol2, kRow2, kW, kH);
+
+        const int curveY = kRow2 + kH + 8;
+        const bool hasLayer = layerSlotForSelection() >= 0;
+        const int layerBtnW = 58;
+        const int curveW = hasLayer ? (innerW - zoneInnerPad * 2 - 6 - layerBtnW) : (innerW - zoneInnerPad * 2);
+        instCurveButton.setBounds(panelX + innerPad + zoneInnerPad, curveY, curveW, 22);
+        instLayerButton.setBounds(panelX + innerPad + zoneInnerPad + curveW + 6, curveY, layerBtnW, 22);
+
+        const int previewY = curveY + 26;
+        const int previewH = 54;
+        instCurvePreview.setBounds(panelX + innerPad + zoneInnerPad, previewY, innerW - zoneInnerPad * 2, previewH);
+
+        const int noteRowY = previewY + previewH + 8;
+        const int learnW = 70;
+        const int learnH = 24;
+        instLearnButton.setBounds(panelX + innerPad + innerW - zoneInnerPad - learnW, noteRowY, learnW, learnH);
+
+        const int zoneBoxBottom = noteRowY + learnH + 10;
+        minimalZoneGroupRect = {static_cast<float>(panelX + innerPad),
+                                static_cast<float>(zoneBoxY),
+                                static_cast<float>(innerW),
+                                static_cast<float>(zoneBoxBottom - zoneBoxY)};
+
+        const int controlsBottom = zoneBoxBottom + 10;
+        minimalControlsCardRect = {static_cast<float>(panelX),
+                                   static_cast<float>(panelY),
+                                   static_cast<float>(panelW),
+                                   static_cast<float>(controlsBottom - panelY)};
+        leftPanelHeight = minimalControlsCardRect.getHeight();
+
+        // Master card below Zone/Controls card
+        const int masterTop = controlsBottom + 10;
+        const int masterH = std::max(92, std::min(126, h - 14 - masterTop));
+        minimalMasterCardRect = {static_cast<float>(panelX),
+                                 static_cast<float>(masterTop),
+                                 static_cast<float>(panelW),
+                                 static_cast<float>(masterH)};
+
+        if (masterVolumeKnob != nullptr)
+        {
+            const int mkSize = std::min(78, masterH - 12);
+            masterVolumeKnob->setBounds(panelX + 12, masterTop + (masterH - mkSize) / 2 + 4, mkSize, mkSize - 4);
+        }
+
+        // Right Workspace: Active Kit dropdown + Instrument Grid
+        const int gridX = panelX + panelW + 14;
+        const int gridW = std::max(120, w - gridX - 20);
+        kitSelectorButton.setBounds(gridX, panelY, gridW, 32);
+
+        const int gridY = panelY + 40;
+        const int gridH = std::max(100, h - 14 - gridY);
+        if (minimalGrid != nullptr)
+            minimalGrid->setBounds(gridX, gridY, gridW, gridH);
+
+        if (mixerView != nullptr)
+            mixerView->setBounds(16, 62, w - 32, h - 76);
+
+        if (edrumWizard != nullptr)
+            edrumWizard->setBounds(getLocalBounds());
+
+        if (layerDrawer != nullptr && layerDrawer->isVisible())
+        {
+            const int dx = panelX + panelW + 12;
+            const int dw = std::max(320, std::min(460, w - dx - 20));
+            const int dh = std::max(340, std::min(364, h - 84 - 16));
+            layerDrawer->setBounds(dx, 84, dw, dh);
+        }
+        return;
+    }
+
+    // Classic Sketch / Dark / Clean / High Contrast layout
+    // 1. Header menu buttons placed in top right section
+    const float hdrScale = juce::jlimit(1.0f, 1.24f, glorp::getUiTextScale());
+    const int menuY = 16;
+    const int menuH = juce::roundToInt(30.0f * juce::jlimit(1.0f, 1.14f, hdrScale));
+    const int viewW = juce::roundToInt(104.0f * hdrScale);
+    const int midiMapW = juce::roundToInt(88.0f * hdrScale);
+    const int loopsW = juce::roundToInt(66.0f * hdrScale);
+    const int stopW = juce::roundToInt(52.0f * hdrScale);
+    const int fileW = juce::roundToInt(50.0f * hdrScale);
+    const int presetsW = juce::roundToInt(80.0f * hdrScale);
+    const int midiW = juce::roundToInt(50.0f * hdrScale);
+    const int settingsW = juce::roundToInt(86.0f * hdrScale);
+    const int gap = 8;
+
+    const int totalMenuW =
+        viewW + gap + midiMapW + gap + loopsW + gap + stopW + gap + fileW + gap + presetsW + gap + midiW + gap + settingsW;
+    int curX = std::max(252, w - 24 - totalMenuW);
+    viewToggleButton.setBounds(curX, menuY, viewW, menuH);
+    curX += viewW + gap;
+    midiMapButton.setBounds(curX, menuY, midiMapW, menuH);
+    curX += midiMapW + gap;
+    loopsButton.setBounds(curX, menuY, loopsW, menuH);
+    curX += loopsW + gap;
+    stopLoopButton.setBounds(curX, menuY, stopW, menuH);
+    curX += stopW + gap;
+    fileButton.setBounds(curX, menuY, fileW, menuH);
+    curX += fileW + gap;
+    presetsButton.setBounds(curX, menuY, presetsW, menuH);
+    curX += presetsW + gap;
+    midiButton.setBounds(curX, menuY, midiW, menuH);
+    curX += midiW + gap;
+    settingsButton.setBounds(curX, menuY, settingsW, menuH);
+
+    if (midiPage != nullptr)
+        midiPage->setBounds(16, 56, w - 32, h - 68);
+
+    if (midiBrowser != nullptr)
+        midiBrowser->setBounds(16, 56, w - 32, h - 68);
+
+    if (currentView == EditorView::midiView || currentView == EditorView::loopsView)
+        return;
+
+    // 2. Bottom strip. Compact windows give the instrument panel more room.
+    const bool compact = h < 680;
+    const int bottomH = compact ? 112 : 135;
+    const int bottomY = h - bottomH - 12;
+
+
+    // Master Volume in bottom right
+    const int masterW = 110;
+    const int masterX = w - masterW - 24;
+    if (masterVolumeKnob != nullptr)
+        masterVolumeKnob->setBounds(masterX, bottomY + 16, masterW, bottomH - 20);
+
+    // MIDI Activity scope spanning bottom
+    const int scopeX = 24;
+    const int scopeW = masterX - scopeX - 18;
+    scope.setBounds(scopeX, bottomY, scopeW, bottomH);
+
+    // 3. Left Panel ("INSTRUMENT SETTINGS")
+    const int panelX = 24;
+    const int panelY = 74;
+    const int panelW = 196;
+
+    // Inside Left Panel:
+    // Selector button
+    const int selectorH = compact ? 24 : 28;
+    const int selectorY = panelY + (compact ? 44 : 52);
+    instSelectorButton.setBounds(panelX + 14, selectorY, panelW - 28, selectorH);
+
+    // Output bus button
+    const int outBusH = compact ? 20 : 24;
+    const int outBusY = selectorY + selectorH + 4;
+    outBusButton.setBounds(panelX + 14, outBusY, panelW - 28, outBusH);
+
+    // Zone buttons layout (2 columns grid)
+    const int zoneY = outBusY + outBusH + 6;
+    const int zoneW = (panelW - 28 - 6) / 2;
+    const int zoneH = compact ? 20 : 24;
+    const int zoneGap = 4;
+
+    int currentZoneBottom = zoneY;
+
+    if (!zoneButtons.empty())
+    {
+        if (zoneButtons.size() == 1)
+        {
+            zoneButtons[0]->setBounds(panelX + 14, zoneY, panelW - 28, zoneH);
+            currentZoneBottom = zoneY + zoneH;
+        }
+        else
+        {
+            for (size_t i = 0; i < zoneButtons.size(); ++i)
+            {
+                const int row = static_cast<int>(i / 2);
+                const int col = static_cast<int>(i % 2);
+                const int bx = panelX + 14 + col * (zoneW + 6);
+                const int by = zoneY + row * (zoneH + zoneGap);
+                zoneButtons[i]->setBounds(bx, by, zoneW, zoneH);
+                currentZoneBottom = std::max(currentZoneBottom, by + zoneH);
+            }
+        }
+    }
+    else
+    {
+        currentZoneBottom = zoneY + zoneH;
+    }
+
+    // 6 Knobs (3x2 Grid)
+    const int kSize = 52;
+    const int kGap = 6;
+    const int kPadX = 14;
+    const int kCol1 = panelX + kPadX;
+    const int kCol2 = kCol1 + kSize + kGap;
+    const int kCol3 = kCol2 + kSize + kGap;
+    const int kRow1 = currentZoneBottom + (compact ? 6 : 10);
+    const int kRow2 = kRow1 + kSize + (compact ? 10 : 12);
+
+    instVolumeKnob->setBounds(kCol1, kRow1, kSize, kSize + 14);
+    instPanKnob->setBounds(kCol2, kRow1, kSize, kSize + 14);
+    instPitchKnob->setBounds(kCol3, kRow1, kSize, kSize + 14);
+    instDynamicsKnob->setBounds(kCol1, kRow2, kSize, kSize + 14);
+    instAttackKnob->setBounds(kCol2, kRow2, kSize, kSize + 14);
+    instDampKnob->setBounds(kCol3, kRow2, kSize, kSize + 14);
+
+    // Velocity Curve row: Preset button + DrumGizmo-style Curve Preview
+    const int curveY = kRow2 + kSize + (compact ? 12 : 14);
+    const int curveH = compact ? 20 : 24;
+    const bool hasLayer = layerSlotForSelection() >= 0;
+    const int layerBtnW = 56;
+    const int curveW = hasLayer ? (panelW - 28 - 6 - layerBtnW) : (panelW - 28);
+    instCurveButton.setBounds(panelX + 14, curveY, curveW, curveH);
+    instLayerButton.setBounds(panelX + 14 + curveW + 6, curveY, layerBtnW, curveH);
+
+    const int previewY = curveY + curveH + (compact ? 4 : 6);
+    const int previewH = compact ? 46 : 68;
+    instCurvePreview.setBounds(panelX + 14, previewY, panelW - 28, previewH);
+
+    // Bottom row: NOTE label on left, LEARN button on right
+    const int noteRowY = previewY + previewH + (compact ? 5 : 8);
+    const int learnW = 68;
+    const int learnH = compact ? 22 : 26;
+    instLearnButton.setBounds(panelX + panelW - 14 - learnW, noteRowY, learnW, learnH);
+
+    leftPanelHeight = static_cast<float>((noteRowY + learnH + 12) - panelY);
+
+    // 4. Central drum kit view with kit dropdown placed above it
+    const int kitX = panelX + panelW + 16;
+    const int kitW = w - kitX - 20;
+
+    const int kitDropW = std::min(340, kitW - 20);
+    const int kitDropX = kitX + (kitW - kitDropW) / 2;
+    kitSelectorButton.setBounds(kitDropX, 52, kitDropW, 28);
+
+    const int kitY = 84;
+    const int kitH = bottomY - kitY - 8;
+    kitView.setBounds(kitX, kitY, kitW, kitH);
+
+    if (mixerView != nullptr)
+        mixerView->setBounds(16, 56, w - 32, h - 68);
+
+    if (edrumWizard != nullptr)
+        edrumWizard->setBounds(getLocalBounds());
+
+    if (layerDrawer != nullptr && layerDrawer->isVisible())
+    {
+        const int dx = panelX + panelW + 12;
+        const int dw = std::max(320, std::min(460, w - dx - 20));
+        const int dh = std::max(340, std::min(364, h - 84 - 16));
+        layerDrawer->setBounds(dx, 84, dw, dh);
+    }
+}
+
+//==============================================================================
+void Editor::paint(juce::Graphics &g)
+{
+    const auto b = getLocalBounds().toFloat();
+
+    if (theme.minimalStyle)
+    {
+        // Outer chassis background + hairline border
+        g.fillAll(theme.background);
+        g.setColour(theme.panelEdge);
+        g.drawRoundedRectangle(b.reduced(1.0f), 6.0f, 1.0f);
+
+        // Top chassis bar
+        const auto headerRect = juce::Rectangle<float>(0.0f, 0.0f, b.getWidth(), 54.0f);
+        g.setColour(theme.panel);
+        g.fillRect(headerRect);
+        g.setColour(theme.panelEdge);
+        g.drawLine(0.0f, 54.0f, b.getWidth(), 54.0f, 1.0f);
+
+        // Subtle technical micro-dots in top-left & top-right corners (Rift motif)
+        g.setColour(theme.inkSoft.withAlpha(0.35f));
+        g.fillEllipse(8.0f, 8.0f, 3.0f, 3.0f);
+        g.fillEllipse(b.getWidth() - 11.0f, 8.0f, 3.0f, 3.0f);
+
+        // Top-left Suite wordmark
+        drawSuiteWordmark(g, juce::Rectangle<float>(16.0f, 6.0f, 220.0f, 42.0f), theme, true);
+
+        if (currentView == EditorView::kitView)
+        {
+            // Left Instrument & Zone Controls Card
+            drawMinimalCard(g, minimalControlsCardRect, theme, 7.0f);
+
+            g.setFont(uiFont(10.5f).boldened());
+            g.setColour(theme.inkSoft);
+            g.drawText("INSTRUMENT",
+                       juce::Rectangle<float>(minimalControlsCardRect.getX() + 12.0f,
+                                              minimalControlsCardRect.getY() + 7.0f,
+                                              minimalControlsCardRect.getWidth() - 24.0f,
+                                              16.0f),
+                       juce::Justification::centredLeft,
+                       false);
+
+            // Grouped Zone Selector + Zone Setting Knobs Sub-Box
+            g.setColour(theme.trough.withAlpha(theme.isDark ? 0.45f : 0.48f));
+            g.fillRoundedRectangle(minimalZoneGroupRect, 5.0f);
+            g.setColour(theme.panelEdge.withAlpha(0.7f));
+            g.drawRoundedRectangle(minimalZoneGroupRect.reduced(0.5f), 5.0f, 1.0f);
+
+            g.setFont(uiFont(10.0f).boldened());
+            g.setColour(theme.inkSoft);
+            g.drawText("ZONE & PARAMETERS",
+                       juce::Rectangle<float>(minimalZoneGroupRect.getX() + 8.0f,
+                                              minimalZoneGroupRect.getY() + 4.0f,
+                                              minimalZoneGroupRect.getWidth() - 16.0f,
+                                              16.0f),
+                       juce::Justification::centredLeft,
+                       false);
+
+            // NOTE label inside grouped zone section
+            if (instLearnButton.isVisible())
+            {
+                const float noteX = minimalZoneGroupRect.getX() + 8.0f;
+                const float noteY = static_cast<float>(instLearnButton.getY());
+                const float noteH = static_cast<float>(instLearnButton.getHeight());
+                const float noteW = static_cast<float>(instLearnButton.getX()) - noteX - 6.0f;
+
+                g.setColour(theme.trough);
+                g.fillRoundedRectangle(noteX, noteY + 1.0f, noteW, noteH - 2.0f, 4.0f);
+
+                const int samplerIdx = getActiveSamplerIndex();
+                const juce::String noteStr =
+                    (learningInstrument == samplerIdx && samplerIdx >= 0) ? "ARMED" : noteLabelFor(samplerIdx);
+                g.setFont(uiFont(10.5f).boldened());
+                g.setColour(theme.inkSoft);
+                g.drawText("NOTE",
+                           juce::Rectangle<float>(noteX + 6.0f, noteY, 38.0f, noteH),
+                           juce::Justification::centredLeft,
+                           false);
+                g.setFont(displayFont(12.5f));
+                g.setColour((learningInstrument == samplerIdx && samplerIdx >= 0) ? theme.accentWarm : theme.accent);
+                g.drawText(noteStr,
+                           juce::Rectangle<float>(noteX + 44.0f, noteY, std::max(10.0f, noteW - 50.0f), noteH),
+                           juce::Justification::centredRight,
+                           false);
+            }
+
+            // Master Output Card + Stereo Slanted Meters
+            drawMinimalCard(g, minimalMasterCardRect, theme, 7.0f);
+            const float meterX = (masterVolumeKnob != nullptr)
+                                     ? static_cast<float>(masterVolumeKnob->getRight()) + 10.0f
+                                     : minimalMasterCardRect.getX() + 92.0f;
+            const float meterW = std::max(40.0f, minimalMasterCardRect.getRight() - 12.0f - meterX);
+            const float meterTop = minimalMasterCardRect.getY() + 10.0f;
+
+            g.setFont(uiFont(10.0f).boldened());
+            g.setColour(theme.inkSoft);
+            g.drawText("MASTER OUT",
+                       juce::Rectangle<float>(meterX, meterTop, meterW, 14.0f),
+                       juce::Justification::centredLeft,
+                       false);
+
+            const float barY1 = meterTop + 20.0f;
+            const float barH = 16.0f;
+            drawSlantedMeter(
+                g, juce::Rectangle<float>(meterX, barY1, meterW, barH), theme, minimalMasterLevelL, theme.accent, 14);
+            drawSlantedMeter(g,
+                             juce::Rectangle<float>(meterX, barY1 + barH + 6.0f, meterW, barH),
+                             theme,
+                             minimalMasterLevelR,
+                             theme.accentAlt,
+                             14);
+        }
+        return;
+    }
+
+    // Classic Sketch / Dark / Clean / High Contrast rendering
+    // 1. Paper background
+    g.fillAll(theme.background);
+
+    // 2. Outer window sketchy border
+    drawSketchRect(g, b.reduced(3.0f), theme.panelEdge, 2.0f, 1);
+
+    // 3. Top-left Suite wordmark
+    drawSuiteWordmark(g, juce::Rectangle<float>(24.0f, 9.0f, 232.0f, 50.0f), theme);
+
+    if (currentView == EditorView::kitView)
+    {
+        // 4. Left Panel Card ("INSTRUMENT SETTINGS")
+        const auto panelRect = juce::Rectangle<float>(24.0f, 74.0f, 196.0f, leftPanelHeight);
+        g.setColour(theme.panel);
+        g.fillRoundedRectangle(panelRect, 6.0f);
+        drawSketchRect(g, panelRect, theme.panelEdge, 1.8f, 3);
+
+        // Title inside card
+        g.setFont(displayFont(18.0f));
+        g.setColour(theme.ink);
+        g.drawFittedText("INSTRUMENT",
+                         juce::Rectangle<int>(juce::roundToInt(panelRect.getX()) + 6,
+                                              juce::roundToInt(panelRect.getY()) + 8,
+                                              juce::roundToInt(panelRect.getWidth()) - 12,
+                                              20),
+                         juce::Justification::centred,
+                         1,
+                         0.72f);
+        g.drawFittedText("SETTINGS",
+                         juce::Rectangle<int>(juce::roundToInt(panelRect.getX()) + 6,
+                                              juce::roundToInt(panelRect.getY()) + 28,
+                                              juce::roundToInt(panelRect.getWidth()) - 12,
+                                              20),
+                         juce::Justification::centred,
+                         1,
+                         0.72f);
+
+        // Bottom note label in Left Panel
+        if (instLearnButton.isVisible())
+        {
+            const float noteRowX = 24.0f + 14.0f;
+            const float noteRowY = static_cast<float>(instLearnButton.getY());
+            const float noteRowH = static_cast<float>(instLearnButton.getHeight());
+            const float noteMaxW = static_cast<float>(instLearnButton.getX()) - noteRowX - 4.0f;
+
+            g.setFont(displayFont(15.0f));
+            g.setColour(theme.ink);
+            const juce::String notePrefix = "NOTE: ";
+            const float pfxW = displayFont(15.0f).getStringWidthFloat(notePrefix);
+            g.drawText(notePrefix,
+                       juce::Rectangle<float>(noteRowX, noteRowY, pfxW, noteRowH),
+                       juce::Justification::centredLeft,
+                       false);
+
+            const int samplerIdx = getActiveSamplerIndex();
+            const juce::String noteStr =
+                (learningInstrument == samplerIdx && samplerIdx >= 0) ? "???" : noteLabelFor(samplerIdx);
+
+            g.setFont(displayFont(17.5f));
+            g.setColour(juce::Colour(0xffea8c16));
+            g.drawText(noteStr,
+                       juce::Rectangle<float>(noteRowX + pfxW, noteRowY, noteMaxW - pfxW, noteRowH),
+                       juce::Justification::centredLeft,
+                       false);
+        }
+
+        // 5. "MASTER" title above Master Volume Knob
+        if (masterVolumeKnob != nullptr)
+        {
+            const auto mx = static_cast<float>(masterVolumeKnob->getX());
+            const auto my = static_cast<float>(masterVolumeKnob->getY());
+            const auto mw = static_cast<float>(masterVolumeKnob->getWidth());
+
+            g.setFont(displayFont(18.0f));
+            g.setColour(theme.ink);
+            g.drawText(
+                "MASTER", juce::Rectangle<float>(mx, my - 20.0f, mw, 18.0f), juce::Justification::centred, false);
+        }
+    }
+}
+
+} // namespace glorp

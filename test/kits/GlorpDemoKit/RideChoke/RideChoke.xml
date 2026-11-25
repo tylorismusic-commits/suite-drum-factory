@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="RideChoke" version="2.0">
+  <samples>
+    <sample name="ride2CrashChoke_OH_F_1" power="1.000">
+      <audiofile channel="OHL" file="ride2CrashChoke_OH_F_1.wav"/>
+      <audiofile channel="OHR" file="ride2CrashChoke_OH_F_1.wav"/>
+    </sample>
+    <sample name="ride2CrashChoke_OH_F_1_rr2" power="0.850">
+      <audiofile channel="OHL" file="ride2CrashChoke_OH_F_1_rr2.wav"/>
+      <audiofile channel="OHR" file="ride2CrashChoke_OH_F_1_rr2.wav"/>
+    </sample>
+  </samples>
+</instrument>

@@ -1,0 +1,60 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config ccache zip \
+            libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libgl1-mesa-dev libx11-dev libxcomposite-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libcurl4-openssl-dev libjack-jackd2-dev
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-release
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DGLORP_BUILD_VST3=ON \
+            -DGLORP_BUILD_LV2=ON \
+            -DGLORP_BUILD_CLAP=OFF \
+            -DGLORP_BUILD_KIT_EDITOR=ON \
+            -DGLORP_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: tools/package_linux.sh 0.1.0-alpha.55
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-drums-glorp-linux-x86_64
+          path: |
+            build/dist/*.zip
+            build/dist/*.sha256
+          if-no-files-found: error

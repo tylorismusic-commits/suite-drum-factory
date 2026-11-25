@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suite Drums Glorp</title>
+<style>
+  :root { color-scheme: dark; --bg:#1a1a1d; --panel:#242427; --edge:#3b3b40; --ink:#f2f2f0; --soft:#9a9aa0; --amber:#e0a128; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 "Red Hat Text", system-ui, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 40px 24px 72px; }
+  header { display:flex; align-items:center; gap:16px; margin-bottom: 32px; }
+  .badge { width:64px; height:64px; border-radius:16px; background:var(--amber); color:var(--bg); display:grid; place-items:center; font:800 40px/1 Jost, system-ui, sans-serif; }
+  h1 { font:800 34px/1.05 Jost, system-ui, sans-serif; margin:0; letter-spacing:.01em; }
+  .kicker { color:var(--amber); font-weight:700; letter-spacing:.16em; font-size:12px; text-transform:uppercase; }
+  h2 { font:700 22px/1.2 Jost, system-ui, sans-serif; margin:36px 0 12px; }
+  p { color:#d8d8d4; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--edge); border-radius:12px; padding:18px; }
+  .card h3 { margin:0 0 6px; font-size:16px; color:var(--amber); }
+  .card p { margin:0; color:var(--soft); font-size:14px; }
+  img { width:100%; border-radius:12px; border:1px solid var(--edge); display:block; }
+  a { color:var(--amber); }
+  code { background:#141416; border:1px solid var(--edge); border-radius:5px; padding:1px 5px; font-size:.9em; }
+  footer { margin-top:40px; color:var(--soft); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="badge">S</div>
+    <div>
+      <div class="kicker">Suite series</div>
+      <h1>Suite Drums Glorp</h1>
+    </div>
+  </header>
+
+  <p>A focused acoustic drum instrument for Linux: VST3/LV2, interactive kit view, per-mic mixer,
+  channel FX, e-drum input, multi-mic bleed matrix, user one-shot layers and the <code>.glorpkit</code> editor.</p>
+
+  <h2>Kit view</h2>
+  <img src="screenshot.png" alt="Suite Drums Glorp kit view">
+
+  <div class="grid" style="margin-top:24px">
+    <div class="card"><h3>Drum engine</h3><p>Zones, velocity layers, round-robin and zero-copy sample playback.</p></div>
+    <div class="card"><h3>Mixer + FX</h3><p>Per-mic channels, stems, EQ, compressor, saturation and transient shaping.</p></div>
+    <div class="card"><h3>E-drums</h3><p>Continuous CC#4 hi-hat, chokes, note mapping and a calibration wizard.</p></div>
+    <div class="card"><h3>Bleed matrix</h3><p>Acoustic leakage between close mics, overheads, room and PZM channels.</p></div>
+    <div class="card"><h3>Kick + snare layers</h3><p>Load a WAV one-shot, blend it with the kit, shape ADSR and align phase to the close mic.</p></div>
+  </div>
+
+  <h2>Kick and snare one-shot layers</h2>
+  <p>Drag or load a WAV one-shot into the kick or snare, crossfade it against the kit sample,
+  A/B audition kit and layer, shape it with ADSR, auto-trim leading silence, then invert polarity or
+  align it to the close mic. Each layer gets its own mixer strip with the full channel FX rack, and a
+  missing sample can be relinked without losing its settings.</p>
+  <div class="grid">
+    <img src="layer_drawer.png" alt="Kick layer drawer">
+    <img src="layer_mixer.png" alt="Layer mixer strip">
+  </div>
+
+  <h2>MIDI loop browser</h2>
+  <p>Browse PACK / SONG / LOOP folders, audition with play/pause/stop and repeat at host tempo, adjust 0.5x/1x/2x speed, translate between source-library note maps and the current kit, and drag the remapped MIDI into the DAW.</p>
+  <img src="midi_browser.png" alt="MIDI loop browser">
+
+  <h2>MIDI mapping</h2>
+  <p>Up to three notes per hit, per-slot learn and a draggable eight-point velocity curve editor.</p>
+  <img src="midi_page.png" alt="MIDI mapping page">
+
+  <h2>Mixer and channel FX</h2>
+  <div class="grid">
+    <img src="mixer_view.png" alt="Mixer view">
+    <img src="mixer_fx.png" alt="Channel FX rack">
+  </div>
+
+  <h2>Get it</h2>
+  <p>Download the Linux alpha from the
+  <a href="https://github.com/tylorismusic-commits/suite-drums-glorp/releases">GitHub releases page</a>,
+  or build from source with CMake and JUCE 8.</p>
+
+  <footer>AGPL-3.0. Based on GlorpDrums by asuka-glorp. Suite Drums Glorp is not affiliated with the upstream project.</footer>
+</main>
+</body>
+</html>

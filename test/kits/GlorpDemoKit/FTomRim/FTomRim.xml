@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="FTomRim" version="2.0">
+  <samples>
+    <sample name="loTom_OH_MP_3" power="0.700">
+      <audiofile channel="OHL" file="loTom_OH_MP_3.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_MP_3.wav"/>
+    </sample>
+    <sample name="loTom_OH_FF_3" power="1.000">
+      <audiofile channel="OHL" file="loTom_OH_FF_3.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_FF_3.wav"/>
+    </sample>
+  </samples>
+</instrument>

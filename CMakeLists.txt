@@ -1,0 +1,386 @@
+cmake_minimum_required(VERSION 3.22)
+
+project(SuiteDrumsGlorp VERSION 0.1.0 LANGUAGES C CXX)
+
+#==================================================================================
+# Options
+#==================================================================================
+
+option(GLORP_BUILD_VST3        "Build the VST3 target"        ON)
+option(GLORP_BUILD_CLAP        "Build the CLAP target (experimental)" OFF)
+option(GLORP_BUILD_LV2         "Build the LV2 target (Linux only)" ON)
+option(GLORP_BUILD_KIT_EDITOR  "Build standalone GlorpKit editor application" ON)
+option(GLORP_BUILD_TESTS       "Build the headless test suite" ON)
+
+# Platform detection
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(GLORP_IS_WINDOWS 1)
+    message(STATUS "Platform: Windows")
+else()
+    set(GLORP_IS_WINDOWS 0)
+    message(STATUS "Platform: ${CMAKE_SYSTEM_NAME}")
+endif()
+
+# Number of stereo output buses reserved for instruments.
+#
+# These cannot be added or removed at runtime: an LV2 bundle's port list is baked
+# into its .ttl when the host scans the plugin, and JUCE's LV2 wrapper has no way to
+# renegotiate it afterwards. VST3 *could* change at runtime, but keeping the two
+# formats identical matters more than the tidiness of unused buses.
+#
+# 32 covers the largest kits in common use (CrocellKit_full has 27 instruments).
+# Instruments past this many share the final bus rather than being dropped, so a
+# bigger kit is never unplayable, just less separable.
+#
+# Rebuild with e.g. -DGLORP_MAX_INSTRUMENT_BUSES=8 for a leaner alternative if a
+# host struggles with many outputs.
+set(GLORP_MAX_INSTRUMENT_BUSES 32 CACHE STRING "Stereo output buses reserved for instruments")
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+if(MSVC)
+    add_compile_options(/utf-8 /EHsc)
+endif()
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+
+#==================================================================================
+# JUCE
+#==================================================================================
+
+# Build requirements on Linux, listed here so a new machine is set up in one go:
+#   libX11-devel libXinerama-devel libXcursor-devel libXi-devel
+#   libXrandr-devel libXcomposite-devel alsa-lib-devel
+# JUCE's X11 code includes headers from the first three by name, so they are not
+# optional. Everything below builds against the real X11 feature set.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libs/JUCE/CMakeLists.txt")
+    add_subdirectory(libs/JUCE)
+else()
+    include(FetchContent)
+    message(STATUS "Local libs/JUCE not found; downloading JUCE 8.0.6 via FetchContent...")
+    FetchContent_Declare(
+        JUCE
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG        8.0.6
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(JUCE)
+endif()
+
+#==================================================================================
+# Plugin targets
+#==================================================================================
+
+set(GLORP_PLUGIN_FORMATS "")
+
+if(GLORP_BUILD_VST3)
+    list(APPEND GLORP_PLUGIN_FORMATS VST3)
+endif()
+
+if(GLORP_BUILD_CLAP)
+    list(APPEND GLORP_PLUGIN_FORMATS CLAP)
+endif()
+
+# LV2 is Linux-only; disable on Windows
+if(GLORP_BUILD_LV2 AND NOT GLORP_IS_WINDOWS)
+    list(APPEND GLORP_PLUGIN_FORMATS LV2)
+elseif(GLORP_BUILD_LV2 AND GLORP_IS_WINDOWS)
+    message(WARNING "LV2 is not supported on Windows; disabling GLORP_BUILD_LV2")
+endif()
+
+
+if(NOT GLORP_PLUGIN_FORMATS)
+    message(FATAL_ERROR "At least one of GLORP_BUILD_VST3 / GLORP_BUILD_CLAP / GLORP_BUILD_LV2 must be ON")
+endif()
+
+#==================================================================================
+# Bundled assets
+#==================================================================================
+
+# The logo and fonts, as a static library so the plugin binaries and the
+# standalone executable can share them. Defined before the plugin target links it.
+juce_add_binary_data(GlorpDrumsAssets
+    COMPANY_NAME  "GlorpDrums"
+    BINARY_NAME   "GlorpDrumsAssets"
+    HEADER_NAME   "GlorpDrumsAssets.h"
+    NAMESPACE     GlorpAssets
+    SOURCES
+        resources/fonts/RedHatText-Medium.otf
+        resources/fonts/Jost-ExtraBold.ttf
+        assets/kick.png
+        assets/snare.png
+        assets/hihat.png
+        assets/tom_1.png
+        assets/tom_2.png
+        assets/f_tom.png
+        assets/crash_1.png
+        assets/crash_2.png
+        assets/ride.png
+        assets/suite_drums_icon.png
+        assets/suite_kit_studio_icon.png
+        assets/suite_logo.png
+        assets/drumstructor_kit.png
+)
+
+#==================================================================================
+# Plugin target
+#==================================================================================
+
+juce_add_plugin(GlorpDrums
+    PRODUCT_NAME            "Suite Drums Glorp"
+    COMPANY_NAME            "Tylorismusic"
+    BUNDLE_ID               "com.tylorismusic.suitedrumsglorp"
+    PLUGIN_MANUFACTURER_CODE Tylr
+    PLUGIN_CODE             SdGl
+    FORMATS                ${GLORP_PLUGIN_FORMATS}
+    LV2URI                  "https://github.com/tylorismusic-commits/suite-drums-glorp"
+    VST3_CATEGORIES         "Instrument" "Sampler" "Drum"
+    COPY_PLUGIN_AFTER_BUILD FALSE
+    IS_SYNTH                FALSE
+    NEEDS_MIDI_INPUT        TRUE
+    NEEDS_MIDI_OUTPUT       FALSE
+    IS_MIDI_EFFECT          FALSE
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+    ICON_BIG                assets/suite_drums_icon.png
+)
+
+string(REPLACE ";" "," GLORP_PLUGIN_FORMATS_STR "${GLORP_PLUGIN_FORMATS}")
+
+juce_generate_juce_header(GlorpDrums)
+
+if(GLORP_BUILD_LV2 AND NOT GLORP_IS_WINDOWS)
+    # JUCE only writes lv2:InstrumentPlugin when IS_SYNTH is true. We cannot set
+    # IS_SYNTH globally without changing VST3's auxiliary-output bus types, so
+    # patch the generated LV2 metadata after the manifest helper runs.
+    add_custom_command(TARGET GlorpDrums_LV2 POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DPLUGIN_TTL_DIR=$<TARGET_FILE_DIR:GlorpDrums_LV2>
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mark_lv2_instrument.cmake"
+        COMMENT "Marking Suite Drums Glorp as an LV2 instrument"
+        VERBATIM)
+endif()
+
+#==================================================================================
+# Shared sources
+#==================================================================================
+
+target_sources(GlorpDrums PRIVATE
+    src/plugin/PluginProcessor.cpp
+    src/plugin/ParameterManager.cpp
+    src/plugin/MidiRouter.cpp
+    src/plugin/AudioEngine.cpp
+    src/plugin/PluginEditor.h
+    src/core/XmlLite.cpp
+    src/core/DrumKit.cpp
+    src/core/KitScanner.cpp
+    src/core/SampleCache.cpp
+    src/core/Sampler.cpp
+    src/core/MidiMap.cpp
+    src/core/Settings.cpp
+    src/core/DebugLog.cpp
+    src/core/GlorpKit.cpp
+    src/core/GlorpKitWriter.cpp
+    src/core/ChannelFX.cpp
+    src/core/BleedMatrix.cpp
+    src/core/AcousticCrosstalk.cpp
+    src/ui/Editor.cpp
+    src/ui/DrumKitView.cpp
+    src/ui/CalloutBox.cpp
+    src/ui/Knob.cpp
+    src/ui/MinimalInstrumentGrid.cpp
+    src/ui/Scope.cpp
+    src/ui/EDrumWizard.cpp
+    src/ui/MixerView.cpp
+    src/ui/MidiPage.cpp
+    src/ui/MidiBrowser.cpp
+)
+
+# Bundled logo and fonts, as a static library so both the VST3/LV2 binaries and
+# the standalone executable can share them.
+target_link_libraries(GlorpDrums PRIVATE GlorpDrumsAssets)
+
+target_include_directories(GlorpDrums PRIVATE src src/core src/plugin src/ui)
+
+target_compile_definitions(GlorpDrums PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_VST3_CAN_REPLACE_VST2=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_USE_MP3AUDIOFORMAT=1
+    JUCE_USE_OGGVORBIS=1
+    JUCE_USE_FLAC=1
+    GLORP_MAX_INSTRUMENT_BUSES=${GLORP_MAX_INSTRUMENT_BUSES}
+)
+
+target_link_libraries(GlorpDrums
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_dsp
+        juce::juce_opengl
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags
+)
+
+#==================================================================================
+# GlorpKit Editor Standalone Application
+#==================================================================================
+
+if(GLORP_BUILD_KIT_EDITOR)
+    juce_add_gui_app(GlorpKitEditor
+        PRODUCT_NAME "SuiteKitStudio"
+        COMPANY_NAME "Tylorismusic"
+        BUNDLE_ID "com.tylorismusic.suitekitstudio"
+        ICON_BIG assets/suite_kit_studio_icon.png
+    )
+
+    target_sources(GlorpKitEditor PRIVATE
+        src/editor_app/Main.cpp
+        src/editor_app/GlorpKitEditorWindow.cpp
+        src/editor_app/GlorpKitProject.cpp
+        src/core/GlorpKitWriter.cpp
+        src/core/GlorpKit.cpp
+        src/core/DrumKit.cpp
+        src/core/XmlLite.cpp
+        src/core/SampleCache.cpp
+        src/core/Sampler.cpp
+        src/core/PitchShifter.cpp
+        src/core/BleedMatrix.cpp
+        src/core/AcousticCrosstalk.cpp
+        src/core/ChannelFX.cpp
+    )
+
+    target_include_directories(GlorpKitEditor PRIVATE
+        src
+        src/core
+        src/ui
+        src/editor_app
+    )
+
+    target_compile_definitions(GlorpKitEditor PRIVATE
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        GLORP_BUILD_DATE="${GLORP_BUILD_DATE}"
+        GLORP_MAX_INSTRUMENT_BUSES=${GLORP_MAX_INSTRUMENT_BUSES}
+        SUITE_DRUMS_VERSION="${PROJECT_VERSION}"
+    )
+
+
+    target_link_libraries(GlorpKitEditor PRIVATE
+        GlorpDrumsAssets
+        juce::juce_core
+        juce::juce_events
+        juce::juce_graphics
+        juce::juce_gui_basics
+        juce::juce_gui_extra
+        juce::juce_audio_basics
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_dsp
+        juce::juce_recommended_warning_flags
+    )
+
+    # Headless DrumGizmo XML / SFZ -> .glorpkit batch converter.
+    add_executable(glorp_kit_converter
+        tools/convert_kit.cpp
+        src/editor_app/GlorpKitProject.cpp
+        src/core/GlorpKitWriter.cpp
+        src/core/GlorpKit.cpp
+        src/core/DrumKit.cpp
+        src/core/XmlLite.cpp
+        src/core/SampleCache.cpp
+        src/core/Sampler.cpp
+        src/core/PitchShifter.cpp
+        src/core/BleedMatrix.cpp
+        src/core/AcousticCrosstalk.cpp
+        src/core/ChannelFX.cpp
+    )
+    set_target_properties(glorp_kit_converter PROPERTIES OUTPUT_NAME SuiteKitConverter)
+    target_include_directories(glorp_kit_converter PRIVATE
+        src
+        src/core
+        src/editor_app
+    )
+    target_compile_definitions(glorp_kit_converter PRIVATE
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        GLORP_MAX_INSTRUMENT_BUSES=${GLORP_MAX_INSTRUMENT_BUSES}
+    )
+    target_link_libraries(glorp_kit_converter PRIVATE
+        juce::juce_core
+        juce::juce_audio_basics
+        juce::juce_audio_formats
+        juce::juce_dsp
+        juce::juce_recommended_warning_flags
+    )
+endif()
+
+#==================================================================================
+# Tests
+#==================================================================================
+
+if(GLORP_BUILD_TESTS)
+    enable_testing()
+
+    # Core tests deliberately avoid JUCE entirely, so format bugs are found
+    # without a 10 minute plugin build.
+    add_executable(glorp_core_tests test/core_tests.cpp)
+    target_sources(glorp_core_tests PRIVATE
+        src/core/XmlLite.cpp
+        src/core/GlorpKit.cpp
+        src/core/GlorpKitWriter.cpp
+        src/core/DrumKit.cpp
+        src/core/KitScanner.cpp
+        src/core/PitchShifter.cpp
+        src/core/BleedMatrix.cpp
+        src/core/AcousticCrosstalk.cpp
+    )
+    target_include_directories(glorp_core_tests PRIVATE src/core)
+    target_compile_definitions(glorp_core_tests PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+    target_link_libraries(glorp_core_tests PRIVATE juce::juce_core juce::juce_recommended_warning_flags)
+    add_test(NAME core COMMAND glorp_core_tests)
+
+    add_executable(glorp_audio_probe test/audio_probe.cpp)
+    target_include_directories(glorp_audio_probe PRIVATE
+        src src/core src/plugin src/ui
+        $<TARGET_PROPERTY:GlorpDrums,INCLUDE_DIRECTORIES>
+    )
+    target_compile_definitions(glorp_audio_probe PRIVATE
+        $<TARGET_PROPERTY:GlorpDrums,COMPILE_DEFINITIONS>
+    )
+    target_link_libraries(glorp_audio_probe PRIVATE
+        GlorpDrums
+        GlorpDrumsAssets
+        juce::juce_recommended_warning_flags
+    )
+
+    foreach(ui_test_target test_editor test_zones_knobs diagnose_crocell_knobs)
+        add_executable(${ui_test_target} EXCLUDE_FROM_ALL test/${ui_test_target}.cpp
+            src/editor_app/GlorpKitProject.cpp
+            src/editor_app/GlorpKitEditorWindow.cpp
+        )
+        target_include_directories(${ui_test_target} PRIVATE
+            src src/core src/plugin src/ui src/editor_app
+            $<TARGET_PROPERTY:GlorpDrums,INCLUDE_DIRECTORIES>
+        )
+        target_compile_definitions(${ui_test_target} PRIVATE
+            $<TARGET_PROPERTY:GlorpDrums,COMPILE_DEFINITIONS>
+        )
+        target_link_libraries(${ui_test_target} PRIVATE
+            GlorpDrums
+            GlorpDrumsAssets
+            juce::juce_recommended_warning_flags
+        )
+    endforeach()
+endif()
+
+#==================================================================================
+# Install
+#==================================================================================
+
+include(cmake/install.cmake)

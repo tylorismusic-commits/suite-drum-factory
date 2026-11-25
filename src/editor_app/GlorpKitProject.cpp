@@ -1,0 +1,4309 @@
+/*
+    GlorpKitProject.cpp - Editable in-memory project model for GlorpKitEditor.
+*/
+
+#include "GlorpKitProject.h"
+#include "../core/GlorpKitWriter.h"
+#include "../core/SampleCache.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstring>
+#include <filesystem>
+#include <iomanip>
+#include <map>
+#include <set>
+#include <sstream>
+
+namespace fs = std::filesystem;
+
+namespace glorp
+{
+
+namespace
+{
+std::string escapeXml(const std::string &s)
+{
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s)
+    {
+        switch (c)
+        {
+            case '&':
+                out += "&amp;";
+                break;
+            case '<':
+                out += "&lt;";
+                break;
+            case '>':
+                out += "&gt;";
+                break;
+            case '"':
+                out += "&quot;";
+                break;
+            case '\'':
+                out += "&apos;";
+                break;
+            default:
+                out += c;
+                break;
+        }
+    }
+    return out;
+}
+
+constexpr DefaultPieceLayout kDefaultPieces[] = {
+    {"kick", "Kick 22\" Maple", "kick", 0, "none", -155.2f, -329.7f, 345.0f, 1, 36},
+    {"ftom", "Floor Tom 16\"", "ftom", 3, "none", 107.2f, -272.1f, 195.0f, 2, 43},
+    {"tom2", "Mid Tom 12\"", "tom2", 3, "none", 15.9f, -408.0f, 155.0f, 3, 47},
+    {"tom1", "High Tom 10\"", "tom1", 3, "none", -122.6f, -420.7f, 138.0f, 4, 48},
+    {"snare", "Snare 14x6.5 Brass", "snare", 1, "none", -212.7f, -259.5f, 180.0f, 5, 38},
+    {"hihat", "Hi-Hat 14\" Custom", "hihat", 2, "hihat", -299.6f, -404.7f, 160.0f, 6, 42},
+    {"ride", "Ride Cymbal 20\"", "ride", 5, "none", 77.7f, -507.0f, 210.0f, 7, 51},
+    {"crash2", "Crash 2 (Right)", "crash2", 4, "crash2", 187.3f, -420.8f, 205.0f, 8, 57},
+    {"crash1", "Crash 1 (Left)", "crash1", 4, "crash1", -235.0f, -502.9f, 190.0f, 9, 49},
+    {"cowbell", "Cowbell", "cowbell", 0, "none", -345.0f, -150.0f, 110.0f, 12, 56},
+    {"china", "China", "crash2", 4, "none", 330.0f, -380.0f, 140.0f, 15, 52},
+};
+} // namespace
+
+std::string sanitizeId(const std::string &raw)
+{
+    std::string out;
+    for (char ch : raw)
+    {
+        unsigned char c = static_cast<unsigned char>(ch);
+        if (std::isalnum(c))
+            out += static_cast<char>(std::tolower(c));
+        else if (c == '-' || c == '_')
+            out += static_cast<char>(c);
+    }
+    return out.empty() ? "piece" : out;
+}
+
+const DefaultPieceLayout *findDefaultPieceLayout(const std::string &idOrName)
+{
+    std::string low = sanitizeId(idOrName);
+    for (const auto &d : kDefaultPieces)
+        if (low.find(d.id) != std::string::npos || std::string(d.id).find(low) != std::string::npos)
+            return &d;
+
+    if (low.find("floor") != std::string::npos || low.find("tom3") != std::string::npos
+        || low.find("tom16") != std::string::npos)
+        return &kDefaultPieces[1];
+    return nullptr;
+}
+
+//==============================================================================
+ParsedSampleInfo parseSampleFilename(const std::string &filenameOrPath)
+{
+    ParsedSampleInfo info;
+    info.rawPath = filenameOrPath;
+    fs::path p(filenameOrPath);
+    info.fileName = p.filename().string();
+    std::string stem = p.stem().string();
+
+    auto trim = [](std::string s) -> std::string
+    {
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+            s.erase(s.begin());
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+            s.pop_back();
+        return s;
+    };
+
+    stem = trim(stem);
+
+    // 1. Detect trailing or embedded velocity numbers: e.g. "ctr A 13", "A 01", "v12", "vel3", "_13"
+    int velEnd = -1, velStart = -1;
+    for (int i = static_cast<int>(stem.size()) - 1; i >= 0; --i)
+    {
+        if (std::isdigit(static_cast<unsigned char>(stem[static_cast<size_t>(i)])))
+        {
+            if (velEnd == -1)
+                velEnd = i + 1;
+            velStart = i;
+        }
+        else if (velEnd != -1)
+        {
+            break;
+        }
+    }
+
+    if (velStart >= 0 && velEnd > velStart)
+    {
+        int pfxStart = velStart;
+        if (pfxStart >= 3
+            && (stem.substr(static_cast<size_t>(pfxStart - 3), 3) == "vel"
+                || stem.substr(static_cast<size_t>(pfxStart - 3), 3) == "Vel"))
+            pfxStart -= 3;
+        else if (pfxStart >= 1
+                 && (stem[static_cast<size_t>(pfxStart - 1)] == 'v' || stem[static_cast<size_t>(pfxStart - 1)] == 'V'))
+            pfxStart -= 1;
+
+        if (pfxStart == 0 || stem[static_cast<size_t>(pfxStart - 1)] == ' '
+            || stem[static_cast<size_t>(pfxStart - 1)] == '_' || stem[static_cast<size_t>(pfxStart - 1)] == '-')
+        {
+            try
+            {
+                info.velocityLevel =
+                    std::stoi(stem.substr(static_cast<size_t>(velStart), static_cast<size_t>(velEnd - velStart)));
+                info.hasExplicitVelocity = true;
+                stem = trim(stem.substr(0, static_cast<size_t>(pfxStart)));
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    // 2. Detect Round Robin token at end of remaining stem: e.g. "A".."H", "rr1".."rr8", "r1".."r8"
+    if (!stem.empty())
+    {
+        bool rrFound = false;
+        if (stem.size() >= 2
+            && (stem[stem.size() - 2] == ' ' || stem[stem.size() - 2] == '_' || stem[stem.size() - 2] == '-'))
+        {
+            char c = stem.back();
+            if ((c >= 'A' && c <= 'H') || (c >= 'a' && c <= 'h'))
+            {
+                info.roundRobin = std::toupper(static_cast<unsigned char>(c)) - 'A';
+                info.hasExplicitRoundRobin = true;
+                stem = trim(stem.substr(0, stem.size() - 2));
+                rrFound = true;
+            }
+        }
+        else if (stem.size() == 1 && ((stem[0] >= 'A' && stem[0] <= 'H') || (stem[0] >= 'a' && stem[0] <= 'h')))
+        {
+            info.roundRobin = std::toupper(static_cast<unsigned char>(stem[0])) - 'A';
+            info.hasExplicitRoundRobin = true;
+            stem.clear();
+            rrFound = true;
+        }
+
+        if (!rrFound)
+        {
+            std::string stemLower = stem;
+            for (auto &ch : stemLower)
+                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            const auto lastSpace = stemLower.find_last_of(" _-");
+            std::string lastToken = (lastSpace != std::string::npos) ? stemLower.substr(lastSpace + 1) : stemLower;
+            if (lastToken.rfind("rr", 0) == 0 && lastToken.size() > 2)
+            {
+                try
+                {
+                    info.roundRobin = std::stoi(lastToken.substr(2)) - 1;
+                    info.hasExplicitRoundRobin = true;
+                    stem = trim(stem.substr(0, lastSpace != std::string::npos ? lastSpace : 0));
+                }
+                catch (...)
+                {
+                }
+            }
+        }
+    }
+
+    // 3. Detect known articulation zones:
+    struct ZoneEntry
+    {
+        const char *pattern;
+        const char *canonical;
+    };
+    const ZoneEntry knownZones[] = {
+        {"side stick", "sidestick"},
+        {"cross stick", "sidestick"},
+        {"sidestick", "sidestick"},
+        {"cross", "sidestick"},
+        {"rimshot", "rimshot"},
+        {"rim shot", "rimshot"},
+        {"rim", "rim"},
+        {"ctr", "ctr"},
+        {"center", "ctr"},
+        {"centre", "ctr"},
+        {"edge", "edge"},
+        {"edg", "edge"},
+        {"head", "head"},
+        {"bow", "bow"},
+        {"bell", "bell"},
+        {"cup", "bell"},
+        {"choke", "edge"},
+        {"pedal", "pedal"},
+        {"splash", "splash"},
+        {"full op", "open"},
+        {"open", "open"},
+        {"closed", "closed"},
+        {"tight", "closed"},
+        {"clo", "closed"},
+        {"half", "half"},
+    };
+
+    std::string stemLower = stem;
+    for (auto &ch : stemLower)
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+
+    for (const auto &ze : knownZones)
+    {
+        const std::string pat = ze.pattern;
+        auto pos = stemLower.rfind(pat);
+        if (pos != std::string::npos)
+        {
+            const bool atEnd = (pos + pat.size() == stemLower.size());
+            const bool afterSep =
+                (pos > 0 && (stemLower[pos - 1] == ' ' || stemLower[pos - 1] == '_' || stemLower[pos - 1] == '-'));
+            const bool beforeSep = atEnd
+                                   || (pos + pat.size() < stemLower.size()
+                                       && (stemLower[pos + pat.size()] == ' ' || stemLower[pos + pat.size()] == '_'
+                                           || stemLower[pos + pat.size()] == '-'));
+            if ((pos == 0 || afterSep) && beforeSep)
+            {
+                info.zone = ze.canonical;
+                info.hasExplicitZone = true;
+                std::string rem = stem.substr(0, pos) + stem.substr(pos + pat.size());
+                stem = trim(rem);
+                break;
+            }
+        }
+    }
+
+    if (info.zone.empty())
+        info.zone = "head";
+
+    info.instrument = trim(stem);
+    if (info.instrument.empty())
+        info.instrument = "Piece";
+
+    return info;
+}
+
+//==============================================================================
+GlorpKitProject::GlorpKitProject()
+{
+    createNewBlankKit();
+}
+
+void GlorpKitProject::createNewBlankKit()
+{
+    title = "Untitled Kit";
+    author = "Suite Kit Studio User";
+    version = "2.0";
+    license = "CC-BY-4.0";
+    description = "";
+    hitGlowColor = "#ff8200";
+    sampleRate = 48000;
+    loadedFilePath.clear();
+
+    mics = {
+        {"close", "Close Mic (Direct)", 1.0f},
+        {"oh-left", "Overhead Left", 0.8f},
+        {"oh-right", "Overhead Right", 0.8f},
+        {"room", "Room Stereo", 0.6f},
+        {"amb-left", "Ambience Far", 0.5f},
+    };
+
+    pieces.clear();
+}
+
+int GlorpKitProject::addPieceWithAutoLayout(const std::string &nameOrStem,
+                                            const std::string &graphic,
+                                            const std::vector<uint8_t> &pngBytes)
+{
+    const auto *d = findDefaultPieceLayout(nameOrStem);
+
+    EditablePiece p;
+    if (d != nullptr)
+    {
+        p.id = d->id;
+        p.name = d->name;
+        p.graphicId = !graphic.empty() ? graphic : d->graphic;
+        p.outputBus = d->bus;
+        p.chokeGroup = d->chokeGroup;
+        p.normX = d->x;
+        p.normY = d->y;
+        p.normW = d->w;
+        p.zOrder = d->z;
+    }
+    else
+    {
+        p.id = sanitizeId(nameOrStem);
+        p.name = nameOrStem;
+        p.graphicId = !graphic.empty() ? graphic : "snare";
+        p.outputBus = 1;
+        p.chokeGroup = "none";
+        p.normX = -90.0f;
+        p.normY = -280.0f;
+        p.normW = 180.0f;
+        p.zOrder = (int) pieces.size() + 1;
+    }
+
+    if (!pngBytes.empty())
+    {
+        p.customPngBytes = pngBytes;
+        p.hasCustomLayout = true;
+    }
+
+    EditableZone z;
+    if (d != nullptr)
+    {
+        z.note = d->defaultMidiNote;
+        if (p.id == "hihat")
+            z.name = "closed";
+        else if (p.id == "ride")
+            z.name = "bow";
+        else if (p.id.find("crash") != std::string::npos)
+            z.name = "edge";
+        else
+            z.name = "head";
+    }
+    else
+    {
+        z.note = 60 + (int) pieces.size();
+        z.name = "head";
+    }
+
+    p.zones.push_back(std::move(z));
+    pieces.push_back(std::move(p));
+    normalizeZOrders();
+    return (int) pieces.size() - 1;
+}
+
+void GlorpKitProject::createNewDefaultKit()
+{
+    title = "Custom Birch Studio";
+    author = "Suite Kit Studio User";
+    version = "2.0";
+    license = "CC-BY-4.0";
+    description = "Custom drumkit created in GlorpKit Studio";
+    hitGlowColor = "#ff8200";
+    sampleRate = 48000;
+    loadedFilePath.clear();
+
+    mics = {
+        {"close", "Close Mic (Direct)", 1.0f},
+        {"oh-left", "Overhead Left", 0.8f},
+        {"oh-right", "Overhead Right", 0.8f},
+        {"room", "Room Stereo", 0.6f},
+        {"amb-left", "Ambience Far", 0.5f},
+    };
+
+    pieces.clear();
+
+    for (const auto &d : kDefaultPieces)
+    {
+        EditablePiece p;
+        p.id = d.id;
+        p.name = d.name;
+        p.graphicId = d.graphic;
+        p.outputBus = d.bus;
+        p.chokeGroup = d.chokeGroup;
+        p.normX = d.x;
+        p.normY = d.y;
+        p.normW = d.w;
+        p.zOrder = d.z;
+        p.visible = true;
+
+        auto addZone = [&](const char *zName, int midiNote)
+        {
+            EditableZone z;
+            z.name = zName;
+            z.graphicId = p.graphicId;
+            z.note = midiNote;
+
+            const float powers[5] = {1.00f, 0.80f, 0.60f, 0.40f, 0.20f};
+            for (int vl = 0; vl < 5; ++vl)
+            {
+                for (int rr = 0; rr < 3; ++rr)
+                {
+                    EditableHit h;
+                    h.name = p.id + "_" + zName + "_v" + std::to_string(5 - vl) + "_rr" + std::to_string(rr + 1);
+                    h.power = powers[vl] - (float) rr * 0.02f;
+                    h.velocityLayerIndex = 4 - vl;
+                    h.roundRobinIndex = rr;
+
+                    const char *defaultMics[3] = {"close", "oh-left", "room"};
+                    for (const char *mc : defaultMics)
+                    {
+                        EditableMicSample ms;
+                        ms.mic = mc;
+                        ms.fileName = h.name + "_" + mc + ".wav";
+                        h.micSamples.push_back(std::move(ms));
+                    }
+                    z.hits.push_back(std::move(h));
+                }
+            }
+
+            p.zones.push_back(std::move(z));
+        };
+
+        if (p.id == "kick")
+        {
+            addZone("head", 36);
+        }
+        else if (p.id == "snare")
+        {
+            addZone("head", 38);
+            addZone("rimshot", 40);
+            addZone("rimclick", 37);
+        }
+        else if (p.id == "hihat")
+        {
+            addZone("closed", 42);
+            addZone("open", 46);
+            addZone("pedal", 44);
+            addZone("splash", 63);
+        }
+        else if (p.id == "tom1")
+        {
+            addZone("head", 48);
+            addZone("rim", 50);
+        }
+        else if (p.id == "tom2")
+        {
+            addZone("head", 47);
+            addZone("rim", 60);
+        }
+        else if (p.id == "ftom")
+        {
+            addZone("head", 43);
+            addZone("rim", 58);
+        }
+        else if (p.id == "ride")
+        {
+            addZone("bow", 51);
+            addZone("bell", 53);
+            addZone("edge", 59);
+        }
+        else if (p.id == "crash1")
+        {
+            addZone("bow", 49);
+            addZone("edge", 55);
+            addZone("choke", 54);
+        }
+        else if (p.id == "crash2")
+        {
+            addZone("bow", 57);
+            addZone("edge", 52);
+            addZone("choke", 58);
+        }
+
+        pieces.push_back(std::move(p));
+    }
+
+    normalizeZOrders();
+}
+
+//==============================================================================
+void GlorpKitProject::normalizeZOrders()
+{
+    std::vector<size_t> order(pieces.size());
+    for (size_t i = 0; i < pieces.size(); ++i)
+        order[i] = i;
+
+    std::stable_sort(
+        order.begin(), order.end(), [&](size_t a, size_t b) { return pieces[a].zOrder < pieces[b].zOrder; });
+
+    for (size_t rank = 0; rank < order.size(); ++rank)
+        pieces[order[rank]].zOrder = static_cast<int>(rank) + 1;
+}
+
+bool GlorpKitProject::movePieceZOrder(int pieceIndex, int deltaZ)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()) || deltaZ == 0)
+        return false;
+
+    normalizeZOrders();
+    const int curZ = pieces[static_cast<size_t>(pieceIndex)].zOrder;
+    const int targetZ = std::clamp(curZ + deltaZ, 1, static_cast<int>(pieces.size()));
+    if (targetZ == curZ)
+        return false;
+
+    for (size_t i = 0; i < pieces.size(); ++i)
+    {
+        if (static_cast<int>(i) == pieceIndex)
+            continue;
+        if (pieces[i].zOrder == targetZ)
+        {
+            pieces[i].zOrder = curZ;
+            break;
+        }
+    }
+    pieces[static_cast<size_t>(pieceIndex)].zOrder = targetZ;
+    normalizeZOrders();
+    return true;
+}
+
+bool GlorpKitProject::bringPieceToFront(int pieceIndex)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()))
+        return false;
+
+    pieces[static_cast<size_t>(pieceIndex)].zOrder = static_cast<int>(pieces.size()) + 10;
+    normalizeZOrders();
+    return true;
+}
+
+bool GlorpKitProject::sendPieceToBack(int pieceIndex)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()))
+        return false;
+
+    pieces[static_cast<size_t>(pieceIndex)].zOrder = -10;
+    normalizeZOrders();
+    return true;
+}
+
+//==============================================================================
+void GlorpKitProject::rebuildZoneLayerGrid(EditableZone &zone, int maxRoundRobins)
+{
+    if (zone.hits.empty())
+        return;
+
+    maxRoundRobins = std::clamp(maxRoundRobins, 1, 8);
+
+    bool anyExplicit = false;
+    int maxV = 0, maxR = 0;
+    for (const auto &h : zone.hits)
+    {
+        if (h.velocityLayerIndex >= 0 || h.roundRobinIndex >= 0)
+        {
+            anyExplicit = true;
+            maxV = std::max(maxV, h.velocityLayerIndex + 1);
+            maxR = std::max(maxR, h.roundRobinIndex + 1);
+        }
+    }
+
+    if (anyExplicit && maxV > 0 && maxR > 0)
+    {
+        zone.numVelocityLayers = std::clamp(std::max(zone.numVelocityLayers, maxV), 1, 24);
+        zone.numRoundRobins = std::clamp(std::max(maxRoundRobins, maxR), 1, 8);
+        for (auto &h : zone.hits)
+        {
+            if (h.velocityLayerIndex < 0)
+                h.velocityLayerIndex = 0;
+            if (h.roundRobinIndex < 0)
+                h.roundRobinIndex = 0;
+        }
+        return;
+    }
+
+    // Sort hits ascending by power: softest (PP) to loudest (FF)
+    std::stable_sort(zone.hits.begin(),
+                     zone.hits.end(),
+                     [](const EditableHit &a, const EditableHit &b) { return a.power < b.power; });
+
+    const int totalHits = static_cast<int>(zone.hits.size());
+    const int neededLayers =
+        std::max(zone.numVelocityLayers,
+                 static_cast<int>(std::ceil(static_cast<float>(totalHits) / static_cast<float>(maxRoundRobins))));
+    zone.numVelocityLayers = std::clamp(neededLayers, 1, 24);
+    zone.numRoundRobins = maxRoundRobins;
+
+    for (size_t i = 0; i < zone.hits.size(); ++i)
+    {
+        zone.hits[i].velocityLayerIndex =
+            std::clamp(static_cast<int>(i) / maxRoundRobins, 0, zone.numVelocityLayers - 1);
+        zone.hits[i].roundRobinIndex = std::clamp(static_cast<int>(i) % maxRoundRobins, 0, zone.numRoundRobins - 1);
+    }
+}
+
+void GlorpKitProject::autoComputeZonePowers(int pieceIndex, int zoneIndex)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()))
+        return;
+    auto &piece = pieces[static_cast<size_t>(pieceIndex)];
+    if (zoneIndex < 0 || zoneIndex >= static_cast<int>(piece.zones.size()))
+        return;
+    auto &zone = piece.zones[static_cast<size_t>(zoneIndex)];
+    if (zone.hits.empty())
+        return;
+
+    SampleCache cache;
+    std::vector<float> energies(zone.hits.size(), 0.0f);
+    float maxEnergy = 0.0f;
+
+    for (size_t h = 0; h < zone.hits.size(); ++h)
+    {
+        const auto &hit = zone.hits[h];
+        if (hit.micSamples.empty())
+            continue;
+
+        const EditableMicSample *chosen = &hit.micSamples.front();
+        for (const auto &ms : hit.micSamples)
+            if (ms.mic == "close")
+            {
+                chosen = &ms;
+                break;
+            }
+
+        std::string sampleUri;
+        if (!chosen->sourceDiskPath.empty())
+            sampleUri = chosen->sourceDiskPath;
+        else if (!chosen->sourceArchivePath.empty() && chosen->archiveOffset >= 0)
+            sampleUri = "glorpkit://" + chosen->sourceArchivePath + "#" + std::to_string(chosen->archiveOffset) + ":"
+                        + std::to_string(chosen->archiveLength);
+
+        if (!sampleUri.empty())
+        {
+            auto handle = cache.open(sampleUri);
+            if (handle.valid && handle.numFrames > 0)
+            {
+                const int64_t framesToCheck = std::min<int64_t>(handle.numFrames, 24000);
+                std::vector<float> buf(static_cast<size_t>(framesToCheck), 0.0f);
+                handle.read(0, framesToCheck, chosen->fileChannel, buf.data());
+
+                double sumSq = 0.0;
+                float peak = 0.0f;
+                for (float s : buf)
+                {
+                    sumSq += static_cast<double>(s * s);
+                    peak = std::max(peak, std::abs(s));
+                }
+                const float rms = static_cast<float>(std::sqrt(sumSq / static_cast<double>(framesToCheck)));
+                energies[h] = 0.65f * peak + 0.35f * rms;
+                maxEnergy = std::max(maxEnergy, energies[h]);
+            }
+        }
+    }
+
+    std::set<int> distinctVelLayers;
+    for (const auto &h : zone.hits)
+        distinctVelLayers.insert(h.velocityLayerIndex);
+
+    if (distinctVelLayers.size() > 1)
+    {
+        // Hits already have assigned velocity tiers (from filename parsing or manual matrix layout).
+        // Recalibrate power proportionally to their velocity layer to preserve user layout:
+        const int numVL = std::max(1, zone.numVelocityLayers);
+        for (auto &h : zone.hits)
+        {
+            const float t =
+                (numVL > 1) ? static_cast<float>(h.velocityLayerIndex) / static_cast<float>(numVL - 1) : 1.0f;
+            h.power = 0.12f + 0.88f * t;
+        }
+    }
+    else
+    {
+        // Untiered hits: sort by measured acoustic energy
+        if (maxEnergy > 1e-6f)
+        {
+            for (size_t h = 0; h < zone.hits.size(); ++h)
+            {
+                if (energies[h] > 0.0f)
+                    zone.hits[h].power = std::clamp(energies[h] / maxEnergy, 0.08f, 1.0f);
+            }
+        }
+        else
+        {
+            const size_t N = zone.hits.size();
+            for (size_t h = 0; h < N; ++h)
+            {
+                const float t = (N > 1) ? static_cast<float>(h) / static_cast<float>(N - 1) : 0.0f;
+                zone.hits[h].power = 0.12f + t * 0.88f;
+            }
+        }
+
+        rebuildZoneLayerGrid(zone, zone.numRoundRobins);
+    }
+}
+
+int GlorpKitProject::importAudioFilesIntoZone(int pieceIndex,
+                                              int zoneIndex,
+                                              const std::vector<std::string> &filePaths,
+                                              const std::string &targetMic)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()))
+        return 0;
+    auto &piece = pieces[static_cast<size_t>(pieceIndex)];
+    if (zoneIndex < 0 || zoneIndex >= static_cast<int>(piece.zones.size()))
+        return 0;
+    auto &zone = piece.zones[static_cast<size_t>(zoneIndex)];
+
+    std::vector<ParsedSampleInfo> parsedList;
+    int maxVel = 1;
+    int maxRr = 0;
+    bool anyExplicitVel = false;
+
+    for (const auto &p : filePaths)
+    {
+        std::error_code ec;
+        if (!fs::is_regular_file(p, ec))
+            continue;
+        auto info = parseSampleFilename(p);
+        if (info.hasExplicitVelocity)
+        {
+            anyExplicitVel = true;
+            maxVel = std::max(maxVel, info.velocityLevel);
+        }
+        if (info.hasExplicitRoundRobin)
+            maxRr = std::max(maxRr, info.roundRobin);
+        parsedList.push_back(std::move(info));
+    }
+
+    if (parsedList.empty())
+        return 0;
+
+    // If the zone contains placeholder dummy hits with no actual audio file on disk/archive,
+    // clear them out so imported files cleanly take over!
+    bool onlyPlaceholders = true;
+    for (const auto &h : zone.hits)
+    {
+        for (const auto &ms : h.micSamples)
+        {
+            if (!ms.sourceDiskPath.empty() || (!ms.sourceArchivePath.empty() && ms.archiveOffset >= 0))
+            {
+                onlyPlaceholders = false;
+                break;
+            }
+        }
+    }
+    if (onlyPlaceholders)
+        zone.hits.clear();
+
+    // Dynamically expand grid dimensions to fit incoming sample set
+    if (anyExplicitVel)
+    {
+        zone.numVelocityLayers = std::clamp(std::max(zone.numVelocityLayers, maxVel), 1, 24);
+        zone.numRoundRobins = std::clamp(std::max(zone.numRoundRobins, maxRr + 1), 1, 8);
+    }
+    else
+    {
+        const int neededRows = static_cast<int>(std::ceil(static_cast<float>(zone.hits.size() + parsedList.size())
+                                                          / static_cast<float>(std::max(1, zone.numRoundRobins))));
+        if (neededRows > zone.numVelocityLayers)
+            zone.numVelocityLayers = std::clamp(neededRows, 1, 24);
+    }
+
+    int added = 0;
+    for (const auto &info : parsedList)
+    {
+        EditableHit hit;
+        hit.name = fs::path(info.rawPath).stem().string();
+
+        if (anyExplicitVel && info.hasExplicitVelocity)
+        {
+            hit.velocityLayerIndex = std::clamp(info.velocityLevel - 1, 0, zone.numVelocityLayers - 1);
+            hit.roundRobinIndex = std::clamp(info.roundRobin, 0, zone.numRoundRobins - 1);
+            const float t =
+                (maxVel > 1) ? static_cast<float>(info.velocityLevel - 1) / static_cast<float>(maxVel - 1) : 1.0f;
+            hit.power = 0.12f + 0.88f * t;
+        }
+        else
+        {
+            hit.velocityLayerIndex = 0;
+            hit.roundRobinIndex = 0;
+            hit.power = 1.0f;
+        }
+
+        EditableMicSample ms;
+        ms.mic = targetMic.empty() ? "close" : targetMic;
+        ms.fileName = fs::path(info.rawPath).filename().string();
+        ms.sourceDiskPath = info.rawPath;
+        ms.fileChannel = 0;
+
+        hit.micSamples.push_back(std::move(ms));
+        zone.hits.push_back(std::move(hit));
+        ++added;
+    }
+
+    if (!anyExplicitVel)
+    {
+        autoComputeZonePowers(pieceIndex, zoneIndex);
+    }
+
+    return added;
+}
+
+bool GlorpKitProject::moveSampleToCell(
+    int pieceIndex, int zoneIndex, int hitIndex, int newVelocityLayer, int newRoundRobin)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()))
+        return false;
+    auto &piece = pieces[static_cast<size_t>(pieceIndex)];
+    if (zoneIndex < 0 || zoneIndex >= static_cast<int>(piece.zones.size()))
+        return false;
+    auto &zone = piece.zones[static_cast<size_t>(zoneIndex)];
+    if (hitIndex < 0 || hitIndex >= static_cast<int>(zone.hits.size()))
+        return false;
+
+    newVelocityLayer = std::clamp(newVelocityLayer, 0, std::max(0, zone.numVelocityLayers - 1));
+    newRoundRobin = std::clamp(newRoundRobin, 0, std::max(0, zone.numRoundRobins - 1));
+
+    zone.hits[static_cast<size_t>(hitIndex)].velocityLayerIndex = newVelocityLayer;
+    zone.hits[static_cast<size_t>(hitIndex)].roundRobinIndex = newRoundRobin;
+
+    const int numVL = std::max(1, zone.numVelocityLayers);
+    const float t = (numVL > 1) ? static_cast<float>(newVelocityLayer) / static_cast<float>(numVL - 1) : 1.0f;
+    zone.hits[static_cast<size_t>(hitIndex)].power = 0.12f + 0.88f * t;
+    return true;
+}
+
+bool GlorpKitProject::swapSampleCells(int pieceIndex, int zoneIndex, int hitAIndex, int hitBIndex)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()))
+        return false;
+    auto &piece = pieces[static_cast<size_t>(pieceIndex)];
+    if (zoneIndex < 0 || zoneIndex >= static_cast<int>(piece.zones.size()))
+        return false;
+    auto &zone = piece.zones[static_cast<size_t>(zoneIndex)];
+    if (hitAIndex < 0 || hitAIndex >= static_cast<int>(zone.hits.size()))
+        return false;
+    if (hitBIndex < 0 || hitBIndex >= static_cast<int>(zone.hits.size()))
+        return false;
+
+    std::swap(zone.hits[static_cast<size_t>(hitAIndex)].velocityLayerIndex,
+              zone.hits[static_cast<size_t>(hitBIndex)].velocityLayerIndex);
+    std::swap(zone.hits[static_cast<size_t>(hitAIndex)].roundRobinIndex,
+              zone.hits[static_cast<size_t>(hitBIndex)].roundRobinIndex);
+    std::swap(zone.hits[static_cast<size_t>(hitAIndex)].power, zone.hits[static_cast<size_t>(hitBIndex)].power);
+    return true;
+}
+
+void GlorpKitProject::setZoneGridDimensions(int pieceIndex, int zoneIndex, int numVelLayers, int numRoundRobins)
+{
+    if (pieceIndex < 0 || pieceIndex >= static_cast<int>(pieces.size()))
+        return;
+    auto &piece = pieces[static_cast<size_t>(pieceIndex)];
+    if (zoneIndex < 0 || zoneIndex >= static_cast<int>(piece.zones.size()))
+        return;
+    auto &zone = piece.zones[static_cast<size_t>(zoneIndex)];
+
+    zone.numVelocityLayers = std::clamp(numVelLayers, 1, 24);
+    zone.numRoundRobins = std::clamp(numRoundRobins, 1, 8);
+
+    for (auto &h : zone.hits)
+    {
+        h.velocityLayerIndex = std::clamp(h.velocityLayerIndex, 0, zone.numVelocityLayers - 1);
+        h.roundRobinIndex = std::clamp(h.roundRobinIndex, 0, zone.numRoundRobins - 1);
+    }
+}
+
+//==============================================================================
+bool GlorpKitProject::openGlorpKitArchive(const std::string &archivePath, std::string &outError)
+{
+    GlorpKitReader reader;
+    if (!reader.open(archivePath))
+    {
+        outError = "Could not open .glorpkit archive: " + archivePath;
+        return false;
+    }
+
+    if (!reader.isNativeGlorpKit())
+    {
+        // Legacy DrumGizmo-in-ZIP archive: load via DrumKit::load and convert
+        return importDrumGizmoXml(archivePath, outError);
+    }
+
+    GlorpKitManifest manifest;
+    std::vector<GlorpGraphic> graphics;
+    if (!reader.readNativeKitManifest(manifest, graphics))
+    {
+        outError = "Failed to parse kit.xml in " + archivePath;
+        return false;
+    }
+
+    std::vector<GlorpInstrumentSpec> instSpecs;
+    if (!reader.readNativeInstruments(instSpecs))
+    {
+        outError = "No valid instruments found in " + archivePath;
+        return false;
+    }
+
+    title = manifest.title.empty() ? fs::path(archivePath).stem().string() : manifest.title;
+    author = manifest.author.empty() ? "Unknown" : manifest.author;
+    version = manifest.version.empty() ? "2.0" : manifest.version;
+    license = manifest.license.empty() ? "Custom" : manifest.license;
+    description = manifest.description;
+    hitGlowColor = manifest.hitGlowColor.empty() ? "#ff8200" : manifest.hitGlowColor;
+    sampleRate = manifest.declaredSampleRate;
+    loadedFilePath = archivePath;
+
+    mics = manifest.mics;
+    if (mics.empty())
+        mics.push_back({"close", "Close Mic (Direct)", 1.0f});
+
+    std::map<std::string, std::string> graphicSrcMap;
+    for (const auto &g : graphics)
+        graphicSrcMap[g.name] = g.src;
+
+    pieces.clear();
+    int fallbackZ = 1;
+
+    for (const auto &spec : instSpecs)
+    {
+        EditablePiece p;
+        p.name = spec.name;
+        p.id = spec.id;
+        p.graphicId = spec.graphic.empty() ? spec.id : spec.graphic;
+        p.outputBus = spec.outputBus;
+        p.chokeGroup = spec.chokeGroup;
+
+        if (spec.hasCustomLayout)
+        {
+            p.normX = spec.normX;
+            p.normY = spec.normY;
+            p.normW = spec.normW;
+            p.zOrder = spec.zOrder > 0 ? spec.zOrder : fallbackZ++;
+        }
+        else if (const auto *def = findDefaultPieceLayout(spec.id.empty() ? spec.name : spec.id))
+        {
+            p.normX = def->x;
+            p.normY = def->y;
+            p.normW = def->w;
+            p.zOrder = def->z;
+        }
+        else
+        {
+            p.normX = -100.0f + static_cast<float>(fallbackZ * 30);
+            p.normY = -350.0f;
+            p.normW = 160.0f;
+            p.zOrder = fallbackZ++;
+        }
+
+        // Load custom PNG bytes if embedded in the archive
+        std::string pngArcPath;
+        auto git = graphicSrcMap.find(p.graphicId);
+        if (git != graphicSrcMap.end() && git->second.rfind("builtin:", 0) != 0)
+            pngArcPath = git->second;
+        else if (!p.graphicId.empty() && p.graphicId.rfind("builtin:", 0) != 0)
+            pngArcPath = "assets/" + p.graphicId + ".png";
+
+        if (!pngArcPath.empty() && reader.hasEntry(pngArcPath))
+        {
+            if (reader.readEntryBytes(pngArcPath, p.customPngBytes))
+                p.customPngFileName = fs::path(pngArcPath).filename().string();
+        }
+
+        for (const auto &zspec : spec.zones)
+        {
+            EditableZone z;
+            z.name = zspec.name;
+            z.graphicId = zspec.graphic.empty() ? p.graphicId : zspec.graphic;
+            z.note = zspec.note;
+            z.altNote = zspec.altNote;
+            z.chokes = zspec.chokes;
+
+            // Group GlorpSampleRef entries into EditableHit by hit name
+            std::map<std::string, size_t> hitIdxMap;
+            for (const auto &sref : zspec.samples)
+            {
+                const std::string hitKey = !sref.name.empty() ? sref.name : fs::path(sref.file).stem().string();
+                auto it = hitIdxMap.find(hitKey);
+                if (it == hitIdxMap.end())
+                {
+                    hitIdxMap[hitKey] = z.hits.size();
+                    EditableHit hit;
+                    hit.name = hitKey;
+                    hit.power = sref.power;
+                    if (sref.velocityLayer >= 1)
+                        hit.velocityLayerIndex = sref.velocityLayer - 1;
+                    if (sref.roundRobin >= 1)
+                        hit.roundRobinIndex = sref.roundRobin - 1;
+
+                    EditableMicSample ms;
+                    ms.mic = sref.mic;
+                    ms.fileName = fs::path(sref.file).filename().string();
+                    ms.sourceArchivePath = archivePath;
+                    ms.archiveOffset = sref.archiveOffset;
+                    ms.archiveLength = sref.archiveLength;
+                    ms.fileChannel = sref.fileChannel;
+
+                    hit.micSamples.push_back(std::move(ms));
+                    z.hits.push_back(std::move(hit));
+                }
+                else
+                {
+                    EditableMicSample ms;
+                    ms.mic = sref.mic;
+                    ms.fileName = fs::path(sref.file).filename().string();
+                    ms.sourceArchivePath = archivePath;
+                    ms.archiveOffset = sref.archiveOffset;
+                    ms.archiveLength = sref.archiveLength;
+                    ms.fileChannel = sref.fileChannel;
+                    z.hits[it->second].micSamples.push_back(std::move(ms));
+                }
+            }
+
+            // Detect velocity layers and round robins from sample names if not explicitly tagged
+            int maxDetectedVel = 0;
+            int maxDetectedRr = 0;
+            bool anyExplicitVelOrRr = false;
+
+            for (auto &h : z.hits)
+            {
+                if (h.velocityLayerIndex < 0 || h.roundRobinIndex < 0)
+                {
+                    auto parsed = parseSampleFilename(h.name);
+                    if (parsed.hasExplicitVelocity && parsed.velocityLevel >= 1 && h.velocityLayerIndex < 0)
+                        h.velocityLayerIndex = parsed.velocityLevel - 1;
+                    if (parsed.hasExplicitRoundRobin && parsed.roundRobin >= 0 && h.roundRobinIndex < 0)
+                        h.roundRobinIndex = parsed.roundRobin;
+                }
+                if (h.velocityLayerIndex >= 0)
+                {
+                    maxDetectedVel = std::max(maxDetectedVel, h.velocityLayerIndex + 1);
+                    anyExplicitVelOrRr = true;
+                }
+                if (h.roundRobinIndex >= 0)
+                {
+                    maxDetectedRr = std::max(maxDetectedRr, h.roundRobinIndex + 1);
+                    anyExplicitVelOrRr = true;
+                }
+            }
+
+            if (anyExplicitVelOrRr)
+            {
+                z.numVelocityLayers = std::clamp(std::max({zspec.velocityLayers, maxDetectedVel, 1}), 1, 24);
+                z.numRoundRobins = std::clamp(std::max({zspec.roundRobin, maxDetectedRr, 1}), 1, 8);
+
+                for (auto &h : z.hits)
+                {
+                    if (h.velocityLayerIndex < 0)
+                        h.velocityLayerIndex = 0;
+                    if (h.roundRobinIndex < 0)
+                        h.roundRobinIndex = 0;
+                }
+            }
+            else
+            {
+                rebuildZoneLayerGrid(z, std::max(1, zspec.roundRobin));
+            }
+
+            p.zones.push_back(std::move(z));
+        }
+
+        pieces.push_back(std::move(p));
+    }
+
+    normalizeZOrders();
+    return true;
+}
+
+//==============================================================================
+namespace
+{
+std::string nakedSanitize(const std::string &value)
+{
+    std::string out;
+    for (char raw : value)
+    {
+        const auto c = static_cast<unsigned char>(raw);
+        if (std::isalnum(c))
+            out += static_cast<char>(std::tolower(c));
+        else if (raw == '-' || raw == '_')
+            out += raw;
+        else if (std::isspace(c))
+            out += '_';
+    }
+    while (!out.empty() && out.front() == '_')
+        out.erase(out.begin());
+    while (!out.empty() && out.back() == '_')
+        out.pop_back();
+    return out.empty() ? "piece" : out;
+}
+
+std::string nakedExpandMacros(const std::string &text,
+                              const std::map<std::string, std::string> &macros,
+                              int depth)
+{
+    if (depth > 12 || text.find('$') == std::string::npos)
+        return text;
+
+    std::string out;
+    size_t i = 0;
+    while (i < text.size())
+    {
+        if (text[i] != '$')
+        {
+            out += text[i++];
+            continue;
+        }
+
+        size_t j = i + 1;
+        while (j < text.size()
+               && (std::isalnum(static_cast<unsigned char>(text[j])) || text[j] == '_'))
+            ++j;
+
+        const std::string token = text.substr(i, j - i);
+        bool replaced = false;
+        for (size_t k = token.size(); k > 1; --k)
+        {
+            const auto it = macros.find(token.substr(0, k));
+            if (it != macros.end())
+            {
+                out += nakedExpandMacros(it->second, macros, depth + 1);
+                out += token.substr(k);
+                i = j;
+                replaced = true;
+                break;
+            }
+        }
+
+        if (!replaced)
+        {
+            out += token;
+            i = j;
+        }
+    }
+    return out;
+}
+
+bool nakedLoadSfzLines(const fs::path &file,
+                       const fs::path &root,
+                       std::map<std::string, std::string> &macros,
+                       std::vector<std::string> &out,
+                       int depth)
+{
+    if (depth > 16)
+        return false;
+
+    std::ifstream input(file);
+    if (!input.is_open())
+        return false;
+
+    std::string line;
+    while (std::getline(input, line))
+    {
+        const auto comment = line.find("//");
+        if (comment != std::string::npos)
+            line.erase(comment);
+
+        auto trimCopy = [](std::string s)
+        {
+            while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+                s.erase(s.begin());
+            while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+                s.pop_back();
+            return s;
+        };
+        line = trimCopy(line);
+        if (line.empty())
+            continue;
+
+        if (line.rfind("#include", 0) == 0)
+        {
+            const auto q1 = line.find('"');
+            const auto q2 = q1 == std::string::npos ? std::string::npos : line.find('"', q1 + 1);
+            std::string includeName = (q1 != std::string::npos && q2 != std::string::npos)
+                                          ? line.substr(q1 + 1, q2 - q1 - 1)
+                                          : trimCopy(line.substr(8));
+            fs::path includePath(includeName);
+            fs::path resolved = includePath.is_absolute() ? includePath : (root / includePath);
+            if (!fs::exists(resolved))
+                resolved = file.parent_path() / includePath;
+            nakedLoadSfzLines(resolved, root, macros, out, depth + 1);
+            continue;
+        }
+
+        if (line.find("#define") != std::string::npos)
+        {
+            auto pos = line.find("#define") + 7;
+            while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos])))
+                ++pos;
+            const auto nameStart = pos;
+            while (pos < line.size() && !std::isspace(static_cast<unsigned char>(line[pos])))
+                ++pos;
+            const std::string name = line.substr(nameStart, pos - nameStart);
+            while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos])))
+                ++pos;
+            const std::string value = trimCopy(line.substr(pos));
+            if (!name.empty() && !value.empty())
+                macros[name] = nakedExpandMacros(value, macros, depth);
+            continue;
+        }
+
+        out.push_back(nakedExpandMacros(line, macros, depth));
+    }
+    return true;
+}
+
+std::string nakedMapMaster(const std::string &label)
+{
+    std::string low = label;
+    for (auto &c : low)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    low.erase(std::remove_if(low.begin(), low.end(), [](char c) { return c == ' '; }), low.end());
+    const auto stripLab = low.rfind("$lab_", 0) == 0 ? low.substr(5) : low;
+
+    if (stripLab.rfind("snr", 0) == 0 || stripLab.rfind("snare", 0) == 0)
+    {
+        if (!stripLab.empty() && stripLab.back() == '1')
+            return "Snare 1";
+        if (!stripLab.empty() && stripLab.back() == '2')
+            return "Snare 2";
+        return "Snare";
+    }
+
+    static const std::map<std::string, std::string> table = {
+        {"kick", "Kick"},          {"snare", "Snare"},        {"tom1", "Tom 1"},
+        {"tom2", "Tom 2"},         {"tom3", "Tom 3"},         {"tom4", "Tom 4"},
+        {"tom5", "Tom 5"},         {"hats", "Hihat"},         {"hh", "Hihat"},
+        {"ride", "Ride"},          {"rd", "Ride"},            {"crash1", "Crash 1"},
+        {"crash2", "Crash 2"},     {"crs1", "Crash 1"},       {"crs2", "Crash 2"},
+        {"splash1", "Splash 1"},   {"splash2", "Splash 2"},   {"spl1", "Splash 1"},
+        {"spl2", "Splash 2"},      {"china1", "China 1"},     {"china2", "China 2"},
+        {"chn1", "China 1"},       {"chn2", "China 2"},
+    };
+
+    const auto it = table.find(stripLab);
+    if (it != table.end())
+        return it->second;
+
+    if (stripLab.empty())
+        return "Percussion";
+
+    std::string pretty = stripLab;
+    pretty[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(pretty[0])));
+    return pretty;
+}
+
+std::string nakedMapZone(const std::string &label)
+{
+    std::string low = label;
+    for (auto &c : low)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    while (!low.empty() && std::isspace(static_cast<unsigned char>(low.front())))
+        low.erase(low.begin());
+    while (!low.empty() && std::isspace(static_cast<unsigned char>(low.back())))
+        low.pop_back();
+
+    static const std::map<std::string, std::string> table = {
+        {"half", "semi"},   {"center", "center"}, {"sidestick", "sidestick"},
+        {"tight", "tight"}, {"closed", "closed"}, {"pedal", "pedal"},
+        {"open", "open"},   {"bow", "bow"},       {"bell", "bell"},
+        {"edge", "edge"},   {"choke", "choke"},
+    };
+    const auto it = table.find(low);
+    return it != table.end() ? it->second : (low.empty() ? "center" : low);
+}
+
+std::string nakedGraphicFor(const std::string &piece, const std::string &zone)
+{
+    std::string p = piece;
+    for (auto &c : p)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    if (p.find("kick") != std::string::npos)
+        return "kick";
+    if (p.find("snare") != std::string::npos)
+        return "snare";
+    if (p.find("hihat") != std::string::npos || p.find("hat") != std::string::npos)
+        return "hihat";
+    if (p.find("floor") != std::string::npos || p == "tom4" || p == "tom5" || p == "tom 4" || p == "tom 5")
+        return "ftom";
+    if (p.find("tom") != std::string::npos)
+        return "tom2";
+    if (p.find("ride") != std::string::npos)
+        return "ride";
+    if (p.find("crash2") != std::string::npos || p.find("crash 2") != std::string::npos)
+        return "crash2";
+    if (p.find("crash") != std::string::npos || p.find("splash") != std::string::npos
+        || p.find("china") != std::string::npos)
+        return "crash1";
+    (void) zone;
+    return "snare";
+}
+} // namespace
+
+bool GlorpKitProject::importNakedMultiMic(const std::string &sfzFilePath, std::string &outError)
+{
+    const fs::path sfzPath = fs::absolute(sfzFilePath);
+    const fs::path multiDir = sfzPath.parent_path();
+    const fs::path root = multiDir.parent_path();
+    const fs::path samplesDir = root / "Samples";
+
+    if (!fs::is_directory(multiDir) || !fs::is_directory(samplesDir))
+    {
+        outError = "Naked Drums: expected Multi/ and Samples/ next to the SFZ file";
+        return false;
+    }
+
+    std::vector<fs::path> sfzFiles;
+    for (const auto &entry : fs::directory_iterator(multiDir))
+        if (entry.path().extension() == ".sfz")
+            sfzFiles.push_back(entry.path());
+    std::sort(sfzFiles.begin(), sfzFiles.end());
+
+    if (sfzFiles.empty())
+    {
+        outError = "Naked Drums: no Multi/*.sfz files found";
+        return false;
+    }
+
+    auto parseOps = [] (const std::string &text, std::map<std::string, std::string> &ops)
+    {
+        size_t i = 0;
+        while (i < text.size())
+        {
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+            if (i >= text.size())
+                break;
+
+            const size_t keyStart = i;
+            while (i < text.size() && text[i] != '=' && !std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+            std::string key = text.substr(keyStart, i - keyStart);
+            for (auto &c : key)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+            if (i >= text.size() || text[i] != '=')
+                continue;
+            ++i;
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+
+            std::string value;
+            if (i < text.size() && (text[i] == '"' || text[i] == '\''))
+            {
+                const char quote = text[i++];
+                while (i < text.size() && text[i] != quote)
+                    value += text[i++];
+                if (i < text.size())
+                    ++i;
+            }
+            else
+            {
+                const size_t valueStart = i;
+                while (i < text.size() && !std::isspace(static_cast<unsigned char>(text[i])))
+                    ++i;
+                value = text.substr(valueStart, i - valueStart);
+            }
+
+            if (!key.empty())
+                ops[key] = value;
+        }
+    };
+
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::map<std::string, int> channelCache;
+    auto channelCountFor = [&] (const fs::path &path) -> int
+    {
+        const auto key = path.string();
+        const auto it = channelCache.find(key);
+        if (it != channelCache.end())
+            return it->second;
+
+        int channels = 1;
+        std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(juce::File(path.string())));
+        if (reader != nullptr)
+            channels = static_cast<int>(reader->numChannels);
+        channelCache[key] = channels;
+        return channels;
+    };
+
+    struct MicDef
+    {
+        std::string name;
+        std::string title;
+    };
+
+    struct ZoneBuild
+    {
+        std::string name;
+        std::string graphic;
+        int note = 60;
+        std::vector<std::pair<int, int>> tiers;
+        std::vector<EditableHit> hits;
+        std::vector<std::tuple<int, int, int>> hitOrder;
+        std::map<std::tuple<int, int, int>, size_t> hitIndex;
+    };
+
+    struct PieceBuild
+    {
+        std::string id;
+        std::string name;
+        std::string graphic;
+        std::string choke;
+        std::vector<ZoneBuild> zones;
+        std::map<std::string, size_t> zoneIndex;
+    };
+
+    std::vector<PieceBuild> builds;
+    std::map<std::string, size_t> pieceIndex;
+    std::vector<MicDef> micDefs;
+    std::set<std::string> micSeen;
+
+    auto addMic = [&] (const std::string &name, const std::string &title)
+    {
+        if (micSeen.insert(name).second)
+            micDefs.push_back({name, title});
+    };
+
+    for (const auto &sfz : sfzFiles)
+    {
+        const std::string base = sfz.stem().string();
+        std::map<std::string, std::string> macros;
+        std::vector<std::string> lines;
+        nakedLoadSfzLines(sfz, multiDir, macros, lines, 0);
+
+        std::map<std::string, std::string> globalOps;
+        std::map<std::string, std::string> groupOps;
+        std::string masterLabel;
+        std::string defaultPath;
+
+        auto captureMeta = [&] (const std::map<std::string, std::string> &ops)
+        {
+            const auto ml = ops.find("master_label");
+            if (ml != ops.end() && !ml->second.empty())
+                masterLabel = ml->second;
+            const auto dp = ops.find("default_path");
+            if (dp != ops.end() && !dp->second.empty())
+                defaultPath = dp->second;
+        };
+
+        for (const auto &line : lines)
+        {
+            if (!line.empty() && line[0] == '<')
+            {
+                const auto close = line.find('>');
+                if (close == std::string::npos)
+                    continue;
+                std::string tag = line.substr(1, close - 1);
+                for (auto &c : tag)
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                const auto rest = line.substr(close + 1);
+
+                if (tag == "region")
+                {
+                    std::map<std::string, std::string> ops = groupOps;
+                    parseOps(rest, ops);
+                    if (!masterLabel.empty())
+                        ops["master_label"] = masterLabel;
+
+                    auto sample = ops["sample"];
+                    if (sample.empty() || sample[0] == '*')
+                        continue;
+
+                    if (ops["sw_last"] == "13")
+                        continue;
+
+                    int key = 0;
+                    try
+                    {
+                        key = static_cast<int>(std::lround(std::stof(ops["key"].empty() ? "0" : ops["key"])));
+                    }
+                    catch (...)
+                    {
+                        continue;
+                    }
+                    if (key <= 13 || key >= 60)
+                        continue;
+
+                    std::replace(sample.begin(), sample.end(), '\\', '/');
+                    fs::path samplePath(sample);
+                    if (samplePath.is_relative())
+                    {
+                        std::string defPath = defaultPath;
+                        std::replace(defPath.begin(), defPath.end(), '\\', '/');
+                        samplePath = defPath.empty() ? (sfz.parent_path() / samplePath)
+                                                     : (sfz.parent_path() / defPath / samplePath);
+                    }
+                    samplePath = samplePath.lexically_normal();
+                    if (!fs::is_regular_file(samplePath))
+                        continue;
+
+                    auto parseInt = [] (const std::string &s, int fallback)
+                    {
+                        try
+                        {
+                            return static_cast<int>(std::lround(std::stof(s.empty() ? std::to_string(fallback) : s)));
+                        }
+                        catch (...)
+                        {
+                            return fallback;
+                        }
+                    };
+
+                    const int lovel = parseInt(ops["lovel"], 0);
+                    const int hivel = parseInt(ops["hivel"], 127);
+                    const int seq = parseInt(ops["seq_position"], 1);
+
+                    const std::string pieceName = nakedMapMaster(ops["master_label"]);
+                    const std::string zoneName = nakedMapZone(ops["group_label"]);
+                    if (zoneName == "choke")
+                        continue;
+
+                    const std::string pieceId = nakedSanitize(pieceName);
+                    auto pIt = pieceIndex.find(pieceId);
+                    if (pIt == pieceIndex.end())
+                    {
+                        PieceBuild piece;
+                        piece.id = pieceId;
+                        piece.name = pieceName;
+                        piece.graphic = nakedGraphicFor(pieceName, zoneName);
+                        piece.choke = pieceName.find("ihat") != std::string::npos ? "hihat" : "none";
+                        pieceIndex[pieceId] = builds.size();
+                        builds.push_back(std::move(piece));
+                        pIt = pieceIndex.find(pieceId);
+                    }
+                    auto &piece = builds[pIt->second];
+
+                    auto zIt = piece.zoneIndex.find(zoneName);
+                    if (zIt == piece.zoneIndex.end())
+                    {
+                        ZoneBuild zone;
+                        zone.name = zoneName;
+                        zone.graphic = nakedGraphicFor(pieceName, zoneName);
+                        zone.note = key;
+                        piece.zoneIndex[zoneName] = piece.zones.size();
+                        piece.zones.push_back(std::move(zone));
+                        zIt = piece.zoneIndex.find(zoneName);
+                    }
+                    auto &zone = piece.zones[zIt->second];
+
+                    const auto tierPair = std::make_pair(lovel, hivel);
+                    auto tierIt = std::find(zone.tiers.begin(), zone.tiers.end(), tierPair);
+                    if (tierIt == zone.tiers.end())
+                    {
+                        zone.tiers.push_back(tierPair);
+                        tierIt = zone.tiers.end() - 1;
+                    }
+                    const int tier = static_cast<int>(tierIt - zone.tiers.begin());
+                    const int rr = std::max(0, seq - 1);
+
+                    const auto hitKey = std::make_tuple(key, tier, rr);
+                    auto hIt = zone.hitIndex.find(hitKey);
+                    if (hIt == zone.hitIndex.end())
+                    {
+                        EditableHit hit;
+                        hit.name = zoneName + "_v" + std::to_string(tier + 1) + "_rr" + std::to_string(rr + 1);
+                        hit.velocityLayerIndex = tier;
+                        hit.roundRobinIndex = rr;
+                        zone.hitIndex[hitKey] = zone.hits.size();
+                        zone.hitOrder.push_back(hitKey);
+                        zone.hits.push_back(std::move(hit));
+                        hIt = zone.hitIndex.find(hitKey);
+                    }
+                    auto &hit = zone.hits[hIt->second];
+
+                    std::vector<std::tuple<std::string, std::string, int>> micSamples;
+                    const auto sampleName = samplePath.filename().string();
+                    if (base == "Snare Tops" && sampleName.find("TopOne") != std::string::npos)
+                    {
+                        addMic("snare_top_1", "Snare Top 1");
+                        micSamples.emplace_back("snare_top_1", "Snare Top 1", 0);
+                    }
+                    else if (base == "Snare Tops" && sampleName.find("TopTwo") != std::string::npos)
+                    {
+                        addMic("snare_top_2", "Snare Top 2");
+                        micSamples.emplace_back("snare_top_2", "Snare Top 2", 0);
+                    }
+                    else
+                    {
+                        const int channels = channelCountFor(samplePath);
+                        if (channels >= 2)
+                        {
+                            const std::string leftId = nakedSanitize(base) + "_l";
+                            const std::string rightId = nakedSanitize(base) + "_r";
+                            addMic(leftId, base + " L");
+                            addMic(rightId, base + " R");
+                            micSamples.emplace_back(leftId, base + " L", 0);
+                            micSamples.emplace_back(rightId, base + " R", 1);
+                        }
+                        else
+                        {
+                            const std::string micId = nakedSanitize(base);
+                            addMic(micId, base);
+                            micSamples.emplace_back(micId, base, 0);
+                        }
+                    }
+
+                    for (const auto &[micName, micTitle, channel] : micSamples)
+                    {
+                        bool duplicate = false;
+                        for (const auto &existing : hit.micSamples)
+                            if (existing.mic == micName && existing.sourceDiskPath == samplePath.string())
+                                duplicate = true;
+                        if (duplicate)
+                            continue;
+
+                        EditableMicSample ms;
+                        ms.mic = micName;
+                        ms.fileName = samplePath.filename().string();
+                        ms.sourceDiskPath = samplePath.string();
+                        ms.fileChannel = channel;
+                        hit.micSamples.push_back(std::move(ms));
+                    }
+                }
+                else if (tag == "global")
+                {
+                    globalOps.clear();
+                    parseOps(rest, globalOps);
+                    groupOps = globalOps;
+                    captureMeta(groupOps);
+                }
+                else if (tag == "master")
+                {
+                    groupOps = globalOps;
+                    parseOps(rest, groupOps);
+                    captureMeta(groupOps);
+                }
+                else
+                {
+                    groupOps = globalOps;
+                    parseOps(rest, groupOps);
+                    captureMeta(groupOps);
+                }
+            }
+            else
+            {
+                parseOps(line, groupOps);
+                captureMeta(groupOps);
+            }
+        }
+    }
+
+    if (builds.empty() || micDefs.empty())
+    {
+        outError = "Naked Drums: no usable regions found in Multi/*.sfz";
+        return false;
+    }
+
+    // Finalize hit powers and zone layer counts, and sort hits by key/tier/rr.
+    for (auto &piece : builds)
+    {
+        for (auto &zone : piece.zones)
+        {
+            const int tiers = std::max(1, static_cast<int>(zone.tiers.size()));
+            int maxRr = 0;
+            for (auto &hit : zone.hits)
+                maxRr = std::max(maxRr, hit.roundRobinIndex + 1);
+
+            for (auto &hit : zone.hits)
+                hit.power = tiers > 1 ? 0.12f + 0.88f * static_cast<float>(hit.velocityLayerIndex)
+                                                  / static_cast<float>(tiers - 1)
+                                      : 1.0f;
+
+            std::sort(zone.hitOrder.begin(), zone.hitOrder.end());
+            std::vector<EditableHit> sorted;
+            sorted.reserve(zone.hits.size());
+            for (const auto &key : zone.hitOrder)
+                sorted.push_back(zone.hits[zone.hitIndex[key]]);
+            zone.hits = std::move(sorted);
+
+            zone.hitOrder.clear();
+            zone.hitIndex.clear();
+            (void) maxRr;
+        }
+    }
+
+    // Build the public project model.
+    pieces.clear();
+    mics.clear();
+    for (const auto &md : micDefs)
+        mics.push_back({md.name, md.title, 1.0f});
+
+    title = "Naked Drums";
+    author = "Wilkinson Audio / SFZ conversion by kinwie";
+    version = "2.0";
+    license = "CC-BY 4.0";
+    description = "Multi-mic Naked Drums converted from the Wilkinson Audio SFZ library. "
+                  "16 mic channels, 5 velocity layers and 10 round robins.";
+    hitGlowColor = "#ff8200";
+    sampleRate = 44100;
+    loadedFilePath = sfzPath.string();
+    writeFactoryMixer = false;
+    writeMicPanPhase = false;
+
+    struct LayoutDef
+    {
+        const char *id;
+        float x, y, w;
+        int z;
+    };
+    static const LayoutDef layout[] = {
+        {"kick", -155.2f, -329.7f, 345.0f, 1}, {"ftom", 107.2f, -272.1f, 195.0f, 2},
+        {"tom2", 15.9f, -408.0f, 155.0f, 3},   {"tom1", -122.6f, -420.7f, 138.0f, 4},
+        {"snare", -212.7f, -259.5f, 180.0f, 5}, {"hihat", -299.6f, -404.7f, 160.0f, 6},
+        {"ride", 77.7f, -507.0f, 210.0f, 7},    {"crash2", 187.3f, -420.8f, 205.0f, 8},
+        {"crash1", -235.0f, -502.9f, 190.0f, 9},
+    };
+
+    std::map<std::string, int> layoutUse;
+    int fallback = 0;
+    for (size_t i = 0; i < builds.size(); ++i)
+    {
+        const auto &build = builds[i];
+        EditablePiece piece;
+        piece.id = build.id;
+        piece.name = build.name;
+        piece.graphicId = build.graphic;
+        piece.chokeGroup = build.choke;
+        piece.outputBus = 0;
+
+        int use = layoutUse[build.graphic];
+        layoutUse[build.graphic] = use + 1;
+
+        const LayoutDef *def = nullptr;
+        for (const auto &l : layout)
+            if (build.graphic == l.id)
+                def = &l;
+
+        if (def != nullptr)
+        {
+            piece.normX = def->x + static_cast<float>(use * 34);
+            piece.normY = def->y + static_cast<float>(use * 24);
+            piece.normW = def->w;
+            piece.zOrder = def->z + use;
+        }
+        else
+        {
+            piece.normX = -190.0f + static_cast<float>(fallback % 6) * 62.0f;
+            piece.normY = -255.0f - static_cast<float>(fallback / 6) * 52.0f;
+            piece.normW = 125.0f;
+            piece.zOrder = 20 + static_cast<int>(i);
+            ++fallback;
+        }
+
+        for (const auto &zb : build.zones)
+        {
+            EditableZone zone;
+            zone.name = zb.name;
+            zone.graphicId = zb.graphic;
+            zone.note = zb.note;
+            zone.altNote = -1;
+            zone.numVelocityLayers = std::max(1, static_cast<int>(zb.tiers.size()));
+            zone.numRoundRobins = 1;
+            zone.hits = zb.hits;
+            for (const auto &hit : zb.hits)
+                zone.numRoundRobins = std::max(zone.numRoundRobins, hit.roundRobinIndex + 1);
+            piece.zones.push_back(std::move(zone));
+        }
+
+        pieces.push_back(std::move(piece));
+    }
+
+    return true;
+}
+
+bool GlorpKitProject::importSfzKit(const std::string &sfzFilePath, std::string &outError)
+{
+    exportMonoSamples = false;
+    writeFactoryMixer = true;
+    writeMicPanPhase = true;
+
+    std::ifstream input(sfzFilePath);
+    if (!input.is_open())
+    {
+        outError = "Could not open SFZ file: " + sfzFilePath;
+        return false;
+    }
+
+    const fs::path sfzPath(sfzFilePath);
+    const fs::path sfzDir = sfzPath.parent_path();
+    const std::string sfzStem = sfzPath.stem().string();
+    std::string lowerStem = sfzStem;
+    for (auto &c : lowerStem)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    // Identify known libraries from the file contents as well as the filename.
+    // Downloads are often renamed, but the SFZ header, macro names and sample
+    // names stay recognisable.
+    std::string sniff;
+    if (useShareKitProfiles)
+    {
+        std::ifstream sniffer(sfzFilePath, std::ios::binary);
+        if (sniffer.is_open())
+        {
+            std::vector<char> buf(131072);
+            sniffer.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+            sniff.assign(buf.data(), static_cast<size_t>(sniffer.gcount()));
+        }
+    }
+    std::string lowerSniff = sniff;
+    for (auto &c : lowerSniff)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const auto identity = lowerSniff + " " + lowerStem;
+    auto identityHas = [&](const char *needle) { return identity.find(needle) != std::string::npos; };
+
+    const bool profiles = useShareKitProfiles;
+    // Only the Monster archive's header identifies it; its samples reuse the
+    // Salamander names. Keep the filename as the second signal.
+    const bool isMonster = profiles
+                           && (identityHas("ze salamander drum library")
+                               || lowerStem.find("monster") != std::string::npos);
+    const bool isSamsSonor = profiles
+                             && (identityHas("key_kick") || identityHas("samsonor")
+                                 || identityHas("sonor force") || lowerStem.find("sonor") != std::string::npos);
+    const bool isOpenSourceKit = profiles
+                                 && (identityHas("the open source drum kit")
+                                     || identityHas("real music media")
+                                     || lowerStem.find("opensource") != std::string::npos
+                                     || lowerStem.find("open-source") != std::string::npos);
+    const bool isSalamander = profiles && !isMonster
+                              && (identityHas("the salamander drumkit") || identityHas("salamander"));
+    const bool isAvlKit = profiles
+                          && (identityHas("avl drumkits") || identityHas("avldrumkits")
+                              || identityHas("glen macarthur") || lowerStem.find("black_pearl") != std::string::npos
+                              || lowerStem.find("red_zeppelin") != std::string::npos
+                              || lowerStem.find("blonde_bop") != std::string::npos);
+    const bool isAvlPercussion = profiles
+                                 && (identityHas("buskman") || lowerStem.find("buskman") != std::string::npos);
+    const bool isAvl = isAvlKit || isAvlPercussion;
+    const bool isSmDrums = profiles
+                           && (identityHas("sm drums") || identityHas("smdrums")
+                               || identityHas("scott mclean") || lowerStem.find("sm_drums") != std::string::npos
+                               || lowerStem.find("sm drums") != std::string::npos);
+    const bool isBigRusty = profiles
+                            && (identityHas("big rusty") || lowerStem.find("big_rusty") != std::string::npos
+                                || lowerStem.find("big rusty") != std::string::npos);
+    const bool isGogodze = profiles
+                           && (identityHas("gogodze") || lowerStem.find("gogodze") != std::string::npos
+                               || (identityHas("phu") && identityHas("karoryfer")));
+
+    const bool isNakedDrums = profiles && identityHas("naked drums");
+
+    exportMonoSamples = isSmDrums || isSalamander || isMonster || isSamsSonor || isOpenSourceKit;
+
+    if (isNakedDrums && fs::path(sfzFilePath).parent_path().filename() == "Multi")
+        return importNakedMultiMic(sfzFilePath, outError);
+
+    struct PartInfo
+    {
+        int note;
+        const char *piece;
+        const char *zone;
+        const char *id;
+        const char *graphic;
+        const char *chokeGroup;
+    };
+
+    // AVL Drumkits / x42 note layout. Grouping notes into logical pieces keeps
+    // the mixer and kit view readable instead of creating 28 unrelated strips.
+    static const PartInfo avlParts[] = {
+        {35, "Stick Click", "head", "stickclick", "snare", "none"},
+        {36, "Kick", "head", "kick", "kick", "none"},
+        {37, "Snare", "sidestick", "snare", "snare", "none"},
+        {38, "Snare", "center", "snare", "snare", "none"},
+        {39, "Hand Clap", "head", "handclap", "snare", "none"},
+        {40, "Snare", "edge", "snare", "snare", "none"},
+        {41, "Floor Tom", "center", "ftom", "ftom", "none"},
+        {42, "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {43, "Floor Tom", "edge", "ftom", "ftom", "none"},
+        {44, "Hihat", "pedal", "hihat", "hihat", "hihat"},
+        {45, "Tom", "center", "tom2", "tom2", "none"},
+        {46, "Hihat", "semi", "hihat", "hihat", "hihat"},
+        {47, "Tom", "edge", "tom2", "tom2", "none"},
+        {48, "Hihat", "swish", "hihat", "hihat", "hihat"},
+        {49, "Crash 1", "hit", "crash1", "crash1", "crash1"},
+        {50, "Crash 1", "choke", "crash1", "crash1", "crash1"},
+        {51, "Ride", "tip", "ride", "ride", "ride"},
+        {52, "Ride", "choke", "ride", "ride", "ride"},
+        {53, "Ride", "bell", "ride", "ride", "ride"},
+        {54, "Tambourine", "head", "tambourine", "hihat", "none"},
+        {55, "Splash", "hit", "splash", "crash2", "splash"},
+        {56, "Cowbell", "head", "cowbell", "cowbell", "none"},
+        {57, "Crash 2", "hit", "crash2", "crash2", "crash2"},
+        {58, "Crash 2", "choke", "crash2", "crash2", "crash2"},
+        {59, "Ride", "shank", "ride", "ride", "ride"},
+        {60, "Crash 3", "hit", "crash3", "crash1", "crash3"},
+        {61, "Maraca", "head", "maraca", "hihat", "none"},
+        {62, "China", "hit", "china", "crash2", "china"},
+    };
+
+    // SM Drums: one logical Snare and Hi-Hat with articulation zones,
+    // separate toms, and left/right crash groups so the kit view stays clear.
+    static const PartInfo smParts[] = {
+        {36, "Kick", "head", "kick", "kick", "none"},
+        {37, "Snare", "sidestick", "snare", "snare", "none"},
+        {38, "Snare", "hybrid 3", "snare", "snare", "none"},
+        {39, "Snare", "rim 1", "snare", "snare", "none"},
+        {40, "Snare", "hybrid 2", "snare", "snare", "none"},
+        {41, "Snare", "hybrid 1", "snare", "snare", "none"},
+        {52, "Snare", "65 no rim", "snare", "snare", "none"},
+        {53, "Snare", "67 no rim", "snare", "snare", "none"},
+        {64, "Snare", "65", "snare", "snare", "none"},
+        {65, "Snare", "rim 2", "snare", "snare", "none"},
+        {42, "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {44, "Hihat", "loose", "hihat", "hihat", "hihat"},
+        {46, "Hihat", "open", "hihat", "hihat", "hihat"},
+        {49, "Hihat", "foot open", "hihat", "hihat", "hihat"},
+        {50, "Hihat", "foot", "hihat", "hihat", "hihat"},
+        {51, "Hihat", "closed-open", "hihat", "hihat", "hihat"},
+        {43, "Floor Tom", "head", "ftom", "ftom", "none"},
+        {45, "Tom 2", "head", "tom2", "tom2", "none"},
+        {47, "Tom 3", "head", "tom3", "tom1", "none"},
+        {48, "Tom 4", "head", "tom4", "tom2", "none"},
+        {54, "Crash Left", "13", "crash1", "crash1", "none"},
+        {56, "Crash Left", "16", "crash1", "crash1", "none"},
+        {55, "Crash Right", "15", "crash2", "crash2", "none"},
+        {57, "Crash Right", "17", "crash2", "crash2", "none"},
+        {58, "China", "hit", "china", "crash2", "none"},
+        {60, "Ride", "17 edge", "ride", "ride", "none"},
+        {61, "Ride", "17 bell", "ride", "ride", "none"},
+        {62, "Ride", "20 edge", "ride", "ride", "none"},
+        {63, "Ride", "20 bell", "ride", "ride", "none"},
+    };
+
+    static const PartInfo bigRustyParts[] = {
+        {35, "Kick", "undamped", "kick", "kick", "none"},
+        {36, "Kick", "head", "kick", "kick", "none"},
+        {37, "Snare", "sidestick", "snare", "snare", "none"},
+        {38, "Snare", "center", "snare", "snare", "none"},
+        {39, "Snare", "edge", "snare", "snare", "none"},
+        {40, "Snare", "rimshot", "snare", "snare", "none"},
+        {42, "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {44, "Hihat", "foot", "hihat", "hihat", "hihat"},
+        {46, "Hihat", "open", "hihat", "hihat", "hihat"},
+        {54, "Hihat", "closed shank", "hihat", "hihat", "hihat"},
+        {56, "Hihat", "splash", "hihat", "hihat", "hihat"},
+        {58, "Hihat", "quarter open shank", "hihat", "hihat", "hihat"},
+        {41, "Floor Tom 22", "head", "ftom22", "ftom", "none"},
+        {43, "Tom 18", "head", "tom18", "tom2", "none"},
+        {45, "Tom 15", "head", "tom15", "tom1", "none"},
+        {47, "Tom 14", "head", "tom14", "tom2", "none"},
+        {49, "Crash 17", "edge", "crash17", "crash1", "none"},
+        {57, "China 18", "edge", "china18", "crash2", "none"},
+        {51, "Ride 22", "bow", "ride22", "ride", "none"},
+        {52, "Ride 22", "edge", "ride22", "ride", "none"},
+        {53, "Ride 22", "bell", "ride22", "ride", "none"},
+        {60, "Sizzle Ride 19", "bow", "sizzleride", "ride", "none"},
+        {61, "Sizzle Ride 19", "edge", "sizzleride", "ride", "none"},
+        {62, "Sizzle Ride 19", "bell", "sizzleride", "ride", "none"},
+        {64, "Sizzle Crash 17", "bow", "sizzlecrash", "crash1", "none"},
+        {65, "Sizzle Crash 17", "crash", "sizzlecrash", "crash1", "none"},
+        {67, "Sizzle Crash 17", "bell", "sizzlecrash", "crash1", "none"},
+        {71, "Stack", "mid", "stack", "crash2", "none"},
+        {72, "Stack", "edge", "stack", "crash2", "none"},
+    };
+
+    static const PartInfo gogodzeParts[] = {
+        {36, "Kick", "head", "kick", "kick", "none"},
+        {37, "Snare", "sidestick", "snare", "snare", "none"},
+        {38, "Snare", "center", "snare", "snare", "none"},
+        {40, "Snare", "edge", "snare", "snare", "none"},
+        {41, "Low Tom", "head", "ftom", "ftom", "none"},
+        {43, "Mid Tom", "head", "tom2", "tom2", "none"},
+        {45, "High Tom", "head", "tom1", "tom1", "none"},
+        {42, "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {44, "Hihat", "foot", "hihat", "hihat", "hihat"},
+        {46, "Hihat", "open", "hihat", "hihat", "hihat"},
+    };
+
+    static const PartInfo salamanderParts[] = {
+        {35, "Kick", "kick 1", "kick", "kick", "none"},
+        {36, "Kick", "kick 2", "kick", "kick", "none"},
+        {37, "Snare", "snare 2 off", "snare", "snare", "none"},
+        {38, "Snare", "snare 2 center", "snare", "snare", "none"},
+        {39, "Snare", "snare off", "snare", "snare", "none"},
+        {40, "Snare", "snare center", "snare", "snare", "none"},
+        {41, "Snare", "stick", "snare", "snare", "none"},
+        {42, "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {44, "Hihat", "foot", "hihat", "hihat", "hihat"},
+        {46, "Hihat", "open", "hihat", "hihat", "hihat"},
+        {43, "Low Tom", "head", "ftom", "ftom", "none"},
+        {45, "High Tom", "head", "tom1", "tom1", "none"},
+        {47, "Cowbell", "head", "cowbell", "cowbell", "none"},
+        {48, "Ride 2", "bow", "ride2", "ride", "none"},
+        {49, "Ride 2", "bell", "ride2", "ride", "none"},
+        {50, "Ride 2", "crash", "ride2", "ride", "none"},
+        {51, "Ride 2", "crash choke", "ride2", "ride", "none"},
+        {52, "Ride 1", "bow", "ride1", "ride", "none"},
+        {53, "Ride 1", "bell", "ride1", "ride", "none"},
+        {54, "Crash 1", "choke", "crash1", "crash1", "none"},
+        {55, "Crash 1", "hit", "crash1", "crash1", "none"},
+        {56, "Crash 2", "choke", "crash2", "crash2", "none"},
+        {57, "Crash 2", "hit", "crash2", "crash2", "none"},
+        {58, "China 1", "choke", "china1", "crash2", "none"},
+        {59, "China 1", "hit", "china1", "crash2", "none"},
+        {60, "China 2", "hit", "china2", "crash2", "none"},
+        {61, "China 2", "choke", "china2", "crash2", "none"},
+        {62, "Crash 3", "hit", "crash3", "crash1", "none"},
+        {63, "Splash", "hit", "splash", "crash2", "none"},
+        {64, "Bell Chime", "hit", "bellchime", "snare", "none"},
+    };
+
+    static const PartInfo samsSonorParts[] = {
+        {36, "Kick", "center", "kick", "kick", "none"},
+        {37, "Snare", "rimshot", "snare", "snare", "none"},
+        {38, "Snare", "left hand", "snare", "snare", "none"},
+        {39, "Snare", "center", "snare", "snare", "none"},
+        {40, "Snare", "right hand", "snare", "snare", "none"},
+        {48, "Snare", "off left", "snare", "snare", "none"},
+        {50, "Snare", "off right", "snare", "snare", "none"},
+        {43, "Low Tom", "head", "ftom", "ftom", "none"},
+        {45, "High Tom", "head", "tom1", "tom1", "none"},
+        {47, "Mid Tom", "head", "tom2", "tom2", "none"},
+        {42, "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {44, "Hihat", "pedal", "hihat", "hihat", "hihat"},
+        {46, "Hihat", "open clang", "hihat", "hihat", "hihat"},
+        {56, "Hihat", "half open", "hihat", "hihat", "hihat"},
+        {58, "Hihat", "open tip", "hihat", "hihat", "hihat"},
+        {51, "Ride", "tip", "ride", "ride", "none"},
+        {53, "Ride", "bell", "ride", "ride", "none"},
+        {49, "Crash", "clang", "crash1", "crash1", "none"},
+        {52, "Crash", "tip", "crash1", "crash1", "none"},
+    };
+
+    static const PartInfo openSourceParts[] = {
+        {36, "Kick", "center", "kick", "kick", "none"},
+        {37, "Snare", "sidestick", "snare", "snare", "none"},
+        {38, "Snare", "center", "snare", "snare", "none"},
+        {39, "Snare", "off", "snare", "snare", "none"},
+        {40, "Snare", "rimshot", "snare", "snare", "none"},
+        {42, "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {44, "Hihat", "pedal", "hihat", "hihat", "hihat"},
+        {46, "Hihat", "open", "hihat", "hihat", "hihat"},
+        {48, "High Tom", "head", "tom1", "tom1", "none"},
+        {45, "Mid Tom", "head", "tom2", "tom2", "none"},
+        {43, "Floor Tom", "head", "ftom", "ftom", "none"},
+        {51, "Ride", "bow", "ride", "ride", "none"},
+        {53, "Ride", "bell", "ride", "ride", "none"},
+        {59, "Ride", "edge", "ride", "ride", "none"},
+        {49, "Crash", "bow", "crash1", "crash1", "none"},
+        {57, "Crash", "edge", "crash1", "crash1", "none"},
+        {52, "Gong", "mallet", "china", "china", "none"},
+    };
+
+    auto findAvlPart = [&](int note) -> const PartInfo *
+    {
+        if (!isAvlKit)
+            return nullptr;
+        for (const auto &part : avlParts)
+            if (part.note == note)
+                return &part;
+        return nullptr;
+    };
+
+    auto findSalamanderPart = [&](int note) -> const PartInfo *
+    {
+        if (!isSalamander && !isMonster)
+            return nullptr;
+        for (const auto &part : salamanderParts)
+            if (part.note == note)
+                return &part;
+        return nullptr;
+    };
+
+    auto findSamsSonorPart = [&](int note) -> const PartInfo *
+    {
+        if (!isSamsSonor)
+            return nullptr;
+        for (const auto &part : samsSonorParts)
+            if (part.note == note)
+                return &part;
+        return nullptr;
+    };
+
+    auto findOpenSourcePart = [&](int note) -> const PartInfo *
+    {
+        if (!isOpenSourceKit)
+            return nullptr;
+        for (const auto &part : openSourceParts)
+            if (part.note == note)
+                return &part;
+        return nullptr;
+    };
+
+    auto findSmPart = [&](int note) -> const PartInfo *
+    {
+        if (!isSmDrums)
+            return nullptr;
+        for (const auto &part : smParts)
+            if (part.note == note)
+                return &part;
+        return nullptr;
+    };
+
+    auto findBigRustyPart = [&](int note) -> const PartInfo *
+    {
+        if (!isBigRusty)
+            return nullptr;
+        for (const auto &part : bigRustyParts)
+            if (part.note == note)
+                return &part;
+        return nullptr;
+    };
+
+    auto findGogodzePart = [&](int note) -> const PartInfo *
+    {
+        if (!isGogodze)
+            return nullptr;
+        for (const auto &part : gogodzeParts)
+            if (part.note == note)
+                return &part;
+        return nullptr;
+    };
+
+    auto trim = [](std::string s)
+    {
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front())))
+            s.erase(s.begin());
+        while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back())))
+            s.pop_back();
+        return s;
+    };
+
+    auto lowerCopy = [](std::string s)
+    {
+        for (auto &c : s)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+
+    auto parseInt = [](const std::string &s, int fallback)
+    {
+        try
+        {
+            return std::stoi(s);
+        }
+        catch (...)
+        {
+            return fallback;
+        }
+    };
+
+    auto parseNote = [&](const std::string &raw, int fallback)
+    {
+        const auto s = trim(raw);
+        if (s.empty())
+            return fallback;
+        bool numeric = true;
+        for (char c : s)
+            if (!std::isdigit(static_cast<unsigned char>(c)) && c != '-' && c != '+')
+                numeric = false;
+        if (numeric)
+            return std::clamp(parseInt(s, fallback), 0, 127);
+
+        const std::string letters = "C D EF G A B";
+        int semitone = -1;
+        switch (std::toupper(static_cast<unsigned char>(s[0])))
+        {
+            case 'C': semitone = 0; break;
+            case 'D': semitone = 2; break;
+            case 'E': semitone = 4; break;
+            case 'F': semitone = 5; break;
+            case 'G': semitone = 7; break;
+            case 'A': semitone = 9; break;
+            case 'B': semitone = 11; break;
+            default: break;
+        }
+        if (semitone < 0)
+            return fallback;
+        size_t pos = 1;
+        if (pos < s.size() && (s[pos] == '#' || s[pos] == 'b'))
+        {
+            semitone += (s[pos] == '#') ? 1 : -1;
+            ++pos;
+        }
+        int octave = 4;
+        if (pos < s.size())
+            octave = parseInt(s.substr(pos), 4);
+        const int midi = (octave + 1) * 12 + semitone;
+        return std::clamp(midi, 0, 127);
+    };
+
+    auto parseOps = [&](const std::string &text, std::map<std::string, std::string> &ops)
+    {
+        size_t i = 0;
+        while (i < text.size())
+        {
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+            if (i >= text.size())
+                break;
+
+            const size_t keyStart = i;
+            while (i < text.size() && text[i] != '=' && !std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+            const auto key = lowerCopy(text.substr(keyStart, i - keyStart));
+
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+            if (i >= text.size() || text[i] != '=')
+                continue;
+            ++i;
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i])))
+                ++i;
+
+            std::string value;
+            if (i < text.size() && (text[i] == '"' || text[i] == '\''))
+            {
+                const char quote = text[i++];
+                while (i < text.size() && text[i] != quote)
+                    value += text[i++];
+                if (i < text.size())
+                    ++i;
+            }
+            else
+            {
+                const size_t valueStart = i;
+                while (i < text.size() && !std::isspace(static_cast<unsigned char>(text[i])))
+                    ++i;
+                value = text.substr(valueStart, i - valueStart);
+            }
+
+            if (!key.empty())
+                ops[key] = value;
+        }
+    };
+
+    struct RawRegion
+    {
+        std::map<std::string, std::string> ops;
+    };
+
+    std::vector<RawRegion> rawRegions;
+    std::map<std::string, std::string> globalOps;
+    std::map<std::string, std::string> masterOps;
+    std::map<std::string, std::string> groupOps;
+    std::string defaultPath;
+    RawRegion currentRegion;
+    bool inRegion = false;
+
+    auto captureDefaultPath = [&](const std::map<std::string, std::string> &ops)
+    {
+        const auto it = ops.find("default_path");
+        if (it != ops.end())
+            defaultPath = it->second;
+    };
+
+    // Some SFZ mappings define symbolic keys/macros (for example SamsSonor's
+    // "$KEY_KICK 36") and then use them in key= or sample= values. Resolve the
+    // defines before parsing the regions.
+    std::map<std::string, std::string> sfzDefines;
+
+    std::string line;
+    while (std::getline(input, line))
+    {
+        const auto comment = line.find("//");
+        if (comment != std::string::npos)
+            line.erase(comment);
+        line = trim(line);
+        if (line.empty())
+            continue;
+
+        if (line.rfind("#define", 0) == 0)
+        {
+            std::istringstream def(line.substr(7));
+            std::string name;
+            std::string value;
+            def >> name >> value;
+            if (!name.empty() && !value.empty())
+                sfzDefines[name] = value;
+            continue;
+        }
+
+        if (!sfzDefines.empty())
+        {
+            for (const auto &[name, value] : sfzDefines)
+            {
+                size_t pos = 0;
+                while ((pos = line.find(name, pos)) != std::string::npos)
+                {
+                    line.replace(pos, name.size(), value);
+                    pos += value.size();
+                }
+            }
+        }
+
+        if (line[0] == '<')
+        {
+            const auto close = line.find('>');
+            if (close == std::string::npos)
+                continue;
+
+            const auto tag = lowerCopy(trim(line.substr(1, close - 1)));
+            const auto rest = line.substr(close + 1);
+
+            if (tag == "region")
+            {
+                if (inRegion)
+                    rawRegions.push_back(currentRegion);
+                currentRegion = RawRegion {};
+                currentRegion.ops = groupOps;
+                parseOps(rest, currentRegion.ops);
+                inRegion = true;
+            }
+            else
+            {
+                if (inRegion)
+                {
+                    rawRegions.push_back(currentRegion);
+                    inRegion = false;
+                }
+
+                if (tag == "global")
+                {
+                    globalOps.clear();
+                    parseOps(rest, globalOps);
+                    masterOps = globalOps;
+                    groupOps = globalOps;
+                }
+                else if (tag == "master")
+                {
+                    // <master> sets the key/velocity range for the groups that
+                    // follow, so keep it separate from <global>. Regions under a
+                    // <group> must inherit both.
+                    masterOps = globalOps;
+                    parseOps(rest, masterOps);
+                    groupOps = masterOps;
+                }
+                else
+                {
+                    groupOps = masterOps;
+                    parseOps(rest, groupOps);
+                }
+
+                captureDefaultPath(groupOps);
+            }
+        }
+        else if (inRegion)
+        {
+            parseOps(line, currentRegion.ops);
+        }
+        else
+        {
+            parseOps(line, groupOps);
+            captureDefaultPath(groupOps);
+        }
+    }
+
+    if (inRegion)
+        rawRegions.push_back(currentRegion);
+
+    if (rawRegions.empty())
+    {
+        outError = "No SFZ regions found in " + sfzFilePath;
+        return false;
+    }
+
+    struct Region
+    {
+        std::string samplePath;
+        std::string fileName;
+        int key = 60;
+        int altNote = -1;
+        int lovel = 0;
+        int hivel = 127;
+        int group = 0;
+        int offBy = 0;
+        int seqPos = 0;
+        int seqLen = 0;
+        int64_t sampleOffset = 0;
+        int64_t sampleEnd = -1;
+        bool hasCcCondition = false;
+    };
+
+    auto parseInt64 = [] (const std::string &s, int64_t fallback)
+    {
+        try
+        {
+            return static_cast<int64_t>(std::stoll(s));
+        }
+        catch (...)
+        {
+            return fallback;
+        }
+    };
+
+    auto getOp = [] (const std::map<std::string, std::string> &ops, const std::string &key,
+                     const std::string &fallback = {})
+    {
+        const auto it = ops.find(key);
+        return it == ops.end() ? fallback : it->second;
+    };
+
+    std::vector<Region> regions;
+    int missingSamples = 0;
+
+    for (const auto &raw : rawRegions)
+    {
+        auto sample = trim(getOp(raw.ops, "sample"));
+        if (sample.empty() || (!sample.empty() && sample[0] == '*'))
+            continue; // *silence and other SFZ pseudo-samples
+
+        // Some Windows-authored SFZ files use backslashes even on Linux.
+        std::replace(sample.begin(), sample.end(), '\\', '/');
+
+        fs::path samplePath(sample);
+        if (samplePath.is_relative())
+        {
+            const fs::path direct = sfzDir / samplePath;
+            if (!defaultPath.empty())
+            {
+                auto defPath = defaultPath;
+                std::replace(defPath.begin(), defPath.end(), '\\', '/');
+                const fs::path viaDefault = sfzDir / defPath / samplePath;
+                samplePath = fs::exists(viaDefault) ? viaDefault : direct;
+            }
+            else
+            {
+                samplePath = direct;
+            }
+        }
+
+        if (!fs::exists(samplePath) || !fs::is_regular_file(samplePath))
+        {
+            ++missingSamples;
+            continue;
+        }
+
+        Region r;
+        r.samplePath = samplePath.string();
+        r.fileName = samplePath.filename().string();
+        r.key = parseNote(getOp(raw.ops, "key", getOp(raw.ops, "pitch_keycenter", getOp(raw.ops, "lokey", "60"))), 60);
+        r.altNote = parseInt(getOp(raw.ops, "alt_note", "-1"), -1);
+        r.lovel = std::clamp(parseInt(getOp(raw.ops, "lovel", "0"), 0), 0, 127);
+        r.hivel = std::clamp(parseInt(getOp(raw.ops, "hivel", "127"), 127), 0, 127);
+        if (r.hivel < r.lovel)
+            std::swap(r.lovel, r.hivel);
+        r.group = parseInt(getOp(raw.ops, "group", "0"), 0);
+        r.offBy = parseInt(getOp(raw.ops, "off_by", getOp(raw.ops, "offby", "0")), 0);
+        r.seqPos = parseInt(getOp(raw.ops, "seq_position", "0"), 0);
+        r.seqLen = parseInt(getOp(raw.ops, "seq_length", "0"), 0);
+        r.sampleOffset = std::max<int64_t>(0, parseInt64(getOp(raw.ops, "offset", "0"), 0));
+        r.sampleEnd = parseInt64(getOp(raw.ops, "end", "-1"), -1);
+        for (const auto &[opKey, opValue] : raw.ops)
+        {
+            (void) opValue;
+            if (opKey.rfind("locc", 0) == 0 || opKey.rfind("hicc", 0) == 0)
+            {
+                r.hasCcCondition = true;
+                break;
+            }
+        }
+        regions.push_back(std::move(r));
+    }
+
+    if (regions.empty())
+    {
+        outError = "No readable samples found for SFZ file: " + sfzFilePath
+                   + (missingSamples > 0 ? " (" + std::to_string(missingSamples) + " missing)" : "");
+        return false;
+    }
+
+    auto cleanName = [&](const std::string &fileName)
+    {
+        std::string s = fs::path(fileName).stem().string();
+
+        // Drop a trailing velocity/round-robin number such as -1, _2 or " 3".
+        auto isDigits = [](const std::string &v)
+        {
+            if (v.empty() || v.size() > 2)
+                return false;
+            for (char c : v)
+                if (!std::isdigit(static_cast<unsigned char>(c)))
+                    return false;
+            return true;
+        };
+        const auto sep = s.find_last_of(" _-");
+        if (sep != std::string::npos && isDigits(s.substr(sep + 1)))
+            s = s.substr(0, sep);
+
+        // Drop a leading MIDI-note prefix such as 38- or 49_.
+        size_t lead = 0;
+        while (lead < s.size() && std::isdigit(static_cast<unsigned char>(s[lead])))
+            ++lead;
+        if (lead > 0 && lead < s.size() && (s[lead] == '-' || s[lead] == '_' || s[lead] == ' '))
+            s = s.substr(lead + 1);
+
+        for (auto &c : s)
+            if (c == '_' || c == '-' || c == '.')
+                c = ' ';
+
+        s = trim(s);
+        std::string out;
+        for (char c : s)
+        {
+            if (c == ' ' && !out.empty() && out.back() == ' ')
+                continue;
+            out += c;
+        }
+        return trim(out);
+    };
+
+    auto graphicForName = [&] (const std::string &name)
+    {
+        const auto n = lowerCopy(name);
+        if (n.find("kick") != std::string::npos || n.find("bd") != std::string::npos)
+            return std::string("kick");
+        if (n.find("snare") != std::string::npos || n.find("clap") != std::string::npos
+            || n.find("stick") != std::string::npos)
+            return std::string("snare");
+        if (n.find("hat") != std::string::npos)
+            return std::string("hihat");
+        if (n.find("floor") != std::string::npos || n.find("ftom") != std::string::npos)
+            return std::string("ftom");
+        if (n.find("tom") != std::string::npos)
+            return std::string("tom2");
+        if (n.find("ride") != std::string::npos)
+            return std::string("ride");
+        if (n.find("crash") != std::string::npos || n.find("china") != std::string::npos
+            || n.find("splash") != std::string::npos || n.find("cymbal") != std::string::npos)
+            return std::string("crash1");
+        return std::string("snare");
+    };
+
+    struct PartChoice
+    {
+        std::string pieceKey;
+        std::string pieceName;
+        std::string zoneName;
+        std::string pieceId;
+        std::string graphic;
+        std::string chokeGroup;
+    };
+
+    auto choosePart = [&](const Region &r)
+    {
+        if (const auto *known = findAvlPart(r.key))
+        {
+            return PartChoice {known->id, known->piece, known->zone, known->id, known->graphic, known->chokeGroup};
+        }
+
+        if (const auto *known = findSmPart(r.key))
+        {
+            return PartChoice {known->id, known->piece, known->zone, known->id, known->graphic, known->chokeGroup};
+        }
+
+        if (const auto *known = findSalamanderPart(r.key))
+        {
+            return PartChoice {known->id, known->piece, known->zone, known->id, known->graphic, known->chokeGroup};
+        }
+
+        if (const auto *known = findSamsSonorPart(r.key))
+        {
+            return PartChoice {known->id, known->piece, known->zone, known->id, known->graphic, known->chokeGroup};
+        }
+
+        if (const auto *known = findOpenSourcePart(r.key))
+        {
+            return PartChoice {known->id, known->piece, known->zone, known->id, known->graphic, known->chokeGroup};
+        }
+
+        if (const auto *known = findBigRustyPart(r.key))
+        {
+            return PartChoice {known->id, known->piece, known->zone, known->id, known->graphic, known->chokeGroup};
+        }
+
+        if (const auto *known = findGogodzePart(r.key))
+        {
+            return PartChoice {known->id, known->piece, known->zone, known->id, known->graphic, known->chokeGroup};
+        }
+
+        auto name = cleanName(r.fileName);
+        if (name.empty())
+            name = "Note " + std::to_string(r.key);
+
+        return PartChoice {"note_" + std::to_string(r.key) + "_" + sanitizeId(name),
+                           name,
+                           "head",
+                           sanitizeId(name),
+                           graphicForName(name),
+                           "none"};
+    };
+
+    // Reset the project metadata, then build pieces and mics.
+    pieces.clear();
+    mics.clear();
+    title = sfzStem;
+    std::replace(title.begin(), title.end(), '_', ' ');
+    std::replace(title.begin(), title.end(), '-', ' ');
+    author = isAvl ? "Glen MacArthur / AVL Drumkits" : "Imported SFZ";
+    version = "2.0";
+    license = isAvl ? "CC-BY-SA 3.0" : "See original SFZ license";
+    description = isAvl ? "AVL Drumkits by Glen MacArthur, converted from SFZ by Suite Kit Studio."
+                        : "Imported from an SFZ instrument by Suite Kit Studio.";
+    hitGlowColor = "#ff8200";
+    loadedFilePath = sfzFilePath;
+
+    if (isAvlKit || isAvlPercussion)
+    {
+        if (lowerStem.find("black_pearl") != std::string::npos)
+            title = "Black Pearl";
+        else if (lowerStem.find("red_zeppelin") != std::string::npos)
+            title = "Red Zeppelin";
+        else if (lowerStem.find("blonde_bop_hr") != std::string::npos)
+            title = "Blonde Bop Hot Rods";
+        else if (lowerStem.find("blonde_bop") != std::string::npos)
+            title = "Blonde Bop";
+        else if (isAvlPercussion)
+            title = "Buskman's Holiday";
+    }
+
+    if (isSmDrums)
+    {
+        title = "SM Drums";
+        author = "Scott McLean, Tod Stillwell, Suleiman Ali";
+        license = "Public Domain";
+        description = "SM Drums by Scott McLean, Tod Stillwell and Suleiman Ali, converted from the Sforzando SFZ library.";
+    }
+
+    if (isBigRusty)
+    {
+        title = "Big Rusty Drums";
+        author = "Karoryfer Samples";
+        license = "CC0 1.0";
+        description = "Big Rusty Drums by Karoryfer Samples, close-mic conversion from the SFZ library.";
+    }
+
+    if (isGogodze)
+    {
+        title = "Gogodze Phu Vol II";
+        author = "Karoryfer Samples";
+        license = "CC0 1.0";
+        description = "Gogodze Phu Vol II by Karoryfer Samples, 47 mix close-mic conversion from the SFZ library.";
+    }
+
+    if (isSalamander)
+    {
+        title = "Salamander Drumkit";
+        author = "Alexander Holm";
+        version = "1.0";
+        license = "CC BY-SA 3.0";
+        description = "Salamander Drumkit by Alexander Holm, converted from the original SFZ library.";
+    }
+
+    if (isMonster)
+    {
+        title = "Monster Drumkit";
+        author = "Alexander Holm / Monster Drumkit";
+        version = "1.0";
+        license = "CC BY-SA 3.0";
+        description = "Monster Drumkit, a processed Salamander drum library. Mono downmix conversion.";
+    }
+
+    if (isSamsSonor)
+    {
+        title = "SamsSonor";
+        author = "Sam Greene; SFZ by kinwie";
+        version = "1.0";
+        license = "CC BY-SA 4.0";
+        description = "Sam Greene's Sonor Force 3001 drumkit, converted from kinwie's SFZ mapping.";
+    }
+
+    if (isOpenSourceKit)
+    {
+        title = "The Open Source Drum Kit";
+        author = "Real Music Media";
+        version = "1.0";
+        license = "Public Domain";
+        description = "The Open Source Drum Kit by Real Music Media, mapped to GM extended notes.";
+    }
+
+    {
+        // Declare the rate most of the sources actually use. Some libraries mix
+        // 44.1 and 48 kHz files, and the first region is not representative.
+        std::map<int, int> votes;
+        const size_t stride = std::max<size_t>(1, regions.size() / 64);
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+
+        for (size_t i = 0; i < regions.size(); i += stride)
+        {
+            const auto &path = regions[i].samplePath;
+            SampleCache probe;
+            const auto handle = probe.open(path);
+            double rate = handle.valid ? handle.sampleRate : 0.0;
+            if (rate <= 0.0)
+            {
+                std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(juce::File(path)));
+                if (r != nullptr)
+                    rate = r->sampleRate;
+            }
+            if (rate > 0.0)
+                ++votes[static_cast<int>(std::lround(rate))];
+        }
+
+        int chosen = sampleRate;
+        int best = 0;
+        for (const auto &[rate, count] : votes)
+            if (count > best)
+            {
+                best = count;
+                chosen = rate;
+            }
+        sampleRate = chosen;
+    }
+
+    std::map<std::string, size_t> pieceIndexByKey;
+    std::map<size_t, std::string> micIdByPieceIndex;
+    std::map<std::pair<size_t, std::string>, size_t> zoneIndexByKey;
+    std::map<std::pair<size_t, std::string>, std::vector<Region>> regionsByZone;
+    std::map<std::string, int> layoutUseCount;
+    int fallbackLayoutIndex = 0;
+    int zCounter = 1;
+
+    for (const auto &r : regions)
+    {
+        const auto part = choosePart(r);
+
+        size_t pieceIdx = 0;
+        const auto pieceIt = pieceIndexByKey.find(part.pieceKey);
+        if (pieceIt == pieceIndexByKey.end())
+        {
+            EditablePiece ep;
+            ep.name = part.pieceName;
+
+            std::string pieceId = part.pieceId.empty() ? "piece" : part.pieceId;
+            const std::string basePieceId = pieceId;
+            int pieceSuffix = 2;
+            auto pieceIdExists = [&](const std::string &id)
+            {
+                for (const auto &existing : pieces)
+                    if (existing.id == id)
+                        return true;
+                return false;
+            };
+            while (pieceIdExists(pieceId))
+                pieceId = basePieceId + "_" + std::to_string(pieceSuffix++);
+
+            ep.id = pieceId;
+            ep.graphicId = part.graphic;
+            ep.outputBus = 0;
+            ep.chokeGroup = part.chokeGroup;
+
+            const int useCount = layoutUseCount[part.pieceId]++;
+            if (const auto *def = findDefaultPieceLayout(part.pieceId))
+            {
+                ep.normX = def->x + static_cast<float>(useCount * 34);
+                ep.normY = def->y + static_cast<float>(useCount * 24);
+                ep.normW = def->w;
+                ep.zOrder = def->z + useCount;
+            }
+            else
+            {
+                ep.normX = -190.0f + static_cast<float>(fallbackLayoutIndex % 6) * 62.0f;
+                ep.normY = -255.0f - static_cast<float>(fallbackLayoutIndex / 6) * 52.0f;
+                ep.normW = 125.0f;
+                ep.zOrder = zCounter++;
+                ++fallbackLayoutIndex;
+            }
+
+            pieceIdx = pieces.size();
+            pieceIndexByKey[part.pieceKey] = pieceIdx;
+            pieces.push_back(std::move(ep));
+
+            std::string micId = sanitizeId(part.pieceName);
+            if (micId.empty())
+                micId = "mic";
+            const std::string baseMicId = micId;
+            int suffix = 2;
+            auto micExists = [&](const std::string &id)
+            {
+                for (const auto &m : mics)
+                    if (m.name == id)
+                        return true;
+                return false;
+            };
+            while (micExists(micId))
+                micId = baseMicId + "_" + std::to_string(suffix++);
+
+            mics.push_back({micId, part.pieceName, 1.0f});
+            micIdByPieceIndex[pieceIdx] = micId;
+        }
+        else
+        {
+            pieceIdx = pieceIt->second;
+        }
+
+        const auto zoneKey = std::make_pair(pieceIdx, part.zoneName);
+        if (zoneIndexByKey.find(zoneKey) == zoneIndexByKey.end())
+        {
+            EditableZone ez;
+            ez.name = part.zoneName;
+            ez.graphicId = part.graphic;
+            ez.note = r.key;
+            ez.altNote = r.altNote;
+            ez.numVelocityLayers = 1;
+            ez.numRoundRobins = 1;
+
+            const auto zoneIdx = pieces[pieceIdx].zones.size();
+            zoneIndexByKey[zoneKey] = zoneIdx;
+            pieces[pieceIdx].zones.push_back(std::move(ez));
+        }
+
+        regionsByZone[zoneKey].push_back(r);
+    }
+
+    // Assign velocity layers and round-robins, then create hits.
+    for (auto &[zoneKey, list] : regionsByZone)
+    {
+        auto &piece = pieces[zoneKey.first];
+        auto &zone = piece.zones[zoneIndexByKey[zoneKey]];
+        const auto micIt = micIdByPieceIndex.find(zoneKey.first);
+        const std::string micId = micIt != micIdByPieceIndex.end() ? micIt->second : "close";
+
+        // Some SFZ mappings put several hi-hat stages on the same key and switch
+        // them with a CC (Salamander/Monster use CC4 for closed/semi-open). The
+        // kit view has no CC context here, so keep the default (unconditioned)
+        // articulation instead of mixing semi-open samples into the closed zone.
+        if (std::any_of(list.begin(), list.end(), [] (const Region &r) { return !r.hasCcCondition; }))
+            list.erase(std::remove_if(list.begin(), list.end(), [] (const Region &r) { return r.hasCcCondition; }),
+                       list.end());
+
+        std::sort(list.begin(), list.end(), [] (const Region &a, const Region &b)
+        {
+            if (a.lovel != b.lovel)
+                return a.lovel < b.lovel;
+            if (a.hivel != b.hivel)
+                return a.hivel < b.hivel;
+            if (a.seqPos != b.seqPos)
+                return a.seqPos < b.seqPos;
+            return a.fileName < b.fileName;
+        });
+
+        std::vector<std::pair<int, int>> tiers;
+        for (const auto &r : list)
+        {
+            const auto tier = std::make_pair(r.lovel, r.hivel);
+            if (std::find(tiers.begin(), tiers.end(), tier) == tiers.end())
+                tiers.push_back(tier);
+        }
+
+        std::map<std::pair<int, int>, int> rrCursor;
+        int maxRoundRobins = 1;
+        const int numTiers = std::max(1, static_cast<int>(tiers.size()));
+
+        zone.numVelocityLayers = numTiers;
+        zone.numRoundRobins = 1;
+
+        for (const auto &r : list)
+        {
+            const auto tier = std::make_pair(r.lovel, r.hivel);
+            const int tierIndex = static_cast<int>(std::find(tiers.begin(), tiers.end(), tier) - tiers.begin());
+            int rrIndex = rrCursor[tier];
+            if (r.seqLen > 0 && r.seqPos > 0)
+                rrIndex = r.seqPos - 1;
+            rrCursor[tier] = rrIndex + 1;
+            maxRoundRobins = std::max(maxRoundRobins, rrIndex + 1);
+
+            EditableHit hit;
+            hit.name = fs::path(r.fileName).stem().string();
+            const float t = (numTiers > 1) ? static_cast<float>(tierIndex) / static_cast<float>(numTiers - 1) : 1.0f;
+            hit.power = 0.12f + 0.88f * t;
+            hit.velocityLayerIndex = tierIndex;
+            hit.roundRobinIndex = rrIndex;
+
+            EditableMicSample ms;
+            ms.mic = micId;
+            ms.fileName = r.fileName;
+            ms.sourceDiskPath = r.samplePath;
+            ms.fileChannel = 0;
+            ms.sourceOffsetFrames = r.sampleOffset;
+            ms.sourceEndFrame = r.sampleEnd;
+            hit.micSamples.push_back(std::move(ms));
+            zone.hits.push_back(std::move(hit));
+        }
+
+        zone.numRoundRobins = std::max(1, maxRoundRobins);
+    }
+
+    if (mics.empty())
+        mics.push_back({"close", "Close Mic", 1.0f});
+
+    if (isSalamander || isMonster)
+    {
+        auto place = [&](const std::string &id, float x, float y, float w, int z)
+        {
+            for (auto &p : pieces)
+                if (p.id == id)
+                {
+                    p.normX = x;
+                    p.normY = y;
+                    p.normW = w;
+                    p.zOrder = z;
+                }
+        };
+        place("ftom", 105.0f, -270.0f, 195.0f, 2);
+        place("tom1", -120.0f, -420.0f, 140.0f, 4);
+        place("crash1", -235.0f, -503.0f, 190.0f, 9);
+        place("crash2", 187.0f, -421.0f, 205.0f, 8);
+        place("ride1", 77.0f, -507.0f, 210.0f, 7);
+        place("ride2", 235.0f, -500.0f, 190.0f, 11);
+        place("crash3", 260.0f, -360.0f, 170.0f, 10);
+        place("china1", -330.0f, -330.0f, 145.0f, 12);
+        place("china2", 320.0f, -300.0f, 145.0f, 13);
+        place("splash", -300.0f, -450.0f, 130.0f, 14);
+        place("bellchime", 300.0f, -240.0f, 120.0f, 16);
+
+        // These libraries have one overhead mic per piece rather than a
+        // combined stereo pair, so give each piece a position in the image.
+        static const struct
+        {
+            const char *name;
+            float pan;
+        } panMap[] = {
+            {"kick", 0.0f},        {"snare", 0.0f},      {"hightom", -0.25f}, {"lowtom", 0.3f},
+            {"hihat", -0.35f},     {"ride1", 0.3f},      {"ride2", 0.45f},    {"crash1", -0.5f},
+            {"crash2", 0.35f},     {"crash3", 0.5f},     {"china1", -0.45f},  {"china2", 0.5f},
+            {"splash", -0.55f},    {"bellchime", 0.6f},  {"cowbell", -0.15f},
+        };
+        for (auto &m : mics)
+            for (const auto &pm : panMap)
+                if (m.name == pm.name)
+                    m.pan = pm.pan;
+    }
+
+    if (isSamsSonor)
+    {
+        static const struct
+        {
+            const char *name;
+            float pan;
+        } panMap[] = {
+            {"kick", 0.0f},     {"snare", 0.0f},   {"hihat", -0.35f}, {"ride", 0.4f},
+            {"crash", 0.45f},   {"hightom", -0.3f}, {"midtom", -0.1f}, {"lowtom", 0.3f},
+        };
+        for (auto &m : mics)
+            for (const auto &pm : panMap)
+                if (m.name == pm.name)
+                    m.pan = pm.pan;
+    }
+
+    if (isOpenSourceKit)
+    {
+        static const struct
+        {
+            const char *name;
+            float pan;
+        } panMap[] = {
+            {"kick", 0.0f},   {"snare", 0.0f},   {"hihat", -0.35f}, {"ride", 0.4f},
+            {"crash", 0.45f}, {"hightom", -0.3f}, {"midtom", -0.1f}, {"floortom", 0.3f},
+            {"gong", 0.55f},
+        };
+        for (auto &m : mics)
+            for (const auto &pm : panMap)
+                if (m.name == pm.name)
+                    m.pan = pm.pan;
+    }
+
+    if (isSmDrums || isBigRusty)
+    {
+        auto place = [&](const std::string &id, float x, float y, float w, int z)
+        {
+            for (auto &p : pieces)
+            {
+                if (p.id == id)
+                {
+                    p.normX = x;
+                    p.normY = y;
+                    p.normW = w;
+                    p.zOrder = z;
+                }
+            }
+        };
+
+        if (isSmDrums)
+        {
+            // SM Drums has four toms. Put the three rack toms across the top and
+            // keep the floor tom where the default kit art expects it.
+            place("tom3", -140.0f, -420.0f, 140.0f, 5);
+            place("tom2", 15.0f, -410.0f, 150.0f, 4);
+            place("tom4", 150.0f, -350.0f, 145.0f, 3);
+            place("ftom", 110.0f, -270.0f, 195.0f, 2);
+            place("china", -270.0f, -330.0f, 145.0f, 9);
+        }
+
+        if (isBigRusty)
+        {
+            place("ftom22", 105.0f, -270.0f, 195.0f, 2);
+            place("tom18", -140.0f, -420.0f, 150.0f, 6);
+            place("tom15", 10.0f, -408.0f, 150.0f, 5);
+            place("tom14", 150.0f, -380.0f, 145.0f, 4);
+            place("china18", -330.0f, -330.0f, 145.0f, 12);
+            place("sizzleride", 235.0f, -500.0f, 190.0f, 11);
+            place("sizzlecrash", 250.0f, -380.0f, 180.0f, 10);
+            place("stack", -330.0f, -470.0f, 145.0f, 13);
+        }
+    }
+
+    normalizeZOrders();
+    return true;
+}
+
+//==============================================================================
+bool GlorpKitProject::importDrumGizmoXml(const std::string &drumkitXmlPath, std::string &outError)
+{
+    exportMonoSamples = false;
+    writeFactoryMixer = true;
+    writeMicPanPhase = true;
+
+    DrumKit dk = DrumKit::load(drumkitXmlPath);
+    if (!dk.error.empty() || dk.instruments.empty())
+    {
+        outError = dk.error.empty() ? "No valid instruments in DrumGizmo kit" : dk.error;
+        return false;
+    }
+
+    title = dk.displayName();
+    author = dk.author.empty() ? "DrumGizmo Kit" : dk.author;
+    version = "2.0";
+    license = dk.license.empty() ? "Custom" : dk.license;
+    description = dk.description;
+    hitGlowColor = dk.hitGlowColor.empty() ? "#ff8200" : dk.hitGlowColor;
+    {
+        std::map<int, int> votes;
+        SampleCache probe;
+        for (const auto &inst : dk.instruments)
+            for (const auto &hit : inst.samples)
+            {
+                for (const auto &ref : hit.audioFiles)
+                {
+                    const auto handle = probe.open(inst.samplePath(ref));
+                    if (handle.valid && handle.sampleRate > 0.0)
+                    {
+                        ++votes[static_cast<int>(std::lround(handle.sampleRate))];
+                        break;
+                    }
+                }
+            }
+
+        int chosen = dk.declaredSampleRate;
+        int best = 0;
+        for (const auto &[rate, count] : votes)
+            if (count > best)
+            {
+                best = count;
+                chosen = rate;
+            }
+        sampleRate = chosen;
+    }
+    loadedFilePath = drumkitXmlPath;
+
+    auto lowerDrs = [](std::string s)
+    {
+        for (auto &c : s)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    const auto drumKitIdentity = lowerDrs(drumkitXmlPath + " " + dk.title + " " + dk.displayName());
+    const bool isDrsKit = useShareKitProfiles && drumKitIdentity.find("drskit") != std::string::npos;
+    const bool isMuldjordKit = useShareKitProfiles && drumKitIdentity.find("muldjord") != std::string::npos;
+    const bool isAasimonsterKit = useShareKitProfiles && drumKitIdentity.find("aasimonster") != std::string::npos;
+    const bool isCrocellKit = useShareKitProfiles && drumKitIdentity.find("crocell") != std::string::npos;
+
+    if (isDrsKit)
+    {
+        title = "DRSKit";
+        author = "DRSDrums / DrumGizmo Team";
+        version = "2.1";
+        license = "CC BY 4.0";
+        description = "DRSKit by DRSDrums and the DrumGizmo team, converted from the DrumGizmo kit. The kick back mic is polarity-inverted by default.";
+    }
+    else if (isMuldjordKit)
+    {
+        title = "MuldjordKit";
+        author = "Lars Muldjord / DrumGizmo Team";
+        version = "3.0";
+        license = "CC BY 4.0";
+        description = "MuldjordKit by Lars Muldjord and the DrumGizmo team, converted from the DrumGizmo kit. Snare bottom is polarity-inverted by default.";
+    }
+    else if (isAasimonsterKit)
+    {
+        title = "Aasimonster";
+        author = "DrumGizmo Team / DIE";
+        version = "2.1";
+        license = "CC BY 4.0";
+        description = "The Aasimonster by the DrumGizmo team, recorded for DIE. Converted from the DrumGizmo kit.";
+    }
+    else if (isCrocellKit)
+    {
+        title = "CrocellKit";
+        author = "DrumGizmo Team / Crocell";
+        version = "2.0";
+        license = "CC BY 4.0";
+        description = "CrocellKit by the DrumGizmo team, recorded for the Danish metal band Crocell.";
+    }
+
+    auto defaultMicPan = [&](const std::string &rawName)
+    {
+        auto n = lowerDrs(rawName);
+        std::replace(n.begin(), n.end(), '_', ' ');
+        const bool centre = n.find("center") != std::string::npos
+                            || n.find("centre") != std::string::npos;
+        const bool left = !centre
+                          && (n.find("left") != std::string::npos
+                              || (!n.empty() && n.back() == 'l' && n.find("bell") == std::string::npos));
+        const bool right = !centre
+                           && (n.find("right") != std::string::npos
+                               || (!n.empty() && n.back() == 'r' && n.find("trigger") == std::string::npos));
+
+        if (n.find("amb") != std::string::npos)
+            return left ? -0.85f : (right ? 0.85f : 0.0f);
+        if (n.find("oh") != std::string::npos || n.find("overhead") != std::string::npos)
+            return left ? -0.55f : (right ? 0.55f : 0.0f);
+        if (n.find("ride") != std::string::npos)
+        {
+            if (left)
+                return -0.45f;
+            if (right)
+                return 0.45f;
+            return 0.0f;
+        }
+        if (n.find("crash") != std::string::npos || n.find("china") != std::string::npos)
+        {
+            if (left)
+                return -0.3f;
+            if (right)
+                return 0.3f;
+            return 0.0f;
+        }
+        if (n.find("tom") != std::string::npos)
+        {
+            if (n.find("ftom1") != std::string::npos)
+                return 0.3f;
+            if (n.find("ftom2") != std::string::npos)
+                return 0.5f;
+            if (n.find("toml") != std::string::npos)
+                return -0.3f;
+            if (n.find("tomm") != std::string::npos)
+                return 0.1f;
+            if (n.find("tomh") != std::string::npos)
+                return -0.5f;
+            if (n.find("tom1") != std::string::npos)
+                return -0.35f;
+            if (n.find("tom2") != std::string::npos)
+                return -0.1f;
+            if (n.find("tom3") != std::string::npos)
+                return 0.15f;
+            if (n.find("tom4") != std::string::npos)
+                return 0.4f;
+            return 0.0f;
+        }
+        if (n.find("hihat") != std::string::npos || n.find("hh") != std::string::npos)
+            return right ? 0.3f : -0.3f;
+        if (n.find("kdrum") != std::string::npos || n.find("kick") != std::string::npos)
+        {
+            if (left)
+                return -0.2f;
+            if (right)
+                return 0.2f;
+            return 0.0f;
+        }
+        if (centre)
+            return 0.0f;
+        return 0.0f;
+    };
+
+    mics.clear();
+    for (const auto &ch : dk.channels)
+    {
+        GlorpMic mic;
+        mic.name = ch.name;
+        mic.title = ch.title.empty() ? ch.name : ch.title;
+        mic.pan = defaultMicPan(ch.name);
+
+        const auto lowerName = lowerDrs(ch.name);
+        if (lowerName.find("trigger") != std::string::npos
+            || lowerName.find("dm5") != std::string::npos
+            || lowerName.find("alesis") != std::string::npos)
+            mic.defaultLevel = 0.0f;
+
+        if (isDrsKit && lowerName == "kdrum_back")
+            mic.phaseInvert = true;
+        if (isMuldjordKit && (lowerName == "snare_bottom" || lowerName == "snare bottom"))
+            mic.phaseInvert = true;
+
+        mics.push_back(std::move(mic));
+    }
+    if (mics.empty())
+        mics.push_back({"close", "Close Mic", 1.0f});
+
+    pieces.clear();
+    std::map<std::string, size_t> pieceMap;
+
+    struct DrsPart
+    {
+        const char *match;
+        const char *piece;
+        const char *zone;
+        const char *id;
+        const char *graphic;
+        const char *choke;
+    };
+
+    static const DrsPart drsParts[] = {
+        {"kdrum with contact", "Kick", "with contact", "kick", "kick", "none"},
+        {"kdrum without contact", "Kick", "without contact", "kick", "kick", "none"},
+        {"snare", "Snare", "center", "snare", "snare", "none"},
+        {"snare rim", "Snare", "rim", "snare", "snare", "none"},
+        {"snare rest", "Snare", "rest", "snare", "snare", "none"},
+        {"hihat closed", "Hihat", "closed", "hihat", "hihat", "hihat"},
+        {"hihat closed shank", "Hihat", "closed shank", "hihat", "hihat", "hihat"},
+        {"hihat foot", "Hihat", "foot", "hihat", "hihat", "hihat"},
+        {"hihat open", "Hihat", "open", "hihat", "hihat", "hihat"},
+        {"hihat open tip", "Hihat", "open tip", "hihat", "hihat", "hihat"},
+        {"hihat semi open", "Hihat", "semi open", "hihat", "hihat", "hihat"},
+        {"tom1", "Tom 1", "head", "tom1", "tom1", "none"},
+        {"tom2", "Tom 2", "head", "ftom", "ftom", "none"},
+        {"tom3", "Tom 3", "head", "ftom2", "ftom", "none"},
+        {"crash left shank", "Crash Left", "shank", "crash1", "crash1", "none"},
+        {"crash left tip", "Crash Left", "tip", "crash1", "crash1", "none"},
+        {"crash right shank", "Crash Right", "shank", "crash2", "crash2", "none"},
+        {"crash right tip", "Crash Right", "tip", "crash2", "crash2", "none"},
+        {"ride rest", "Ride", "rest", "ride", "ride", "none"},
+        {"ride shank", "Ride", "shank", "ride", "ride", "none"},
+        {"ride shank bell", "Ride", "shank bell", "ride", "ride", "none"},
+        {"ride tip", "Ride", "tip", "ride", "ride", "none"},
+        {"ride tip bell", "Ride", "tip bell", "ride", "ride", "none"},
+        {"ride tip bell chain", "Ride", "tip bell chain", "ride", "ride", "none"},
+        {"ride tip chain", "Ride", "tip chain", "ride", "ride", "none"},
+    };
+
+    auto normalizeDrsName = [&](std::string s)
+    {
+        for (auto &c : s)
+        {
+            if (c == '_')
+                c = ' ';
+            else
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        std::string out;
+        bool lastSpace = false;
+        for (char c : s)
+        {
+            if (c == ' ')
+            {
+                if (!out.empty() && !lastSpace)
+                    out += c;
+                lastSpace = true;
+            }
+            else
+            {
+                out += c;
+                lastSpace = false;
+            }
+        }
+        while (!out.empty() && out.back() == ' ')
+            out.pop_back();
+        return out;
+    };
+
+    auto findDrsPart = [&](const Instrument &inst) -> const DrsPart *
+    {
+        if (!isDrsKit)
+            return nullptr;
+        const auto a = normalizeDrsName(inst.displayName);
+        const auto b = normalizeDrsName(inst.name);
+        for (const auto &part : drsParts)
+        {
+            if (a == part.match || b == part.match)
+                return &part;
+        }
+        return nullptr;
+    };
+
+    for (const auto &inst : dk.instruments)
+    {
+        const auto *drsPart = findDrsPart(inst);
+        const std::string pName = drsPart != nullptr
+                                      ? std::string(drsPart->piece)
+                                      : (inst.logicalName.empty() ? inst.displayName : inst.logicalName);
+        const std::string pId = drsPart != nullptr ? std::string(drsPart->id) : sanitizeId(pName);
+
+        size_t pIdx = 0;
+        auto it = pieceMap.find(pId);
+        if (it == pieceMap.end())
+        {
+            pIdx = pieces.size();
+            pieceMap[pId] = pIdx;
+
+            EditablePiece ep;
+            ep.name = pName;
+            ep.id = pId;
+            ep.graphicId = pId;
+            ep.outputBus = inst.outputBus;
+            ep.chokeGroup = drsPart != nullptr ? std::string(drsPart->choke)
+                                               : (inst.group.empty() ? "none" : inst.group);
+
+            if (const auto *def = findDefaultPieceLayout(pId))
+            {
+                ep.graphicId = def->graphic;
+                ep.normX = def->x;
+                ep.normY = def->y;
+                ep.normW = def->w;
+                ep.zOrder = def->z;
+            }
+            else
+            {
+                ep.normX = -150.0f + static_cast<float>(pIdx * 35);
+                ep.normY = -340.0f;
+                ep.normW = 165.0f;
+                ep.zOrder = static_cast<int>(pIdx) + 1;
+            }
+
+            if (drsPart != nullptr && std::string(drsPart->graphic) != "none")
+                ep.graphicId = drsPart->graphic;
+
+            pieces.push_back(std::move(ep));
+        }
+        else
+        {
+            pIdx = it->second;
+        }
+
+        EditableZone ez;
+        ez.name = drsPart != nullptr ? std::string(drsPart->zone)
+                                     : (inst.zoneName.empty() ? "head" : inst.zoneName);
+        ez.graphicId = pieces[pIdx].graphicId;
+        ez.note = 36;
+        const auto instNameA = normalizeDrsName(inst.name);
+        const auto instNameB = normalizeDrsName(inst.displayName);
+        for (const auto &[noteNum, mappedName] : dk.suggestedMap)
+        {
+            const auto mapped = normalizeDrsName(mappedName);
+            if (mapped == instNameA || mapped == instNameB)
+            {
+                ez.note = noteNum;
+                break;
+            }
+        }
+
+        // DrumGizmo kits may rename channels through <channelmap> (for example
+        // Aasimonster's "Alesis" trigger feed maps to the "Trigger" channel).
+        // The kit's mic list uses the destination names, so resolve each
+        // sample channel through the instrument's channelmap before storing it.
+        std::map<std::string, std::string> channelRemap;
+        for (const auto &cm : inst.channelMaps)
+            if (!cm.in.empty() && !cm.out.empty())
+                channelRemap[cm.in] = cm.out;
+
+        for (const auto &sh : inst.samples)
+        {
+            EditableHit eh;
+            eh.name = sh.name;
+            eh.power = sh.power;
+
+            for (const auto &af : sh.audioFiles)
+            {
+                EditableMicSample ms;
+                ms.mic = af.channel;
+                if (const auto remapIt = channelRemap.find(ms.mic); remapIt != channelRemap.end())
+                    ms.mic = remapIt->second;
+                ms.fileName = fs::path(af.file).filename().string();
+                ms.fileChannel = af.fileChannel;
+                if (af.archiveOffset >= 0 && !inst.archivePath.empty())
+                {
+                    ms.sourceArchivePath = inst.archivePath;
+                    ms.archiveOffset = af.archiveOffset;
+                    ms.archiveLength = af.archiveLength;
+                }
+                else
+                {
+                    ms.sourceDiskPath = inst.samplePath(af);
+                }
+                eh.micSamples.push_back(std::move(ms));
+            }
+            if (!eh.micSamples.empty())
+                ez.hits.push_back(std::move(eh));
+        }
+
+        rebuildZoneLayerGrid(ez, 3);
+
+        if (isDrsKit && ez.hits.size() > 1)
+        {
+            // DRSKit is a dynamic-layer kit with (mostly) one sample per
+            // power tier. Give its hit powers an even 0..1 spacing so the
+            // sampler's velocity curve reaches the soft layers instead of
+            // jumping straight to the loud ones. Hits inside the same
+            // near-identical power group keep the same value, preserving
+            // the few genuine round-robin pairs.
+            std::vector<size_t> order(ez.hits.size());
+            for (size_t i = 0; i < order.size(); ++i)
+                order[i] = i;
+            std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b)
+            {
+                return ez.hits[a].power < ez.hits[b].power;
+            });
+
+            std::vector<int> starts {0};
+            for (size_t i = 1; i < order.size(); ++i)
+            {
+                const float previous = ez.hits[order[i - 1]].power;
+                const float current = ez.hits[order[i]].power;
+                const float tolerance = std::max(1.0e-6f, std::abs(previous) * 0.025f);
+                if (current - previous > tolerance)
+                    starts.push_back(static_cast<int>(i));
+            }
+            starts.push_back(static_cast<int>(order.size()));
+
+            const int tierCount = static_cast<int>(starts.size()) - 1;
+            for (int tier = 0; tier < tierCount; ++tier)
+            {
+                const float normalized = tierCount > 1
+                                             ? static_cast<float>(tier) / static_cast<float>(tierCount - 1)
+                                             : 1.0f;
+                for (int i = starts[static_cast<size_t>(tier)];
+                     i < starts[static_cast<size_t>(tier) + 1];
+                     ++i)
+                    ez.hits[order[static_cast<size_t>(i)]].power = normalized;
+            }
+        }
+
+        pieces[pIdx].zones.push_back(std::move(ez));
+    }
+
+    if (isDrsKit)
+    {
+        auto place = [&](const std::string &id, float x, float y, float w, int z)
+        {
+            for (auto &p : pieces)
+            {
+                if (p.id == id)
+                {
+                    p.normX = x;
+                    p.normY = y;
+                    p.normW = w;
+                    p.zOrder = z;
+                }
+            }
+        };
+
+        place("tom1", -120.0f, -420.0f, 140.0f, 4);
+        place("ftom", 105.0f, -270.0f, 195.0f, 2);
+        place("ftom2", 235.0f, -330.0f, 180.0f, 3);
+    }
+
+    normalizeZOrders();
+    return true;
+}
+
+//==============================================================================
+namespace
+{
+bool isRiffWaveFile(const std::string &path)
+{
+    std::ifstream f(path, std::ios::binary);
+    char header[12] {};
+    if (!f.read(header, 12))
+        return false;
+    return std::memcmp(header, "RIFF", 4) == 0 && std::memcmp(header + 8, "WAVE", 4) == 0;
+}
+
+bool decodeToWavBytes(const std::string &path,
+                      bool mono,
+                      int64_t startFrame,
+                      int64_t endFrame,
+                      std::vector<uint8_t> &out,
+                      std::string &error)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(juce::File(path)));
+    if (reader == nullptr || reader->sampleRate <= 0.0 || reader->numChannels == 0)
+    {
+        error = "Could not decode audio file: " + path;
+        return false;
+    }
+
+    const int64_t totalFrames = reader->lengthInSamples;
+    const int64_t clippedStart = std::clamp<int64_t>(startFrame, 0, totalFrames);
+    int64_t clippedEnd = (endFrame >= 0) ? std::min<int64_t>(endFrame, totalFrames) : totalFrames;
+    if (clippedEnd <= clippedStart)
+        clippedEnd = totalFrames;
+
+    const auto length = static_cast<int>(std::min<int64_t>(clippedEnd - clippedStart, 0x7fffffff));
+    if (length <= 0)
+    {
+        error = "Audio file has no frames: " + path;
+        return false;
+    }
+
+    const int sourceChannels = static_cast<int>(reader->numChannels);
+    juce::AudioBuffer<float> source(sourceChannels, length);
+    if (!reader->read(&source, 0, length, clippedStart, true, true))
+    {
+        error = "Could not read audio file: " + path;
+        return false;
+    }
+
+    const int outChannels = mono ? 1 : sourceChannels;
+    juce::AudioBuffer<float> dst(outChannels, length);
+
+    dst.clear();
+
+    if (mono)
+    {
+        const float gain = 1.0f / static_cast<float>(sourceChannels);
+        for (int i = 0; i < length; ++i)
+        {
+            float sum = 0.0f;
+            for (int ch = 0; ch < sourceChannels; ++ch)
+                sum += source.getSample(ch, i);
+            dst.setSample(0, i, sum * gain);
+        }
+    }
+    else
+    {
+        for (int ch = 0; ch < outChannels; ++ch)
+            for (int i = 0; i < length; ++i)
+                dst.setSample(ch, i, source.getSample(ch, i));
+    }
+
+    const auto frames = static_cast<uint32_t>(length);
+    const uint32_t dataBytes = frames * static_cast<uint32_t>(outChannels) * 3u;
+    const uint32_t byteRate = static_cast<uint32_t>(reader->sampleRate) * static_cast<uint32_t>(outChannels) * 3u;
+
+    out.resize(44u + dataBytes);
+    auto *p = out.data();
+    auto put32 = [&](uint32_t v) { p[0] = uint8_t(v); p[1] = uint8_t(v >> 8); p[2] = uint8_t(v >> 16); p[3] = uint8_t(v >> 24); p += 4; };
+    auto put16 = [&](uint16_t v) { p[0] = uint8_t(v); p[1] = uint8_t(v >> 8); p += 2; };
+
+    auto putTag = [&](const char *tag) { std::memcpy(p, tag, 4); p += 4; };
+    putTag("RIFF");
+    put32(36u + dataBytes);
+    putTag("WAVE");
+    putTag("fmt ");
+    put32(16);
+    put16(1); // PCM
+    put16(static_cast<uint16_t>(outChannels));
+    put32(static_cast<uint32_t>(reader->sampleRate));
+    put32(byteRate);
+    put16(static_cast<uint16_t>(outChannels * 3));
+    put16(24);
+    putTag("data");
+    put32(dataBytes);
+
+    for (int i = 0; i < length; ++i)
+    {
+        for (int ch = 0; ch < outChannels; ++ch)
+        {
+            const float v = std::clamp(dst.getSample(ch, i), -1.0f, 1.0f);
+            const int32_t s = static_cast<int32_t>(std::lround(v * 8388607.0f));
+            *p++ = static_cast<uint8_t>(s & 0xff);
+            *p++ = static_cast<uint8_t>((s >> 8) & 0xff);
+            *p++ = static_cast<uint8_t>((s >> 16) & 0xff);
+        }
+    }
+
+    return true;
+}
+} // namespace
+
+bool GlorpKitProject::exportToGlorpKit(const std::string &outputArchivePath, std::string &outError) const
+{
+    // If exporting over the same archive file that is currently open as a slice source,
+    // write to a temporary sibling file first and atomically rename on completion.
+    const fs::path targetPath = fs::absolute(outputArchivePath);
+    const fs::path tempPath = targetPath.parent_path() / (targetPath.filename().string() + ".tmp_build");
+
+    GlorpKitWriter writer;
+    if (!writer.open(tempPath.string()))
+    {
+        outError = "Could not open output file for writing: " + tempPath.string();
+        return false;
+    }
+
+    // 1. Build kit.xml (version="2.0")
+    {
+        std::string effectiveTitle = title;
+        if (effectiveTitle.empty() || effectiveTitle == "Untitled Kit")
+        {
+            const auto stem = targetPath.stem().string();
+            if (!stem.empty() && stem != "Untitled Kit" && stem != "Untitled_Kit")
+                effectiveTitle = stem;
+        }
+
+        std::ostringstream ss;
+        ss << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+        ss << "<glorpkit version=\"2.0\" name=\"" << escapeXml(effectiveTitle) << "\" " << "author=\""
+           << escapeXml(author) << "\" " << "license=\"" << escapeXml(license) << "\" " << "samplerate=\"" << sampleRate
+           << "\" " << "hit-glow-color=\"" << escapeXml(hitGlowColor) << "\">\n";
+
+        if (!description.empty())
+            ss << "  <description>" << escapeXml(description) << "</description>\n";
+
+        ss << "  <mics>\n";
+        for (const auto &m : mics)
+        {
+            ss << "    <mic name=\"" << escapeXml(m.name) << "\" " << "title=\"" << escapeXml(m.title) << "\" "
+               << "default=\"" << std::fixed << std::setprecision(2) << m.defaultLevel << "\"";
+            if (writeMicPanPhase)
+                ss << " pan=\"" << std::fixed << std::setprecision(3) << m.pan << "\" "
+                   << "phase=\"" << (m.phaseInvert ? "true" : "false") << "\"";
+            ss << "/>\n";
+        }
+        ss << "  </mics>\n";
+
+        auto getExportPieceGraphicName = [](const EditablePiece &p, size_t idx) -> std::string
+        {
+            if (!p.customPngBytes.empty())
+            {
+                std::string pId = sanitizeId(p.id.empty() ? p.name : p.id);
+                if (pId.empty() || pId == "piece")
+                    pId = "piece_" + std::to_string(idx + 1);
+                return pId;
+            }
+            return !p.graphicId.empty() ? p.graphicId : "snare";
+        };
+
+        ss << "  <graphics>\n";
+        std::set<std::string> writtenGraphics;
+        for (size_t i = 0; i < pieces.size(); ++i)
+        {
+            const auto &p = pieces[i];
+            const std::string gName = getExportPieceGraphicName(p, i);
+            if (writtenGraphics.insert(gName).second)
+            {
+                const std::string srcAttr =
+                    !p.customPngBytes.empty() ? ("assets/" + gName + ".png") : ("builtin:" + gName);
+                ss << "    <graphic name=\"" << escapeXml(gName) << "\" src=\"" << escapeXml(srcAttr) << "\"/>\n";
+            }
+        }
+        ss << "  </graphics>\n";
+        ss << "</glorpkit>\n";
+
+        if (!writer.addMemoryString("kit.xml", ss.str()))
+        {
+            outError = "Failed to write kit.xml";
+            return false;
+        }
+    }
+
+    // 2. Write embedded custom PNG graphics (assets/*.png)
+    {
+        auto getExportPieceGraphicName = [](const EditablePiece &p, size_t idx) -> std::string
+        {
+            if (!p.customPngBytes.empty())
+            {
+                std::string pId = sanitizeId(p.id.empty() ? p.name : p.id);
+                if (pId.empty() || pId == "piece")
+                    pId = "piece_" + std::to_string(idx + 1);
+                return pId;
+            }
+            return !p.graphicId.empty() ? p.graphicId : "snare";
+        };
+
+        std::set<std::string> writtenPngs;
+        for (size_t i = 0; i < pieces.size(); ++i)
+        {
+            const auto &p = pieces[i];
+            if (!p.customPngBytes.empty())
+            {
+                const std::string gName = getExportPieceGraphicName(p, i);
+                const std::string arcPng = "assets/" + gName + ".png";
+                if (writtenPngs.insert(arcPng).second)
+                {
+                    if (!writer.addMemoryBytes(arcPng, p.customPngBytes.data(), p.customPngBytes.size()))
+                    {
+                        outError = "Failed to embed custom PNG asset: " + arcPng;
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Write presets/factory-mixer.xml
+    if (writeFactoryMixer)
+    {
+        std::ostringstream ms;
+        ms << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<glorp-mixer>\n";
+        for (const auto &m : mics)
+            ms << "  <mic name=\"" << escapeXml(m.name) << "\" level=\"" << std::fixed << std::setprecision(2)
+               << m.defaultLevel << "\" pan=\"" << std::fixed << std::setprecision(3) << m.pan
+               << "\" phase=\"" << (m.phaseInvert ? "true" : "false") << "\"/>\n";
+
+        for (const auto &p : pieces)
+            for (const auto &z : p.zones)
+                ms << "  <instrument name=\"" << escapeXml(p.name) << "\" zone=\"" << escapeXml(z.name)
+                   << "\" level=\"1.0\" pan=\"0.0\"/>\n";
+
+        ms << "</glorp-mixer>\n";
+        writer.addMemoryString("presets/factory-mixer.xml", ms.str());
+    }
+
+    // 4. Write instruments/<id>/instrument.xml, <zone>/zone.xml, and samples/*.wav
+    auto getExportPieceGraphicName = [](const EditablePiece &p, size_t idx) -> std::string
+    {
+        if (!p.customPngBytes.empty())
+        {
+            std::string pId = sanitizeId(p.id.empty() ? p.name : p.id);
+            if (pId.empty() || pId == "piece")
+                pId = "piece_" + std::to_string(idx + 1);
+            return pId;
+        }
+        return !p.graphicId.empty() ? p.graphicId : "snare";
+    };
+
+    std::set<std::string> usedInstDirs;
+    for (size_t i = 0; i < pieces.size(); ++i)
+    {
+        const auto &p = pieces[i];
+        std::string pId = sanitizeId(p.id.empty() ? p.name : p.id);
+        if (pId.empty() || pId == "piece")
+            pId = "piece_" + std::to_string(i + 1);
+        if (usedInstDirs.count(pId) > 0)
+            pId += "_" + std::to_string(i + 1);
+        usedInstDirs.insert(pId);
+
+        const std::string gName = getExportPieceGraphicName(p, i);
+
+        std::ostringstream is;
+        is << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+        is << "<glorp-instrument name=\"" << escapeXml(p.name) << "\" " << "graphic=\"" << escapeXml(gName) << "\" "
+           << "output-bus=\"" << p.outputBus << "\" " << "choke-group=\"" << escapeXml(p.chokeGroup) << "\" "
+           << std::fixed << std::setprecision(4) << "norm-x=\"" << p.normX << "\" " << "norm-y=\"" << p.normY << "\" "
+           << "norm-w=\"" << p.normW << "\" " << "z-order=\"" << p.zOrder << "\">\n";
+
+        for (const auto &z : p.zones)
+        {
+            is << "  <zone name=\"" << escapeXml(z.name) << "\" " << "graphic=\""
+               << escapeXml(z.graphicId.empty() ? gName : z.graphicId) << "\"";
+            if (z.note >= 0)
+                is << " note=\"" << z.note << "\"";
+            if (z.altNote >= 0)
+                is << " alt-note=\"" << z.altNote << "\"";
+            is << "/>\n";
+        }
+        is << "</glorp-instrument>\n";
+
+        const std::string instDir = "instruments/" + pId;
+        if (!writer.addMemoryString(instDir + "/instrument.xml", is.str()))
+        {
+            outError = "Failed to write " + instDir + "/instrument.xml";
+            return false;
+        }
+
+        for (const auto &z : p.zones)
+        {
+            const std::string zoneDir = instDir + "/" + z.name;
+            std::ostringstream zs;
+            zs << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+            zs << "<glorp-zone name=\"" << escapeXml(z.name) << "\" power=\"1.0\" " << "round-robin=\""
+               << z.numRoundRobins << "\" " << "velocity-layers=\"" << z.numVelocityLayers << "\">\n";
+
+            std::set<std::string> writtenWavsInZone;
+
+            for (const auto &hit : z.hits)
+            {
+                for (const auto &ms : hit.micSamples)
+                {
+                    std::string wavName = ms.fileName.empty() ? (hit.name + ".wav") : ms.fileName;
+                    const bool sourceIsWav = ms.sourceDiskPath.empty() || isRiffWaveFile(ms.sourceDiskPath);
+                    const bool needsTrim = ms.sourceOffsetFrames > 0
+                                           || (ms.sourceEndFrame >= 0 && ms.sourceEndFrame > ms.sourceOffsetFrames);
+                    const bool transcode = !ms.sourceDiskPath.empty() && fs::exists(ms.sourceDiskPath)
+                                           && (exportMonoSamples || !sourceIsWav || needsTrim);
+                    if (transcode)
+                        wavName = fs::path(wavName).stem().string() + ".wav";
+
+                    const std::string relWav = "samples/" + wavName;
+                    const std::string fullArcWav = zoneDir + "/" + relWav;
+
+                    zs << "  <sample name=\"" << escapeXml(hit.name) << "\" " << "file=\"" << escapeXml(relWav) << "\" "
+                       << "mic=\"" << escapeXml(ms.mic) << "\" " << "power=\"" << std::fixed << std::setprecision(4)
+                       << hit.power << "\" " << "velocity=\"" << (hit.velocityLayerIndex + 1) << "\" "
+                       << "round-robin=\"" << (hit.roundRobinIndex + 1) << "\"";
+                    if (ms.fileChannel > 0)
+                        zs << " channel=\"" << (ms.fileChannel + 1) << "\"";
+                    zs << "/>\n";
+
+                    if (writtenWavsInZone.insert(wavName).second)
+                    {
+                        if (!ms.sourceDiskPath.empty() && fs::exists(ms.sourceDiskPath))
+                        {
+                            if (transcode)
+                            {
+                                std::vector<uint8_t> wavBytes;
+                                std::string decodeError;
+                                if (!decodeToWavBytes(ms.sourceDiskPath,
+                                                      exportMonoSamples,
+                                                      ms.sourceOffsetFrames,
+                                                      ms.sourceEndFrame,
+                                                      wavBytes,
+                                                      decodeError))
+                                {
+                                    outError = decodeError;
+                                    return false;
+                                }
+
+                                if (!writer.addMemoryBytes(fullArcWav, wavBytes.data(), wavBytes.size()))
+                                {
+                                    outError = "Failed to write " + fullArcWav;
+                                    return false;
+                                }
+                            }
+                            else
+                            {
+                                writer.addFileFromDisk(fullArcWav, ms.sourceDiskPath);
+                            }
+                        }
+                        else if (!ms.sourceArchivePath.empty() && ms.archiveOffset >= 0 && ms.archiveLength > 0)
+                        {
+                            writer.addSliceFromArchive(
+                                fullArcWav, ms.sourceArchivePath, ms.archiveOffset, ms.archiveLength);
+                        }
+                    }
+                }
+            }
+
+            for (const auto &c : z.chokes)
+            {
+                zs << "  <choke target=\"" << escapeXml(c.instrument) << "\" " << "time=\""
+                   << static_cast<int>(c.chokeTimeMs) << "\"/>\n";
+            }
+
+            zs << "</glorp-zone>\n";
+            writer.addMemoryString(zoneDir + "/zone.xml", zs.str());
+        }
+    }
+
+    if (!writer.finalize())
+    {
+        outError = "Failed to finalize .glorpkit ZIP_STORED central directory";
+        return false;
+    }
+
+    std::error_code ec;
+    fs::rename(tempPath, targetPath, ec);
+    if (ec)
+    {
+        fs::copy_file(tempPath, targetPath, fs::copy_options::overwrite_existing, ec);
+        fs::remove(tempPath, ec);
+    }
+
+    return true;
+}
+
+//==============================================================================
+DrumKit GlorpKitProject::buildRuntimeDrumKit() const
+{
+    DrumKit kit;
+    kit.isNativeGlorpKit = true;
+    kit.title = title;
+    kit.author = author;
+    kit.version = version;
+    kit.license = license;
+    kit.description = description;
+    kit.hitGlowColor = hitGlowColor;
+    kit.declaredSampleRate = sampleRate;
+
+    for (const auto &m : mics)
+    {
+        KitChannel kc;
+        kc.name = m.name;
+        kc.title = m.title;
+        kc.source = m.name;
+        kit.channels.push_back(std::move(kc));
+    }
+
+    if (kit.channels.empty())
+        kit.channels.push_back({"close", "Close Mic", "close"});
+
+    for (const auto &p : pieces)
+    {
+        DrumKit::LogicalPiece lp;
+        lp.name = p.name;
+        lp.id = p.id;
+        lp.graphic = p.graphicId;
+        lp.outputBus = p.outputBus;
+        lp.chokeGroup = p.chokeGroup;
+        lp.normX = p.normX;
+        lp.normY = p.normY;
+        lp.normW = p.normW;
+        lp.zOrder = p.zOrder;
+        lp.hasCustomLayout = true;
+        lp.customPngBytes = p.customPngBytes;
+
+        for (const auto &z : p.zones)
+        {
+            Instrument inst;
+            inst.name = p.name + "." + z.name;
+            inst.displayName = p.name + " " + z.name;
+            inst.logicalName = p.name;
+            inst.zoneName = z.name;
+            inst.bleedPiece = pieceForInstrumentName(p.name);
+            inst.group = p.chokeGroup;
+            inst.outputBus = p.outputBus;
+            inst.index = static_cast<int>(kit.instruments.size());
+
+            for (const auto &hit : z.hits)
+            {
+                SampleHit sh;
+                sh.name = hit.name;
+                sh.power = hit.power;
+
+                for (const auto &ms : hit.micSamples)
+                {
+                    AudioFileRef ref;
+                    ref.channel = ms.mic;
+                    ref.fileChannel = ms.fileChannel;
+                    if (!ms.sourceDiskPath.empty())
+                    {
+                        ref.file = ms.sourceDiskPath;
+                    }
+                    else if (!ms.sourceArchivePath.empty() && ms.archiveOffset >= 0)
+                    {
+                        inst.archivePath = ms.sourceArchivePath;
+                        ref.file = ms.fileName;
+                        ref.archiveOffset = ms.archiveOffset;
+                        ref.archiveLength = ms.archiveLength;
+                    }
+                    sh.audioFiles.push_back(std::move(ref));
+                }
+
+                if (!sh.audioFiles.empty())
+                    inst.samples.push_back(std::move(sh));
+            }
+
+            // Build resolvedChannels directly
+            inst.resolvedChannels.assign(inst.samples.size(), {});
+            for (size_t s = 0; s < inst.samples.size(); ++s)
+            {
+                for (size_t a = 0; a < inst.samples[s].audioFiles.size(); ++a)
+                {
+                    const auto &af = inst.samples[s].audioFiles[a];
+                    Instrument::ChannelSource cs;
+                    cs.kitChannel = (kit.indexOfKitChannel(af.channel) >= 0) ? af.channel : kit.channels.front().name;
+                    cs.audioFileIndex = static_cast<int>(a);
+                    cs.main = (cs.kitChannel == "close" || cs.kitChannel.find("oh") != std::string::npos);
+                    cs.bleed = 1.0f;
+                    inst.resolvedChannels[s].push_back(std::move(cs));
+                }
+            }
+
+            if (z.note >= 0)
+                kit.suggestedMap[z.note] = inst.displayName;
+            if (z.altNote >= 0)
+                kit.suggestedMap[z.altNote] = inst.displayName;
+
+            DrumKit::ZoneItem zi;
+            zi.name = z.name;
+            zi.samplerIndex = inst.index;
+            zi.note = z.note;
+            zi.altNote = z.altNote;
+            zi.graphic = z.graphicId;
+            lp.zones.push_back(std::move(zi));
+
+            kit.instruments.push_back(std::move(inst));
+        }
+
+        kit.logicalPieces.push_back(std::move(lp));
+    }
+
+    return kit;
+}
+
+//==============================================================================
+int GlorpKitProject::getSamplerIndexForZone(int pieceIndex, int zoneIndex) const
+{
+    int count = 0;
+    for (size_t p = 0; p < pieces.size(); ++p)
+    {
+        for (size_t z = 0; z < pieces[p].zones.size(); ++z)
+        {
+            if ((int) p == pieceIndex && (int) z == zoneIndex)
+                return count;
+            count++;
+        }
+    }
+    return -1;
+}
+
+bool GlorpKitProject::renamePiece(int pieceIndex, const std::string &newName, const std::string &newId)
+{
+    if (pieceIndex < 0 || pieceIndex >= (int) pieces.size())
+        return false;
+    if (newName.empty())
+        return false;
+
+    const std::string oldName = pieces[(size_t) pieceIndex].name;
+    pieces[(size_t) pieceIndex].name = newName;
+    if (!newId.empty())
+        pieces[(size_t) pieceIndex].id = newId;
+
+    // Update choke targets referencing the old piece name
+    for (auto &p : pieces)
+        for (auto &z : p.zones)
+            for (auto &c : z.chokes)
+                if (c.instrument == oldName)
+                    c.instrument = newName;
+
+    return true;
+}
+
+bool GlorpKitProject::renameMic(int micIndex, const std::string &newName)
+{
+    if (micIndex < 0 || micIndex >= (int) mics.size())
+        return false;
+    if (newName.empty())
+        return false;
+
+    const std::string oldMic = mics[(size_t) micIndex].name;
+    mics[(size_t) micIndex].name = newName;
+    mics[(size_t) micIndex].title = newName;
+
+    // Propagate mic rename to all sample layers across all pieces and zones
+    for (auto &p : pieces)
+        for (auto &z : p.zones)
+            for (auto &h : z.hits)
+                for (auto &ms : h.micSamples)
+                    if (ms.mic == oldMic)
+                        ms.mic = newName;
+
+    return true;
+}
+
+bool GlorpKitProject::renameZone(int pieceIndex, int zoneIndex, const std::string &newName)
+{
+    if (pieceIndex < 0 || pieceIndex >= (int) pieces.size())
+        return false;
+    auto &p = pieces[(size_t) pieceIndex];
+    if (zoneIndex < 0 || zoneIndex >= (int) p.zones.size())
+        return false;
+    if (newName.empty())
+        return false;
+
+    const std::string oldZone = p.zones[(size_t) zoneIndex].name;
+    p.zones[(size_t) zoneIndex].name = newName;
+
+    // Update choke targets referencing old zone on this piece
+    for (auto &otherP : pieces)
+        for (auto &otherZ : otherP.zones)
+            for (auto &c : otherZ.chokes)
+                if (c.instrument == p.name && c.zone == oldZone)
+                    c.zone = newName;
+
+    return true;
+}
+
+bool GlorpKitProject::deleteZone(int pieceIndex, int zoneIndex, std::string &outError)
+{
+    if (pieceIndex < 0 || pieceIndex >= (int) pieces.size())
+    {
+        outError = "Invalid piece index";
+        return false;
+    }
+    auto &p = pieces[(size_t) pieceIndex];
+    if (p.zones.size() <= 1)
+    {
+        outError = "Cannot delete the only articulation zone of a kit piece";
+        return false;
+    }
+    if (zoneIndex < 0 || zoneIndex >= (int) p.zones.size())
+    {
+        outError = "Invalid zone index";
+        return false;
+    }
+
+    p.zones.erase(p.zones.begin() + zoneIndex);
+    return true;
+}
+
+bool GlorpKitProject::deleteMic(int micIndex, std::string &outError)
+{
+    if (micIndex < 0 || micIndex >= (int) mics.size())
+    {
+        outError = "Invalid mic index";
+        return false;
+    }
+    if (mics.size() <= 1)
+    {
+        outError = "Cannot delete the only microphone channel";
+        return false;
+    }
+
+    const std::string deletedMic = mics[(size_t) micIndex].name;
+    const std::string fallbackMic = mics[micIndex == 0 ? 1 : 0].name;
+
+    for (auto &p : pieces)
+    {
+        for (auto &z : p.zones)
+        {
+            for (auto &h : z.hits)
+            {
+                for (auto &ms : h.micSamples)
+                {
+                    if (ms.mic == deletedMic)
+                        ms.mic = fallbackMic;
+                }
+            }
+        }
+    }
+
+    mics.erase(mics.begin() + micIndex);
+    return true;
+}
+
+bool GlorpKitProject::relinkSamplesFromDirectory(const std::string &directoryPath)
+{
+    if (directoryPath.empty())
+        return false;
+
+    std::error_code ec;
+    if (!fs::exists(directoryPath, ec) || !fs::is_directory(directoryPath, ec))
+        return false;
+
+    std::map<std::string, std::string> foundFiles;
+    for (const auto &entry :
+         fs::recursive_directory_iterator(directoryPath, fs::directory_options::skip_permission_denied, ec))
+    {
+        if (entry.is_regular_file(ec))
+            foundFiles[entry.path().filename().string()] = entry.path().string();
+    }
+
+    bool anyRelinked = false;
+    for (auto &p : pieces)
+    {
+        for (auto &z : p.zones)
+        {
+            for (auto &h : z.hits)
+            {
+                for (auto &ms : h.micSamples)
+                {
+                    if (!fs::exists(ms.sourceDiskPath, ec))
+                    {
+                        auto it = foundFiles.find(ms.fileName);
+                        if (it != foundFiles.end())
+                        {
+                            ms.sourceDiskPath = it->second;
+                            anyRelinked = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return anyRelinked;
+}
+
+bool GlorpKitProject::setPieceMicrophone(int pieceIndex, const std::string &micName, const std::string &oldMicToReplace)
+{
+    if (pieceIndex < 0 || pieceIndex >= (int) pieces.size() || micName.empty())
+        return false;
+
+    bool micExists = false;
+    for (const auto &m : mics)
+    {
+        if (m.name == micName)
+        {
+            micExists = true;
+            break;
+        }
+    }
+    if (!micExists)
+        addChannel(micName);
+
+    auto &p = pieces[(size_t) pieceIndex];
+    for (auto &z : p.zones)
+    {
+        for (auto &h : z.hits)
+        {
+            for (auto &ms : h.micSamples)
+            {
+                if (oldMicToReplace.empty() || ms.mic == oldMicToReplace)
+                    ms.mic = micName;
+            }
+        }
+    }
+    return true;
+}
+
+bool GlorpKitProject::setZoneMicrophone(int pieceIndex,
+                                        int zoneIndex,
+                                        const std::string &micName,
+                                        const std::string &oldMicToReplace)
+{
+    if (pieceIndex < 0 || pieceIndex >= (int) pieces.size() || micName.empty())
+        return false;
+    auto &p = pieces[(size_t) pieceIndex];
+    if (zoneIndex < 0 || zoneIndex >= (int) p.zones.size())
+        return false;
+
+    bool micExists = false;
+    for (const auto &m : mics)
+    {
+        if (m.name == micName)
+        {
+            micExists = true;
+            break;
+        }
+    }
+    if (!micExists)
+        addChannel(micName);
+
+    auto &z = p.zones[(size_t) zoneIndex];
+    for (auto &h : z.hits)
+    {
+        for (auto &ms : h.micSamples)
+        {
+            if (oldMicToReplace.empty() || ms.mic == oldMicToReplace)
+                ms.mic = micName;
+        }
+    }
+    return true;
+}
+
+std::string GlorpKitProject::getPieceDominantMicrophone(int pieceIndex) const
+{
+    if (pieceIndex < 0 || pieceIndex >= (int) pieces.size())
+        return mics.empty() ? "close" : mics.front().name;
+
+    std::map<std::string, int> counts;
+    const auto &p = pieces[(size_t) pieceIndex];
+    for (const auto &z : p.zones)
+    {
+        for (const auto &h : z.hits)
+        {
+            for (const auto &ms : h.micSamples)
+            {
+                if (!ms.mic.empty())
+                    counts[ms.mic]++;
+            }
+        }
+    }
+
+    std::string bestMic;
+    int maxCount = -1;
+    for (const auto &pair : counts)
+    {
+        if (pair.second > maxCount)
+        {
+            maxCount = pair.second;
+            bestMic = pair.first;
+        }
+    }
+
+    if (bestMic.empty())
+        return mics.empty() ? "close" : mics.front().name;
+
+    return bestMic;
+}
+
+std::string GlorpKitProject::getZoneDominantMicrophone(int pieceIndex, int zoneIndex) const
+{
+    if (pieceIndex < 0 || pieceIndex >= (int) pieces.size())
+        return mics.empty() ? "close" : mics.front().name;
+
+    const auto &p = pieces[(size_t) pieceIndex];
+    if (zoneIndex < 0 || zoneIndex >= (int) p.zones.size())
+        return mics.empty() ? "close" : mics.front().name;
+
+    std::map<std::string, int> counts;
+    const auto &z = p.zones[(size_t) zoneIndex];
+    for (const auto &h : z.hits)
+    {
+        for (const auto &ms : h.micSamples)
+        {
+            if (!ms.mic.empty())
+                counts[ms.mic]++;
+        }
+    }
+
+    std::string bestMic;
+    int maxCount = -1;
+    for (const auto &pair : counts)
+    {
+        if (pair.second > maxCount)
+        {
+            maxCount = pair.second;
+            bestMic = pair.first;
+        }
+    }
+
+    if (bestMic.empty())
+        return mics.empty() ? "close" : mics.front().name;
+
+    return bestMic;
+}
+
+} // namespace glorp

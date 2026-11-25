@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="Tom2Head" version="2.0">
+  <samples>
+    <sample name="hiTom_OH_F_4" power="0.750">
+      <audiofile channel="OHL" file="hiTom_OH_F_4.wav"/>
+      <audiofile channel="OHR" file="hiTom_OH_F_4.wav"/>
+    </sample>
+    <sample name="hiTom_OH_FF_4" power="1.000">
+      <audiofile channel="OHL" file="hiTom_OH_FF_4.wav"/>
+      <audiofile channel="OHR" file="hiTom_OH_FF_4.wav"/>
+    </sample>
+    <sample name="hiTom_OH_P_3" power="0.400">
+      <audiofile channel="OHL" file="hiTom_OH_P_3.wav"/>
+      <audiofile channel="OHR" file="hiTom_OH_P_3.wav"/>
+    </sample>
+  </samples>
+</instrument>

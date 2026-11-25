@@ -1,0 +1,42 @@
+# Build outputs
+build/
+build*/
+bin/
+*.o
+*.so
+*.a
+*.vst3
+*.lv2
+
+# Dependencies & IDE
+libs/JUCE/
+.cache/
+compile_commands.json
+CMakeUserPresets.json
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Private tools & scripts (kept locally, excluded from public repo)
+tools/sample_ripper/
+tools/organize_reaperdrummer_kits.py
+tools/generate_advanced_kit.py
+tools/__pycache__/
+*.pyc
+*.pyo
+
+# Generated UI snapshots
+test/docs/
+
+# Scratch & test binaries
+check_raw_wav
+test_crocell
+test_menu
+test_*
+/core
+core.[0-9]*
+vgcore.*
+.directory

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="Tom2Rim" version="2.0">
+  <samples>
+    <sample name="hiTom_OH_F_5" power="0.700">
+      <audiofile channel="OHL" file="hiTom_OH_F_5.wav"/>
+      <audiofile channel="OHR" file="hiTom_OH_F_5.wav"/>
+    </sample>
+    <sample name="hiTom_OH_FF_5" power="1.000">
+      <audiofile channel="OHL" file="hiTom_OH_FF_5.wav"/>
+      <audiofile channel="OHR" file="hiTom_OH_FF_5.wav"/>
+    </sample>
+  </samples>
+</instrument>

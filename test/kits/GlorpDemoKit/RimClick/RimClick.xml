@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="RimClick" version="2.0">
+  <samples>
+    <sample name="snareStick_OH_F_3" power="1.000">
+      <audiofile channel="OHL" file="snareStick_OH_F_3.wav"/>
+      <audiofile channel="OHR" file="snareStick_OH_F_3.wav"/>
+    </sample>
+    <sample name="snareStick_OH_F_2" power="0.850">
+      <audiofile channel="OHL" file="snareStick_OH_F_2.wav"/>
+      <audiofile channel="OHR" file="snareStick_OH_F_2.wav"/>
+    </sample>
+    <sample name="snareStick_OH_F_1" power="0.600">
+      <audiofile channel="OHL" file="snareStick_OH_F_1.wav"/>
+      <audiofile channel="OHR" file="snareStick_OH_F_1.wav"/>
+    </sample>
+  </samples>
+</instrument>

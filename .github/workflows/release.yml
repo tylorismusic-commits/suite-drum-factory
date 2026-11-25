@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (for example v0.1.0-alpha.1)'
+        required: true
+        default: 'v0.1.0-alpha.1'
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config ccache zip \
+            libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libgl1-mesa-dev libx11-dev libxcomposite-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libcurl4-openssl-dev libjack-jackd2-dev
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-release
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DGLORP_BUILD_VST3=ON \
+            -DGLORP_BUILD_LV2=ON \
+            -DGLORP_BUILD_CLAP=OFF \
+            -DGLORP_BUILD_KIT_EDITOR=ON \
+            -DGLORP_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          TAG="${{ inputs.tag_name || github.ref_name }}"
+          VERSION="${TAG#v}"
+          tools/package_linux.sh "${VERSION}"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          name: Suite Drums Glorp ${{ inputs.tag_name || github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(inputs.tag_name || github.ref_name, 'alpha') || contains(inputs.tag_name || github.ref_name, 'beta') }}
+          files: |
+            build/dist/*.zip
+            build/dist/*.sha256

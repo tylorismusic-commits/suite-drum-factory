@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="Crash2Bow" version="2.0">
+  <samples>
+    <sample name="crash2_OH_P_2" power="0.500">
+      <audiofile channel="OHL" file="crash2_OH_P_2.wav"/>
+      <audiofile channel="OHR" file="crash2_OH_P_2.wav"/>
+    </sample>
+    <sample name="crash2_OH_FF_3" power="0.900">
+      <audiofile channel="OHL" file="crash2_OH_FF_3.wav"/>
+      <audiofile channel="OHR" file="crash2_OH_FF_3.wav"/>
+    </sample>
+  </samples>
+</instrument>

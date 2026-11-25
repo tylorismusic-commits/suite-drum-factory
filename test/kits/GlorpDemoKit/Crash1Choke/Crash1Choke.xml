@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="Crash1Choke" version="2.0">
+  <samples>
+    <sample name="crash1Choke_OH_F_1" power="1.000">
+      <audiofile channel="OHL" file="crash1Choke_OH_F_1.wav"/>
+      <audiofile channel="OHR" file="crash1Choke_OH_F_1.wav"/>
+    </sample>
+    <sample name="crash1Choke_OH_F_1_rr2" power="0.850">
+      <audiofile channel="OHL" file="crash1Choke_OH_F_1_rr2.wav"/>
+      <audiofile channel="OHR" file="crash1Choke_OH_F_1_rr2.wav"/>
+    </sample>
+  </samples>
+</instrument>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="FTomHead" version="2.0">
+  <samples>
+    <sample name="loTom_OH_PP_1" power="0.350">
+      <audiofile channel="OHL" file="loTom_OH_PP_1.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_PP_1.wav"/>
+    </sample>
+    <sample name="loTom_OH_FF_1" power="1.000">
+      <audiofile channel="OHL" file="loTom_OH_FF_1.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_FF_1.wav"/>
+    </sample>
+    <sample name="loTom_OH_MP_2" power="0.700">
+      <audiofile channel="OHL" file="loTom_OH_MP_2.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_MP_2.wav"/>
+    </sample>
+    <sample name="loTom_OH_FF_2" power="1.000">
+      <audiofile channel="OHL" file="loTom_OH_FF_2.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_FF_2.wav"/>
+    </sample>
+    <sample name="loTom_OH_PP_2" power="0.350">
+      <audiofile channel="OHL" file="loTom_OH_PP_2.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_PP_2.wav"/>
+    </sample>
+    <sample name="loTom_OH_MP_1" power="0.700">
+      <audiofile channel="OHL" file="loTom_OH_MP_1.wav"/>
+      <audiofile channel="OHR" file="loTom_OH_MP_1.wav"/>
+    </sample>
+  </samples>
+</instrument>

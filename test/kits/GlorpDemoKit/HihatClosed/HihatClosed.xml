@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<instrument name="HihatClosed" version="2.0">
+  <samples>
+    <sample name="hihatClosed_OH_P_2" power="0.450">
+      <audiofile channel="OHL" file="hihatClosed_OH_P_2.wav"/>
+      <audiofile channel="OHR" file="hihatClosed_OH_P_2.wav"/>
+    </sample>
+    <sample name="hihatClosed_OH_F_1" power="0.850">
+      <audiofile channel="OHL" file="hihatClosed_OH_F_1.wav"/>
+      <audiofile channel="OHR" file="hihatClosed_OH_F_1.wav"/>
+    </sample>
+    <sample name="hihatClosed_OH_P_1" power="0.450">
+      <audiofile channel="OHL" file="hihatClosed_OH_P_1.wav"/>
+      <audiofile channel="OHR" file="hihatClosed_OH_P_1.wav"/>
+    </sample>
+    <sample name="hihatClosed_OH_F_2" power="0.850">
+      <audiofile channel="OHL" file="hihatClosed_OH_F_2.wav"/>
+      <audiofile channel="OHR" file="hihatClosed_OH_F_2.wav"/>
+    </sample>
+  </samples>
+</instrument>
