@@ -15,10 +15,17 @@ Drums Glorp.
   Monster. Module cymbals are ignored; only kick, snare and toms are used.
 - Module mics are namespaced (`crocell_SnareTop`, etc.) so their mixer strips do
   not collapse into Naked's mics.
-- A **PIECES** dropdown on the kit image enables or disables every piece. The
-  module choice and disabled pieces are remembered between sessions.
-- The existing kit view, MIDI browser, per-mic mixer and insert FX are inherited
-  from Suite Drums Glorp.
+- A source dropdown sits on the kick, snare and every tom image, so a kit can be
+  a Monster kick, a Crocell snare and DRS toms. A separate **PIECES** menu
+  enables or disables individual pieces.
+- The mixer exposes **one strip per active kit piece**, not one strip per
+  microphone. A Naked-only kit shows 16 strips; the Monster-kick/Crocell-snare/
+  DRS-tom example shows 14.
+- Source-mic polarity is applied automatically while the piece is summed, so
+  modules that mark a mic out of phase (for example DRS Kdrum_back) need no
+  manual setup.
+- The existing kit view, MIDI browser, channel insert FX and master strip are
+  inherited from Suite Drums Glorp.
 - Kit artwork is unchanged; the existing Naked art is reused for the prototype.
 
 ## Kit locations
@@ -59,7 +66,7 @@ The plugin installs as **Suite Drum Factory** in `~/.vst3` and `~/.lv2`.
 - `src/core/Sampler.*` — inherited sampler, per-mic mixer and insert DSP.
 
 The next stage is the fixed Kick / Snare / Room / Mix bus mixer with serial
-insert chains on each bus.
+insert chains on each bus, fed from these piece strips.
 
 ## Licensing
 

@@ -138,6 +138,7 @@ class Sampler
 
     int numInstruments() const noexcept { return instrumentCount; }
     int usedBusCount() const noexcept { return busCount; }
+    bool isFactoryPieceMode() const noexcept { return factoryPieceMode; }
     juce::String instrumentName(int index) const;
     juce::String kitTitleString() const { return kitTitle; }
 
@@ -418,6 +419,8 @@ class Sampler
     GlobalSnapshot globals;
     std::vector<int> roundRobinCursor;
     std::vector<int> instrumentBuses;
+    bool factoryPieceMode = false;          ///< mixer strips are kit pieces, not mics
+    std::vector<int> instrumentPiece;       ///< instrument index -> piece strip index
     int64_t sampleClock = 0;
     int currentBlockSize = config::DEFAULT_BLOCK_SIZE;
 

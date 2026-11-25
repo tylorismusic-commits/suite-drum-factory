@@ -183,6 +183,7 @@ struct DrumKit
     };
 
     bool isNativeGlorpKit = false;
+    bool isFactoryAssembly = false; ///< built by Suite Drum Factory from per-piece module sources
     std::vector<LogicalPiece> logicalPieces;
     std::map<std::string, float> factoryMicLevels;
     std::map<std::string, float> factoryMicPans;

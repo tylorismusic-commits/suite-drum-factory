@@ -304,6 +304,7 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
     out.archivePath = base->archivePath;
     out.xmlPath = base->xmlPath;
     out.isNativeGlorpKit = base->isNativeGlorpKit;
+    out.isFactoryAssembly = true;
     out.warnings = base->warnings;
 
     std::vector<std::string> sourceNames;

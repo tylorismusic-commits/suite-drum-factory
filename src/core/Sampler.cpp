@@ -170,6 +170,34 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
                                  "-Dconfig::MAX_INSTRUMENT_BUSES for full separation.");
     }
 
+    // Factory kits present one mixer strip per played piece. Map every
+    // instrument (zone) to its logical piece before channels are resolved, so
+    // voices accumulate into piece buffers instead of mic buffers.
+    factoryPieceMode = kit.isFactoryAssembly && !kit.logicalPieces.empty();
+    instrumentPiece.assign(kit.instruments.size(), -1);
+    if (factoryPieceMode)
+    {
+        int pieceIndex = -1;
+        for (const auto &lp : kit.logicalPieces)
+        {
+            bool hasInstrument = false;
+            for (const auto &zone : lp.zones)
+                if (zone.samplerIndex >= 0 && zone.samplerIndex < static_cast<int>(instrumentPiece.size()))
+                {
+                    hasInstrument = true;
+                    break;
+                }
+
+            if (!hasInstrument)
+                continue;
+
+            ++pieceIndex;
+            for (const auto &zone : lp.zones)
+                if (zone.samplerIndex >= 0 && zone.samplerIndex < static_cast<int>(instrumentPiece.size()))
+                    instrumentPiece[static_cast<size_t>(zone.samplerIndex)] = pieceIndex;
+        }
+    }
+
     std::vector<InstrumentRuntime> resolved;
     resolved.reserve(kit.instruments.size());
 
@@ -364,38 +392,64 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
         }
     }
 
-    // Initialize per-mic channel strip states & DSP
+    // Initialize channel strip states & DSP. Factory kits get one strip per
+    // played piece; normal kits keep one strip per microphone.
     micChannels.clear();
-    for (size_t k = 0; k < kitChannels_.size(); ++k)
+    if (factoryPieceMode)
     {
-        auto ch = std::make_unique<MicChannelState>();
-        ch->name = kitChannels_[k].name;
-        ch->title = kitChannels_[k].title.empty() ? kitChannels_[k].name : kitChannels_[k].title;
-        ch->params = MicStripParams {};
-        ch->fx.prepare(currentSampleRate, currentBlockSize);
+        for (const auto &lp : kit.logicalPieces)
+        {
+            bool hasInstrument = false;
+            for (const auto &zone : lp.zones)
+                if (zone.samplerIndex >= 0)
+                {
+                    hasInstrument = true;
+                    break;
+                }
+            if (!hasInstrument)
+                continue;
 
-        auto itM = kit.factoryMicLevels.find(ch->name.toStdString());
-        if (itM != kit.factoryMicLevels.end())
-            ch->params.level = itM->second;
+            auto ch = std::make_unique<MicChannelState>();
+            ch->name = juce::String(lp.id.empty() ? lp.name : lp.id);
+            ch->title = juce::String(lp.name);
+            ch->params = MicStripParams {};
+            ch->fx.prepare(currentSampleRate, currentBlockSize);
+            micChannels.push_back(std::move(ch));
+        }
+    }
+    else
+    {
+        for (size_t k = 0; k < kitChannels_.size(); ++k)
+        {
+            auto ch = std::make_unique<MicChannelState>();
+            ch->name = kitChannels_[k].name;
+            ch->title = kitChannels_[k].title.empty() ? kitChannels_[k].name : kitChannels_[k].title;
+            ch->params = MicStripParams {};
+            ch->fx.prepare(currentSampleRate, currentBlockSize);
 
-        ch->params.phaseInvert = kitChannels_[k].phaseInvert;
-        ch->params.pan = kitChannels_[k].pan;
+            auto itM = kit.factoryMicLevels.find(ch->name.toStdString());
+            if (itM != kit.factoryMicLevels.end())
+                ch->params.level = itM->second;
 
-        auto itPan = kit.factoryMicPans.find(ch->name.toStdString());
-        if (itPan == kit.factoryMicPans.end())
-            itPan = kit.factoryMicPans.find(ch->title.toStdString());
-        if (itPan != kit.factoryMicPans.end())
-            ch->params.pan = itPan->second;
+            ch->params.phaseInvert = kitChannels_[k].phaseInvert;
+            ch->params.pan = kitChannels_[k].pan;
 
-        auto itPhase = kit.factoryMicPhaseInvert.find(ch->name.toStdString());
-        if (itPhase == kit.factoryMicPhaseInvert.end())
-            itPhase = kit.factoryMicPhaseInvert.find(ch->title.toStdString());
-        if (itPhase != kit.factoryMicPhaseInvert.end())
-            ch->params.phaseInvert = itPhase->second;
+            auto itPan = kit.factoryMicPans.find(ch->name.toStdString());
+            if (itPan == kit.factoryMicPans.end())
+                itPan = kit.factoryMicPans.find(ch->title.toStdString());
+            if (itPan != kit.factoryMicPans.end())
+                ch->params.pan = itPan->second;
 
-        ch->kitPhaseInvert = ch->params.phaseInvert;
+            auto itPhase = kit.factoryMicPhaseInvert.find(ch->name.toStdString());
+            if (itPhase == kit.factoryMicPhaseInvert.end())
+                itPhase = kit.factoryMicPhaseInvert.find(ch->title.toStdString());
+            if (itPhase != kit.factoryMicPhaseInvert.end())
+                ch->params.phaseInvert = itPhase->second;
 
-        micChannels.push_back(std::move(ch));
+            ch->kitPhaseInvert = ch->params.phaseInvert;
+
+            micChannels.push_back(std::move(ch));
+        }
     }
 
     for (int slot = 0; slot < 2; ++slot)
@@ -867,11 +921,13 @@ void Sampler::resolveInstrumentChannels(const DrumKit &kit, const Instrument &in
             channelRef.pieceIdx = static_cast<int>(instrument.bleedPiece);
             channelRef.channelBleedFactor = source.bleed;
 
+            int sourceMicIndex = -1;
             for (size_t k = 0; k < kit.channels.size(); ++k)
             {
                 if (kit.channels[k].name == source.kitChannel || kit.channels[k].title == source.kitChannel)
                 {
-                    channelRef.kitChannelIndex = static_cast<int>(k);
+                    sourceMicIndex = static_cast<int>(k);
+                    channelRef.kitChannelIndex = sourceMicIndex;
                     break;
                 }
             }
@@ -915,6 +971,60 @@ void Sampler::resolveInstrumentChannels(const DrumKit &kit, const Instrument &in
                 {
                     channelRef.gainL = normalisation * micLevel;
                     channelRef.gainR = normalisation * micLevel;
+                }
+            }
+
+            // Factory mode: sum every mic of the piece into that piece's strip.
+            // The source mic's pan, level and polarity are baked into the voice
+            // gain here, because the mic strips themselves are not exposed.
+            if (factoryPieceMode && instrument.index >= 0
+                && instrument.index < static_cast<int>(instrumentPiece.size()))
+            {
+                const int pieceIndex = instrumentPiece[static_cast<size_t>(instrument.index)];
+                if (pieceIndex >= 0)
+                {
+                    float panL = 1.0f, panR = 1.0f;
+                    float level = 1.0f;
+                    bool invert = false;
+
+                    if (sourceMicIndex >= 0)
+                    {
+                        const auto &kc = kit.channels[static_cast<size_t>(sourceMicIndex)];
+                        if (kc.pan < 0.0f)
+                            panR = 1.0f + kc.pan;
+                        else if (kc.pan > 0.0f)
+                            panL = 1.0f - kc.pan;
+                        invert = kc.phaseInvert;
+
+                        auto itLevel = kit.factoryMicLevels.find(kc.name);
+                        if (itLevel == kit.factoryMicLevels.end())
+                            itLevel = kit.factoryMicLevels.find(kc.title);
+                        if (itLevel != kit.factoryMicLevels.end())
+                            level = itLevel->second;
+
+                        auto itPan = kit.factoryMicPans.find(kc.name);
+                        if (itPan == kit.factoryMicPans.end())
+                            itPan = kit.factoryMicPans.find(kc.title);
+                        if (itPan != kit.factoryMicPans.end())
+                        {
+                            panL = panR = 1.0f;
+                            if (itPan->second < 0.0f)
+                                panR = 1.0f + itPan->second;
+                            else if (itPan->second > 0.0f)
+                                panL = 1.0f - itPan->second;
+                        }
+
+                        auto itPhase = kit.factoryMicPhaseInvert.find(kc.name);
+                        if (itPhase == kit.factoryMicPhaseInvert.end())
+                            itPhase = kit.factoryMicPhaseInvert.find(kc.title);
+                        if (itPhase != kit.factoryMicPhaseInvert.end())
+                            invert = itPhase->second;
+                    }
+
+                    const float phase = invert ? -1.0f : 1.0f;
+                    channelRef.gainL *= panL * phase * level;
+                    channelRef.gainR *= panR * phase * level;
+                    channelRef.kitChannelIndex = pieceIndex;
                 }
             }
 
@@ -2234,8 +2344,9 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             const int instBus = (v.instrument >= 0 && v.instrument < static_cast<int>(instrumentBuses.size()))
                                     ? instrumentBuses[static_cast<size_t>(v.instrument)]
                                     : 0;
-            const bool hasAuxBus = multiOutMode.load() && (instBus > 0) && (instBus < totalBuses)
-                                   && (output[instBus * 2] != nullptr) && (output[instBus * 2 + 1] != nullptr);
+            const bool hasAuxBus = !factoryPieceMode && multiOutMode.load() && (instBus > 0)
+                                   && (instBus < totalBuses) && (output[instBus * 2] != nullptr)
+                                   && (output[instBus * 2 + 1] != nullptr);
             float *const auxDestL = hasAuxBus ? output[instBus * 2] : nullptr;
             float *const auxDestR = hasAuxBus ? output[instBus * 2 + 1] : nullptr;
 
@@ -2588,13 +2699,14 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
         }
         renderUserLayerVoices(numSamples);
 
-        crosstalk.render(micScratchLPtrs.data(),
-                         micScratchRPtrs.data(),
-                         numMics,
-                         numSamples,
-                         bleedMatrix,
-                         snareMicIndex,
-                         snareBotMicIndex);
+        if (!factoryPieceMode)
+            crosstalk.render(micScratchLPtrs.data(),
+                             micScratchRPtrs.data(),
+                             numMics,
+                             numSamples,
+                             bleedMatrix,
+                             snareMicIndex,
+                             snareBotMicIndex);
 
         // 3. Process each mic channel strip (Phase, EQ, Comp, Saturation, Transient, Reverb send)
         bool anyMicSolo = false;

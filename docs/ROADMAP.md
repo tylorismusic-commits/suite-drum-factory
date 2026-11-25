@@ -8,6 +8,10 @@
 - [x] Namespaced module mics.
 - [x] PIECES dropdown with per-piece enable/disable.
 - [x] Selection persisted between sessions.
+- [x] Per-piece shell sourcing: kick, snare and each tom pick their module.
+- [x] Per-piece source dropdowns over the kick, snare and tom images.
+- [x] Mixer exposes one strip per active kit piece, not one per microphone.
+- [x] Source-mic polarity is applied automatically during piece summing.
 - [ ] Fixed Kick / Snare / Room / Mix bus mixer with inserts.
 
 ## Mixer

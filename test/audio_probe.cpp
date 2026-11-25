@@ -54,9 +54,10 @@ int main (int argc, char** argv)
         }
 
         std::cout << "Factory module: '" << factoryModule << "'" << std::endl;
+        std::cout << "Strips: " << proc.getSampler().numMicStrips()
+                  << " (factory piece mode=" << (proc.getSampler().isFactoryPieceMode() ? 1 : 0) << ")" << std::endl;
         for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)
-            if (proc.getSampler().getMicStripParams (i).phaseInvert)
-                std::cout << "Phase inverted: " << proc.getSampler().micStripTitle (i).toStdString() << std::endl;
+            std::cout << "  strip " << i << " " << proc.getSampler().micStripTitle (i).toStdString() << std::endl;
         std::cout << "Factory title: " << proc.getSampler().kitTitleString().toStdString() << std::endl;
         std::cout << "Pieces:" << std::endl;
         for (const auto& piece : proc.getFactoryPieces())

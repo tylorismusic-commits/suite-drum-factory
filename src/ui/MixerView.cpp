@@ -2641,6 +2641,13 @@ void MixerView::refreshChannels()
     if (masterStrip != nullptr)
         masterStrip->updateFromState();
 
+    // Factory kits mix pieces, not microphones, so the mic bleed matrix does
+    // not apply. Polarity/pan are already baked into each piece during assembly.
+    const bool factoryPieces = processor.getSampler().isFactoryPieceMode();
+    bleedMatrixBtn.setVisible(!factoryPieces);
+    if (factoryPieces && bleedMatrixOpen)
+        setBleedMatrixOpen(false);
+
     resized();
     repaint();
 }
