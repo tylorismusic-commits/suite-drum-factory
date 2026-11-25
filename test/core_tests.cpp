@@ -8,6 +8,7 @@
 #include "BleedMatrix.h"
 #include "AcousticCrosstalk.h"
 #include "DrumKit.h"
+#include "FactoryKit.h"
 #include "GlorpKit.h"
 #include "KitScanner.h"
 // PitchShifter tests removed: varispeed resampling replaces WSOLA for drum tuning.
@@ -71,6 +72,115 @@ namespace
             ++failures;
             std::cerr << "  FAIL: " << what << " (expected ~" << expected << ", got " << actual << ")\n";
         }
+    }
+
+    void section (const std::string& name);
+
+    void addFactoryPiece (DrumKit& kit, const std::string& id, const std::string& name,
+                          const std::string& channel, int note)
+    {
+        DrumKit::LogicalPiece lp;
+        lp.id = id;
+        lp.name = name;
+        lp.graphic = id;
+        lp.zones.push_back ({ "head", static_cast<int> (kit.instruments.size()), note, -1, id });
+
+        Instrument inst;
+        inst.name = name + ".head";
+        inst.displayName = name + " head";
+        inst.logicalName = name;
+        inst.zoneName = "head";
+        inst.index = static_cast<int> (kit.instruments.size());
+        inst.bleedPiece = pieceForInstrumentName (name);
+        inst.channelMaps.push_back ({ "in", channel, true, 1.0f });
+        inst.samples.resize (1);
+        inst.samples[0].name = "hit";
+        inst.samples[0].audioFiles.push_back ({ "in", "samples/hit.wav", 0, -1, -1 });
+        inst.resolvedChannels.resize (1);
+        inst.resolvedChannels[0].push_back ({ channel, 0, true, 1.0f });
+        kit.instruments.push_back (std::move (inst));
+        kit.logicalPieces.push_back (std::move (lp));
+    }
+
+    DrumKit makeFactoryBase()
+    {
+        DrumKit kit;
+        kit.title = "Naked Drums";
+        kit.license = "CC BY 4.0";
+        kit.channels.push_back ({ "close", "Close", "close", 0.0f, false });
+        addFactoryPiece (kit, "crash_1", "Crash 1", "close", 49);
+        addFactoryPiece (kit, "kick", "Kick", "close", 36);
+        addFactoryPiece (kit, "snare_1", "Snare 1", "close", 38);
+        addFactoryPiece (kit, "tom_1", "Tom 1", "close", 48);
+        return kit;
+    }
+
+    DrumKit makeFactoryShell()
+    {
+        DrumKit kit;
+        kit.title = "CrocellKit";
+        kit.license = "CC BY 4.0";
+        kit.channels.push_back ({ "SnareTop", "Snare Top", "SnareTop", 0.0f, false });
+        addFactoryPiece (kit, "snare", "Snare", "SnareTop", 38);
+        addFactoryPiece (kit, "ftom1", "FTom1", "SnareTop", 43);
+        addFactoryPiece (kit, "crashl", "CrashL", "SnareTop", 49);
+        return kit;
+    }
+
+    void testFactoryAssembly()
+    {
+        section ("Factory kit assembly");
+
+        check (factory::classifyPiece ("Kick", "kick") == factory::PieceClass::kick, "kick classified");
+        check (factory::classifyPiece ("KDrumL", "kdruml") == factory::PieceClass::kick, "KDrum classified");
+        check (factory::classifyPiece ("High Tom", "tom1") == factory::PieceClass::tom, "tom classified");
+        check (factory::classifyPiece ("Crash 1", "crash_1") == factory::PieceClass::crash, "crash classified");
+
+        const auto base = makeFactoryBase();
+        const auto shell = makeFactoryShell();
+
+        factory::Selection baseSelection;
+        auto baseResult = factory::build (base, "naked", nullptr, {}, baseSelection);
+        check (baseResult.error.empty(), "base-only assembly succeeds");
+        checkEq (static_cast<int> (baseResult.kit.instruments.size()), 4, "base-only keeps all pieces");
+        checkEq (static_cast<int> (baseResult.pieces.size()), 4, "base-only lists all candidates");
+
+        factory::Selection shellSelection;
+        shellSelection.shellModule = "crocell";
+        auto shellResult = factory::build (base, "naked", &shell, "crocell", shellSelection);
+        check (shellResult.error.empty(), "shell assembly succeeds");
+        checkEq (static_cast<int> (shellResult.kit.instruments.size()), 3, "shell replaces base shells");
+        checkEq (static_cast<int> (shellResult.kit.logicalPieces.size()), 3, "shell pieces replace base pieces");
+        checkEq (shellResult.kit.logicalPieces[0].id, std::string ("crash_1"), "base cymbal kept");
+        checkEq (shellResult.kit.logicalPieces[1].sourceModule, std::string ("crocell"), "module piece tagged");
+        checkEq (static_cast<int> (shellResult.kit.channels.size()), 2, "module mic added");
+        checkEq (shellResult.kit.channels[1].name, std::string ("crocell_SnareTop"), "module mic namespaced");
+        checkEq (shellResult.kit.instruments[1].channelMaps[0].out,
+                 std::string ("crocell_SnareTop"), "module channel map remapped");
+        checkEq (shellResult.kit.instruments[1].resolvedChannels[0][0].kitChannel,
+                 std::string ("crocell_SnareTop"), "module resolved channel remapped");
+        checkEq (shellResult.kit.suggestedMap.count (49) == 1 ? shellResult.kit.suggestedMap.at (49) : std::string(),
+                 std::string ("Crash 1 head"), "module cymbal does not replace the Naked crash");
+        check (shellResult.kit.suggestedMap.count (38) == 1, "module snare note kept once");
+
+        factory::Selection disabled;
+        disabled.shellModule = "crocell";
+        disabled.disabled.insert (factory::pieceKey ("crocell", "snare"));
+        auto disabledResult = factory::build (base, "naked", &shell, "crocell", disabled);
+        checkEq (static_cast<int> (disabledResult.kit.instruments.size()), 2, "disabled module piece removed");
+        bool disabledStillListed = false;
+        for (const auto& p : disabledResult.pieces)
+            if (p.moduleId == "crocell" && p.id == "snare")
+                disabledStillListed = true;
+        check (disabledStillListed, "disabled piece still listed");
+
+        factory::Selection allShellsOff;
+        allShellsOff.shellModule = "crocell";
+        allShellsOff.disabled.insert (factory::pieceKey ("crocell", "snare"));
+        allShellsOff.disabled.insert (factory::pieceKey ("crocell", "ftom1"));
+        auto allOffResult = factory::build (base, "naked", &shell, "crocell", allShellsOff);
+        checkEq (static_cast<int> (allOffResult.kit.instruments.size()), 1, "base cymbal remains when module shells are off");
+        checkEq (static_cast<int> (allOffResult.pieces.size()), 3, "cymbals and module shells still listed");
     }
 
     void section (const std::string& name)
@@ -938,6 +1048,7 @@ int main (int argc, char** argv)
     testDemoKit();
     testGlorpKitPackage (work);
     testBleedMatrixAndCrosstalk();
+    testFactoryAssembly();
 
     std::cout << "\n" << (checks - failures) << "/" << checks << " checks passed\n";
 

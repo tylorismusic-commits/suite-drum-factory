@@ -128,6 +128,7 @@ class Editor
     void armLearn(int samplerIndex);
     void promptLoadKitFile();
     void promptSaveMapPreset();
+    void showFactoryPiecesMenu();
 
     PluginProcessor &processor;
 
@@ -151,6 +152,21 @@ class Editor
 
       private:
         bool active = false;
+        Theme theme = Theme::suite();
+    };
+
+    class FactoryPiecesButton : public juce::Button
+    {
+      public:
+        FactoryPiecesButton() : juce::Button("factoryPieces") {}
+        void paintButton(juce::Graphics &g, bool isHover, bool isDown) override;
+        void setTheme(const Theme &t)
+        {
+            theme = t;
+            repaint();
+        }
+
+      private:
         Theme theme = Theme::suite();
     };
 
@@ -348,6 +364,7 @@ class Editor
     MenuButton settingsButton {"SETTINGS"};
 
     KitSelectorButton kitSelectorButton;
+    FactoryPiecesButton factoryPiecesButton;
     DrumKitView kitView;
     std::unique_ptr<MinimalInstrumentGrid> minimalGrid;
     Scope scope;

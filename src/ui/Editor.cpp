@@ -172,6 +172,30 @@ void Editor::KitSelectorButton::paintButton(juce::Graphics &g, bool isHover, boo
     g.drawText(currentName.toUpperCase(), textArea, juce::Justification::centred, true);
 }
 
+void Editor::FactoryPiecesButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+
+    g.setColour(theme.panel.withAlpha(isHover ? 0.98f : 0.90f));
+    g.fillRoundedRectangle(b, 6.0f);
+    g.setColour(isHover ? theme.accent : theme.panelEdge);
+    g.drawRoundedRectangle(b.reduced(0.5f), 6.0f, isHover ? 1.6f : 1.0f);
+
+    auto textArea = b.withTrimmedLeft(12.0f).withTrimmedRight(26.0f);
+    g.setFont(displayFont(12.0f));
+    g.setColour(isHover ? theme.accent : theme.ink);
+    g.drawText("PIECES", textArea, juce::Justification::centredLeft, false);
+
+    juce::Path chevron;
+    const float cx = b.getRight() - 14.0f;
+    const float cy = b.getCentreY();
+    chevron.startNewSubPath(cx - 4.5f, cy - 2.5f);
+    chevron.lineTo(cx, cy + 3.0f);
+    chevron.lineTo(cx + 4.5f, cy - 2.5f);
+    g.setColour(isHover ? theme.accent : theme.inkSoft);
+    g.strokePath(chevron, juce::PathStrokeType(1.7f));
+}
+
 void Editor::OutputBusButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
 {
     auto b = getLocalBounds().toFloat().reduced(1.0f);
@@ -1190,6 +1214,10 @@ Editor::Editor(PluginProcessor &p) : processor(p)
 
     addAndMakeVisible(kitView);
     addAndMakeVisible(scope);
+    addAndMakeVisible(factoryPiecesButton);
+    factoryPiecesButton.setTheme(theme);
+    factoryPiecesButton.setTooltip("Choose the shell module and enable or disable kit pieces");
+    factoryPiecesButton.onClick = [this] { showFactoryPiecesMenu(); };
 
     minimalGrid = std::make_unique<MinimalInstrumentGrid>();
     addChildComponent(*minimalGrid);
@@ -1477,6 +1505,7 @@ void Editor::applyTheme(const Theme &newTheme)
         lookAndFeel->setTheme(theme);
 
     kitSelectorButton.setTheme(theme);
+    factoryPiecesButton.setTheme(theme);
     instSelectorButton.setTheme(theme);
     outBusButton.setTheme(theme);
     instLearnButton.setTheme(theme);
@@ -1766,6 +1795,76 @@ void Editor::refreshHeaderButtonLabels()
     }
 }
 
+void Editor::showFactoryPiecesMenu()
+{
+    const auto &mods = factory::modules();
+
+    juce::PopupMenu moduleMenu;
+    moduleMenu.addItem(1, "Naked Drums (base shells)", true, processor.getFactoryShellModule().isEmpty());
+    for (int i = 0; i < static_cast<int>(mods.size()); ++i)
+        moduleMenu.addItem(2 + i, mods[static_cast<size_t>(i)].name, true,
+                           processor.getFactoryShellModule().equalsIgnoreCase(juce::String(mods[static_cast<size_t>(i)].id)));
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader("SUITE DRUM FACTORY");
+    menu.addSubMenu("Shell module", moduleMenu);
+    menu.addSeparator();
+    menu.addSectionHeader("Pieces");
+
+    const auto &pieces = processor.getFactoryPieces();
+    juce::String lastModule;
+    for (int i = 0; i < static_cast<int>(pieces.size()); ++i)
+    {
+        const auto &piece = pieces[static_cast<size_t>(i)];
+        if (piece.moduleId != lastModule)
+        {
+            menu.addSectionHeader(piece.moduleName);
+            lastModule = piece.moduleId;
+        }
+
+        menu.addItem(1000 + i,
+                     piece.name,
+                     true,
+                     processor.isFactoryPieceEnabled(piece.moduleId, piece.id));
+    }
+
+    if (pieces.empty())
+        menu.addItem(9999, "No pieces available", false, false);
+
+    juce::PopupMenu::Options opts;
+    opts = opts.withTargetComponent(&factoryPiecesButton).withParentComponent(this);
+    menu.showMenuAsync(opts,
+                       [this](int result)
+                       {
+                           if (result == 1)
+                           {
+                               processor.setFactoryShellModule({});
+                               return;
+                           }
+
+                           const auto &moduleList = factory::modules();
+                           if (result >= 2 && result < 2 + static_cast<int>(moduleList.size()))
+                           {
+                               processor.setFactoryShellModule(moduleList[static_cast<size_t>(result - 2)].id);
+                               return;
+                           }
+
+                           if (result >= 1000)
+                           {
+                               const auto index = result - 1000;
+                               const auto &available = processor.getFactoryPieces();
+                               if (index >= 0 && index < static_cast<int>(available.size()))
+                               {
+                                   const auto &piece = available[static_cast<size_t>(index)];
+                                   processor.setFactoryPieceEnabled(
+                                       piece.moduleId,
+                                       piece.id,
+                                       !processor.isFactoryPieceEnabled(piece.moduleId, piece.id));
+                               }
+                           }
+                       });
+}
+
 void Editor::setViewMode(EditorView mode)
 {
     currentView = mode;
@@ -1781,6 +1880,7 @@ void Editor::setViewMode(EditorView mode)
     refreshHeaderButtonLabels();
 
     kitView.setVisible(isKit && !isMinimal);
+    factoryPiecesButton.setVisible(isKit && !isMinimal);
     if (minimalGrid != nullptr)
         minimalGrid->setVisible(isKit && isMinimal);
     kitSelectorButton.setVisible(isKit);
@@ -2363,7 +2463,7 @@ juce::PopupMenu Editor::buildSettingsMenu()
             repaint();
 
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon,
-                                                   "Suite Drums Glorp Debug Log",
+                                                   "Suite Drum Factory Debug Log",
                                                    "Diagnostic snapshot and live MIDI log saved to:\n\n"
                                                        + logFile.getFullPathName()
                                                        + "\n\nAttach this file when reporting issues on GitHub.",
@@ -2372,13 +2472,13 @@ juce::PopupMenu Editor::buildSettingsMenu()
         });
 
     menu.addSeparator();
-    menu.addItem("About Suite Drums Glorp",
+    menu.addItem("About Suite Drum Factory",
                  [this]
                  {
                      juce::AlertWindow::showMessageBoxAsync(
                          juce::AlertWindow::InfoIcon,
-                         "Suite Drums Glorp",
-                         "Suite Drums Glorp VST3 / LV2 Drum Instrument\n\n"
+                         "Suite Drum Factory",
+                         "Suite Drum Factory VST3 / LV2 Drum Instrument\n\n"
                          "Plays GlorpKit and DrumGizmo kits with natural WSOLA tuning,\n"
                          "interactive MIDI learn, and individual output buses.\n\n"
                          "Part of the Suite series. Based on GlorpDrums by asuka-glorp.\n"
@@ -3603,6 +3703,11 @@ void Editor::resized()
     const int kitY = 84;
     const int kitH = bottomY - kitY - 8;
     kitView.setBounds(kitX, kitY, kitW, kitH);
+
+    const int factoryW = 104;
+    const int factoryH = 28;
+    factoryPiecesButton.setBounds(kitX + kitW - factoryW - 14, kitY + 10, factoryW, factoryH);
+    factoryPiecesButton.toFront(false);
 
     if (mixerView != nullptr)
         mixerView->setBounds(16, 56, w - 32, h - 68);

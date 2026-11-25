@@ -113,6 +113,7 @@ struct Instrument
 
     std::string logicalName;                   ///< Logical piece name (e.g. "Snare")
     std::string zoneName;                      ///< Zone name (e.g. "head", "rimshot")
+    std::string sourceModule;                  ///< Factory module id ("naked", "crocell", ...)
     BleedPiece bleedPiece = BleedPiece::snare; ///< Bleed piece classification
     int outputBus = 0;                         ///< Target output bus
 
@@ -175,6 +176,8 @@ struct DrumKit
         float normW = 160.0f;
         int zOrder = 0;
         bool hasCustomLayout = false;
+        std::string sourceModule; ///< Factory module id ("naked", "crocell", ...)
+        std::string sourceId;     ///< Piece id inside its source kit
         std::vector<uint8_t> customPngBytes;
         std::vector<ZoneItem> zones;
     };

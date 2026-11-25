@@ -21,18 +21,18 @@ namespace config
 //==============================================================================
 
 /// User-facing product name. Used in window titles, reports and install rules.
-constexpr const char *PRODUCT_NAME = "Suite Drums Glorp";
+constexpr const char *PRODUCT_NAME = "Suite Drum Factory";
 
 /// Per-user configuration directory (under the platform application-data dir).
-constexpr const char *CONFIG_DIR_NAME = "SuiteDrumsGlorp";
+constexpr const char *CONFIG_DIR_NAME = "SuiteDrumFactory";
 
 /// Previous GlorpDrums directory. Read for migration and legacy kit discovery.
 constexpr const char *LEGACY_CONFIG_DIR_NAME = "GlorpDrums";
 
 /// Plugin URI used by the LV2 bundle and VST3 metadata.
-constexpr const char *PLUGIN_URI = "https://github.com/tylorismusic-commits/suite-drums-glorp";
+constexpr const char *PLUGIN_URI = "https://github.com/tylorismusic-commits/suite-drum-factory";
 constexpr const char *COMPANY_NAME = "Tylorismusic";
-constexpr const char *BUNDLE_ID = "com.tylorismusic.suitedrumsglorp";
+constexpr const char *BUNDLE_ID = "com.tylorismusic.suitedrumfactory";
 
 //==============================================================================
 // Plugin & Audio Engine Limits

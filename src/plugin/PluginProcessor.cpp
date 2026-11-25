@@ -100,12 +100,16 @@ juce::AudioProcessor::BusesProperties PluginProcessor::createBusesProperties()
 //==============================================================================
 PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties())
 {
-    DebugLog::instance().setLogFile(settings.getConfigDirectory().getChildFile("suitedrumsglorp_debug.log"));
+    DebugLog::instance().setLogFile(settings.getConfigDirectory().getChildFile("suitedrumfactory_debug.log"));
     DebugLog::instance().logInfo("APP",
                                  "PluginProcessor init (Plugin, OS="
                                      + juce::SystemStats::getOperatingSystemName() + ")");
 
     parameterManager.createParameterLayout(*this);
+
+    factorySelection.shellModule = settings.factoryShellModule.toStdString();
+    for (const auto &key : settings.factoryDisabledPieces)
+        factorySelection.disabled.insert(key.toStdString());
 
     midiRouter.onMidiMapChanged = [this] { listeners.call(&Listener::parametersChanged); };
 
@@ -163,6 +167,11 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
                 loadKit(localDemo.getFullPathName());
         }
     }
+
+    // The factory is the product: start on Naked plus whichever shell module
+    // the user last chose, even if the generic startup above found another kit.
+    if (!settings.midiThruEnabled && !factory::baseKitPath().empty())
+        loadFactoryKit();
 }
 
 PluginProcessor::~PluginProcessor()
@@ -414,6 +423,91 @@ void PluginProcessor::loadKit(const juce::String &drumkitPath)
     }
 }
 
+void PluginProcessor::loadFactoryKit()
+{
+    lastKitError.clear();
+
+    const auto basePath = factory::baseKitPath();
+    if (basePath.empty())
+    {
+        lastKitError = "Naked Drums is not installed. Add Naked Drums.glorpkit to the kit folder.";
+        DebugLog::instance().logInfo("FACTORY", lastKitError);
+        return;
+    }
+
+    try
+    {
+        auto result = factory::buildFromDisk(basePath, factorySelection.shellModule, factorySelection);
+        factoryPieces = std::move(result.pieces);
+
+        if (!result.error.empty())
+        {
+            lastKitError = juce::String(result.error);
+            DebugLog::instance().logInfo("FACTORY", "Assembly failed: " + lastKitError);
+            return;
+        }
+
+        DebugLog::instance().logInfo("FACTORY",
+                                     "Assembled " + juce::String(result.kit.title) + " with "
+                                         + juce::String(result.kit.instruments.size()) + " instruments");
+        loadAssembledKit(std::move(result.kit), juce::String(basePath));
+    }
+    catch (const std::exception &e)
+    {
+        lastKitError = juce::String("Could not assemble kit: ") + e.what();
+        DebugLog::instance().logInfo("FACTORY", lastKitError);
+    }
+    catch (...)
+    {
+        lastKitError = "Could not assemble kit: unknown error";
+        DebugLog::instance().logInfo("FACTORY", lastKitError);
+    }
+}
+
+void PluginProcessor::setFactoryShellModule(const juce::String &moduleId)
+{
+    const auto id = moduleId.trim().toStdString();
+    if (id == factorySelection.shellModule)
+        return;
+
+    factorySelection.shellModule = id;
+    saveFactorySelection();
+    loadFactoryKit();
+}
+
+bool PluginProcessor::isFactoryPieceEnabled(const juce::String &moduleId, const juce::String &pieceId) const
+{
+    return factorySelection.disabled.count(factory::pieceKey(moduleId.toStdString(), pieceId.toStdString())) == 0;
+}
+
+void PluginProcessor::setFactoryPieceEnabled(const juce::String &moduleId,
+                                             const juce::String &pieceId,
+                                             bool enabled)
+{
+    const auto key = factory::pieceKey(moduleId.toStdString(), pieceId.toStdString());
+    const bool currentlyEnabled = factorySelection.disabled.count(key) == 0;
+    if (currentlyEnabled == enabled)
+        return;
+
+    if (enabled)
+        factorySelection.disabled.erase(key);
+    else
+        factorySelection.disabled.insert(key);
+
+    saveFactorySelection();
+    loadFactoryKit();
+}
+
+void PluginProcessor::saveFactorySelection()
+{
+    settings.factoryShellModule = juce::String(factorySelection.shellModule);
+    settings.factoryDisabledPieces.clear();
+    for (const auto &key : factorySelection.disabled)
+        settings.factoryDisabledPieces.add(juce::String(key));
+    settings.markDirty();
+    settings.saveIfChanged();
+}
+
 void PluginProcessor::loadKitImpl(const juce::String &drumkitPath)
 {
     lastKitError.clear();
@@ -421,7 +515,12 @@ void PluginProcessor::loadKitImpl(const juce::String &drumkitPath)
     if (drumkitPath.isEmpty())
         return;
 
-    currentKit = DrumKit::load(drumkitPath.toStdString());
+    loadAssembledKit(DrumKit::load(drumkitPath.toStdString()), drumkitPath);
+}
+
+void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
+{
+    currentKit = std::move(kit);
 
     if (!currentKit.error.empty())
         lastKitError = juce::String(currentKit.error);
@@ -436,19 +535,19 @@ void PluginProcessor::loadKitImpl(const juce::String &drumkitPath)
     if (!audioEngine.getSampler().loadKit(currentKit, error))
     {
         lastKitError = error;
-        DebugLog::instance().logInfo("KIT", "Failed to load kit '" + drumkitPath + "': " + error);
+        DebugLog::instance().logInfo("KIT", "Failed to load kit '" + kitPath + "': " + error);
         audioEngine.getSampler().unloadKit();
         currentKit = {};
         return;
     }
 
-    currentKitPath = drumkitPath;
-    settings.pushRecentKit(drumkitPath);
+    currentKitPath = kitPath;
+    settings.pushRecentKit(kitPath);
     settings.saveIfChanged();
     audioEngine.invalidateParamCache();
 
     DebugLog::instance().logInfo("KIT",
-                                 "Loaded kit '" + drumkitPath + "' ("
+                                 "Loaded kit '" + kitPath + "' ("
                                      + juce::String(audioEngine.getSampler().numInstruments()) + " instruments)");
 
     // Delegate note mapping to MidiRouter (handles kit midimap, GM fallback, and default assignments)

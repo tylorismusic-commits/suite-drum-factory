@@ -4,7 +4,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$REPO_DIR/build/GlorpDrums_artefacts/Release"
-PLUGIN="Suite Drums Glorp"
+PLUGIN="Suite Drum Factory"
 
 mkdir -p "$HOME/.vst3" "$HOME/.lv2"
 

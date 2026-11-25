@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(SuiteDrumsGlorp VERSION 0.1.0 LANGUAGES C CXX)
+project(SuiteDrumFactory VERSION 0.1.0 LANGUAGES C CXX)
 
 #==================================================================================
 # Options
@@ -131,13 +131,13 @@ juce_add_binary_data(GlorpDrumsAssets
 #==================================================================================
 
 juce_add_plugin(GlorpDrums
-    PRODUCT_NAME            "Suite Drums Glorp"
+    PRODUCT_NAME            "Suite Drum Factory"
     COMPANY_NAME            "Tylorismusic"
-    BUNDLE_ID               "com.tylorismusic.suitedrumsglorp"
+    BUNDLE_ID               "com.tylorismusic.suitedrumfactory"
     PLUGIN_MANUFACTURER_CODE Tylr
-    PLUGIN_CODE             SdGl
+    PLUGIN_CODE             SdFc
     FORMATS                ${GLORP_PLUGIN_FORMATS}
-    LV2URI                  "https://github.com/tylorismusic-commits/suite-drums-glorp"
+    LV2URI                  "https://github.com/tylorismusic-commits/suite-drum-factory"
     VST3_CATEGORIES         "Instrument" "Sampler" "Drum"
     COPY_PLUGIN_AFTER_BUILD FALSE
     IS_SYNTH                FALSE
@@ -176,6 +176,7 @@ target_sources(GlorpDrums PRIVATE
     src/plugin/PluginEditor.h
     src/core/XmlLite.cpp
     src/core/DrumKit.cpp
+    src/core/FactoryKit.cpp
     src/core/KitScanner.cpp
     src/core/SampleCache.cpp
     src/core/Sampler.cpp
@@ -335,6 +336,7 @@ if(GLORP_BUILD_TESTS)
         src/core/GlorpKit.cpp
         src/core/GlorpKitWriter.cpp
         src/core/DrumKit.cpp
+        src/core/FactoryKit.cpp
         src/core/KitScanner.cpp
         src/core/PitchShifter.cpp
         src/core/BleedMatrix.cpp

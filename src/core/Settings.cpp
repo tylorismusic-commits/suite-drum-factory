@@ -104,6 +104,11 @@ void Settings::writeState(juce::MemoryBlock &destination) const
     root.setAttribute("midiThruDestination", midiThruDestination);
     root.setAttribute("lastLayerFolder", lastLayerFolder);
     root.setAttribute("midiLibraryPath", midiLibraryPath);
+    root.setAttribute("factoryShellModule", factoryShellModule);
+
+    auto *factoryPieces = root.createNewChildElement("FactoryDisabledPieces");
+    for (const auto &key : factoryDisabledPieces)
+        factoryPieces->createNewChildElement("piece")->setAttribute("key", key);
     root.setAttribute("midiSourceProfile", midiSourceProfile);
     root.setAttribute("midiPreviewSpeed", midiPreviewSpeed);
     root.setAttribute("editorWidth", editorWidth);
@@ -142,6 +147,12 @@ void Settings::readState(const juce::MemoryBlock &source)
     midiThruDestination = root->getStringAttribute("midiThruDestination", midiThruDestination);
     lastLayerFolder = root->getStringAttribute("lastLayerFolder", lastLayerFolder);
     midiLibraryPath = root->getStringAttribute("midiLibraryPath", midiLibraryPath);
+    factoryShellModule = root->getStringAttribute("factoryShellModule", factoryShellModule);
+    factoryDisabledPieces.clear();
+    if (auto *pieces = root->getChildByName("FactoryDisabledPieces"))
+        for (auto *p : pieces->getChildIterator())
+            if (auto key = p->getStringAttribute("key"); key.isNotEmpty())
+                factoryDisabledPieces.add(key);
     midiSourceProfile = root->getStringAttribute("midiSourceProfile", midiSourceProfile);
     midiPreviewSpeed = juce::jlimit(0.25, 4.0, root->getDoubleAttribute("midiPreviewSpeed", midiPreviewSpeed));
     editorWidth = root->getIntAttribute("editorWidth", editorWidth);

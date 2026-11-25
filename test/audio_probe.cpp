@@ -23,8 +23,36 @@ int main (int argc, char** argv)
                                           .getChildFile ("SuiteDrumsGlorp/kits/GlorpDemoKit/drumkit.xml")
                                           .getFullPathName();
 
-    std::cout << "Loading kit: " << kitPath.toStdString() << std::endl;
-    proc.loadKit (kitPath);
+    const auto* factoryModule = std::getenv ("GLORP_PROBE_FACTORY");
+    if (factoryModule != nullptr)
+    {
+        proc.setFactoryShellModule (juce::String (factoryModule));
+
+        if (const auto* disable = std::getenv ("GLORP_PROBE_FACTORY_DISABLE"))
+        {
+            const juce::String key (disable);
+            const auto moduleId = key.upToFirstOccurrenceOf (":", false, false);
+            const auto pieceId = key.fromFirstOccurrenceOf (":", false, false);
+            proc.setFactoryPieceEnabled (moduleId, pieceId, false);
+            std::cout << "Disabled piece: " << disable << std::endl;
+        }
+
+        std::cout << "Factory module: '" << factoryModule << "'" << std::endl;
+        std::cout << "Factory title: " << proc.getSampler().kitTitleString().toStdString() << std::endl;
+        std::cout << "Pieces:" << std::endl;
+        for (const auto& piece : proc.getFactoryPieces())
+        {
+            const bool enabled = proc.isFactoryPieceEnabled (piece.moduleId, piece.id);
+            std::cout << "  " << (enabled ? "[x] " : "[ ] ") << piece.moduleId << ":" << piece.id
+                      << " " << piece.name << std::endl;
+        }
+    }
+    else
+    {
+        std::cout << "Loading kit: " << kitPath.toStdString() << std::endl;
+        proc.loadKit (kitPath);
+    }
+
     std::cout << "Load error: " << proc.getLastKitError().toStdString() << std::endl;
     std::cout << "Instruments: " << proc.getSampler().numInstruments()
               << ", mics: " << proc.getCurrentKit().channels.size() << std::endl;

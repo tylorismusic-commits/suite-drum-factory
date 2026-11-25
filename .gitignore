@@ -30,6 +30,7 @@ tools/__pycache__/
 
 # Generated UI snapshots
 test/docs/
+test/test/
 
 # Scratch & test binaries
 check_raw_wav

@@ -173,7 +173,7 @@ inline void drawSuiteWordmark(juce::Graphics &g,
         g.setFont(displayFont(size));
 
     g.setColour(t.ink);
-    g.drawFittedText("SUITE DRUMS",
+    g.drawFittedText("DRUM FACTORY",
                      area.toNearestInt(),
                      juce::Justification::centredLeft,
                      1,

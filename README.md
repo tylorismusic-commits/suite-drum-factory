@@ -1,191 +1,74 @@
-# Suite Drums Glorp
+# Suite Drum Factory
 
-**Suite Drums Glorp** is a sample-based acoustic drum instrument for Linux, built with JUCE and C++20. It is the drum module of the **Suite** series: a focused VST3/LV2 plugin with the Glorp drum engine, interactive kit view, per-mic mixer, channel FX, e-drum support, multi-mic bleed matrix and the `.glorpkit` editor.
+**Suite Drum Factory** is a Linux drum instrument built on the Suite Drums Glorp
+engine. It keeps one sample set loaded as the base — Naked Drums — and lets you
+swap the shell pieces (kick, snare, toms) from Crocell, DRS, Salamander or
+Monster without losing the Naked cymbals, hi-hat or ride.
 
-![Suite Drums Glorp kit view](docs/screenshot.png)
+This repository is the prototype fork. It is a separate product from Suite
+Drums Glorp.
 
-> [!NOTE]
-> Suite Drums Glorp is an early alpha. It is a fork of [GlorpDrums](https://github.com/asuka-glorp/GlorpDrums) with the practice, recording and streaming features removed. The drum engine, kit view, mixer, FX, e-drum input, bleed matrix and kit editor remain.
+## What works in this prototype
 
-## What is included
+- Naked Drums is loaded as the fixed base.
+- One shell module can be selected at a time: Naked, Crocell, DRS, Salamander or
+  Monster. Module cymbals are ignored; only kick, snare and toms are used.
+- Module mics are namespaced (`crocell_SnareTop`, etc.) so their mixer strips do
+  not collapse into Naked's mics.
+- A **PIECES** dropdown on the kit image enables or disables every piece. The
+  module choice and disabled pieces are remembered between sessions.
+- The existing kit view, MIDI browser, per-mic mixer and insert FX are inherited
+  from Suite Drums Glorp.
+- Kit artwork is unchanged; the existing Naked art is reused for the prototype.
 
-- **VST3 and LV2** instrument plugins for Linux x86_64.
-- **Suite Kit Studio**, a standalone `.glorpkit` creator/editor that imports DrumGizmo `drumkit.xml` kits and SFZ instruments (including AVL Drumkits, SM Drums, Big Rusty Drums and Gogodze Phu Vol II) and exports a single `.glorpkit`. A `SuiteKitConverter` CLI is included for batch conversion.
-- **One Suite theme**: dark charcoal, amber accent, Jost ExtraBold display type.
-- **Kit view** with zones, velocity layers, round-robin, drum-hit animation and MIDI activity ribbon. Extra tom and floor-tom articulations fall back to the floor-tom marker.
-- **Per-piece controls** for level, pan, tune, dynamics, attack and damping.
-- **Kick and snare one-shot layers**: drag or load a WAV one-shot, blend it against the kit sample, A/B audition kit/layer, shape it with ADSR, auto-trim and phase-align it to the close mic, and mix it on its own dedicated layer strip. Missing files can be relinked without losing the layer settings.
-- **Full-range velocity selection**: hits are chosen across each kit's recorded power range, so normal-velocity snare hits no longer fall back to ghost-note samples.
-- **Mixer** with per-mic channels, solo/mute, mono/stereo switching, per-mic stems, linked instrument/mixer bus routing, master bus and kit-adaptive presets. Every stock preset keeps kick and trigger mics mono, controls cymbals and pushes kick/snare forward so drums sit in a mix.
-- **Drum-bus glue** with bus EQ, compressor, saturation and a parallel dry/compressed mix.
-- **Per-mic high-pass/low-pass filters** alongside the EQ, compressor, saturation and transient shaper.
-- **Preset browser** for factory and user `.glorpmix` files, with A/B compare and favourites.
-- **Scalable UI** with 100%, 125% and 150% window scaling.
-- **Channel FX**: 3-band EQ, VCA compressor, tape saturation and transient shaper.
-- **MIDI mapping page**: up to three notes per hit, per-slot MIDI learn and an eight-point velocity curve editor.
-- **Piano-roll note names**: VST3 hosts show the current kit's drum names on mapped note keys.
-- **MIDI loop browser**: PACK / SONG / LOOP columns, double-click audition, play/pause/stop, loop repeat, host-tempo sync, 0.5x/1x/2x preview-and-export speed, source-map translation (General MIDI, Toontrack, GGD Groove Player, Ugritone GM, Ugritone KVLT and saved presets), closest-alternative fallbacks when a kit lacks a piece, drag-and-drop MIDI export into the DAW, and background playback with a global header STOP.
-- **E-drum support**: CC#4 continuous hi-hat, cymbal chokes, closed hats choke ringing open hats, note mapping and calibration wizard.
-- **Multi-mic bleed matrix** for acoustic leakage between close mics, overheads, room and PZM channels.
-- **GlorpKit and DrumGizmo kits**: `.glorpkit`, folder kits with `drumkit.xml`, packaged archives, and SFZ instruments imported through Suite Kit Studio.
+## Kit locations
 
-No practice view, setlists, song database, backing tracks, tempo detection, metronome, WAV/MIDI recorder, OBS/stream routing or standalone plugin host.
+The factory looks for:
 
-## Screenshots
+```
+~/.config/SuiteDrumsGlorp/kits/Naked Drums.glorpkit
+~/.config/SuiteDrumsGlorp/kits/CrocellKit.glorpkit
+~/.config/SuiteDrumsGlorp/kits/DRSKit.glorpkit
+~/.config/SuiteDrumsGlorp/kits/Salamander Drumkit.glorpkit
+~/.config/SuiteDrumsGlorp/kits/Monster Drumkit.glorpkit
+```
 
-| Mixer | Channel FX |
-| :---: | :---: |
-| ![Mixer](docs/mixer_view.png) | ![Channel FX](docs/mixer_fx.png) |
+The released share-folder layout is also searched:
 
-| Kick/Snare Layer | Layer mixer strip |
-| :---: | :---: |
-| ![Kick/Snare Layer](docs/layer_drawer.png) | ![Layer mixer strip](docs/layer_mixer.png) |
+```
+~/Documents/SuiteDrumsGlorpShare/<kit>/<kit>.glorpkit
+```
 
-| E-drum wizard | MIDI mapping |
-| :---: | :---: |
-| ![E-drum wizard](docs/edrum_wizard.png) | ![MIDI mapping](docs/midi_page.png) |
-
-**MIDI loop browser** — PACK / SONG / LOOP library with audition, GM remapping and drag export:
-
-![MIDI loop browser](docs/midi_browser.png)
-
-**Suite Kit Studio** — the standalone `.glorpkit` creator:
-
-![Suite Kit Studio](docs/kit_editor.png)
-
-### Reproducing the share kits
-
-Suite Kit Studio and `SuiteKitConverter` have share-kit profiles, on by
-default. Importing a recognised original source reproduces the published
-`.glorpkit` file: grouping, MIDI notes, default pans, polarity, mono downmix
-and FLAC-to-WAV conversion. Toggle the profiles in **Import Kit... > Apply
-share-kit profiles**, or pass `--no-profiles` to the command-line converter for
-a plain import.
+## Build
 
 ```bash
-# Recognised source -> same kit as the public share
-SuiteKitConverter DRSKit.xml DRSKit.glorpkit
-
-# Plain, generic import
-SuiteKitConverter --no-profiles DRSKit.xml DRSKitPlain.glorpkit
-```
-
-Sources that use `#include`, macros and one SFZ file per mic (Naked Drums) are
-merged automatically: point the converter at any file in `Multi/*.sfz` and it
-resolves the includes, merges all mic channels and splits stereo mics. The
-`tools/naked_drums_to_glorpkit.py` script remains available for scripting.
-
-Virtuosity Drums uses a dedicated converter because its Sforzando bank splits
-the kit across six per-mic programs:
-
-```bash
-./tools/virtuosity_to_glorpkit.py --source "/path/to/Virtuosity" \
-    --output "$HOME/.config/SuiteDrumsGlorp/kits/Virtuosity Drums.glorpkit"
-```
-
-## Download
-
-Release bundles are published on GitHub:
-
-**https://github.com/tylorismusic-commits/suite-drums-glorp/releases**
-
-A release package contains:
-
-```
-vst3/Suite Drums Glorp.vst3
-lv2/Suite Drums Glorp.lv2
-bin/SuiteKitStudio
-bin/SuiteKitConverter
-kits/                     (optional starter kit)
-README.md
-LICENSE
-NOTICE.md
-```
-
-## Build from source
-
-### Linux prerequisites
-
-A C++20 compiler, CMake 3.22+, Git, and the standard JUCE/X11/ALSA development packages:
-
-```bash
-# Fedora
-sudo dnf install gcc-c++ cmake git alsa-lib-devel \
-  libX11-devel libXinerama-devel libXcursor-devel libXrandr-devel \
-  libXcomposite-devel freetype-devel fontconfig-devel libcurl-devel
-
-# Debian / Ubuntu
-sudo apt install build-essential cmake git libasound2-dev \
-  libx11-dev libxinerama-dev libxcursor-dev libxrandr-dev \
-  libxcomposite-dev libfreetype-dev libfontconfig1-dev libcurl4-openssl-dev
-```
-
-JUCE 8.0.6 is fetched automatically by CMake if `libs/JUCE` is not present.
-
-### Configure and build
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-  -DGLORP_BUILD_VST3=ON \
-  -DGLORP_BUILD_LV2=ON \
-  -DGLORP_BUILD_CLAP=OFF \
-  -DGLORP_BUILD_KIT_EDITOR=ON \
-  -DGLORP_BUILD_TESTS=ON
-
-cmake --build build -j"$(nproc)"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j8
 ctest --test-dir build --output-on-failure
+tools/install_plugins.sh
 ```
 
-Build outputs:
+The plugin installs as **Suite Drum Factory** in `~/.vst3` and `~/.lv2`.
 
-- `build/GlorpDrums_artefacts/Release/VST3/Suite Drums Glorp.vst3`
-- `build/GlorpDrums_artefacts/Release/LV2/Suite Drums Glorp.lv2`
-- `build/GlorpKitEditor_artefacts/Release/SuiteKitStudio`
+## Architecture
 
-### Install for the current user
+- `src/core/FactoryKit.*` — module catalog, piece role classification and
+  in-memory assembly of Naked + one shell module.
+- `src/plugin/PluginProcessor.*` — factory selection, persistence and kit reload.
+- `src/ui/Editor.*` — the PIECES dropdown on the kit image.
+- `src/core/Sampler.*` — inherited sampler, per-mic mixer and insert DSP.
 
-```bash
-cmake --install build
-```
+The next stage is the fixed Kick / Snare / Room / Mix bus mixer with serial
+insert chains on each bus.
 
-This installs the plugins into `~/.local/share`, creates `~/.vst3` and `~/.lv2` symlinks, and adds Suite Kit Studio to the application menu. Override the destination with `-DGLORP_INSTALL_PREFIX=/usr` for a system-wide install.
+## Licensing
 
-## Drum kit locations
+Naked Drums, CrocellKit and DRSKit are CC BY 4.0. Salamander Drumkit and Monster
+Drumkit are CC BY-SA 3.0. The sample derivatives keep their original licences;
+see `NOTICE.md` and the licence files shipped with each kit.
 
-Suite Drums Glorp scans these roots in order:
+## Upstream
 
-1. Paths listed in `GLORP_KITS_PATH` (colon-separated)
-2. `~/.suitedrumsglorp/kits`
-3. `~/.config/SuiteDrumsGlorp/kits`
-4. `~/.glorpdrums/kits` *(legacy GlorpDrums path)*
-5. `~/.config/GlorpDrums/kits` *(legacy GlorpDrums path)*
-6. `~/DrumGizmo/kits`
-7. `~/.local/share/drumgizmo/kits`
-8. `~/Documents/drumgizmo/kits`
-9. `/usr/share/drumgizmo/kits`
-10. `/usr/local/share/drumgizmo/kits`
-11. `/var/lib/drumgizmo/kits`
-
-Add extra roots from the FILE menu. Existing GlorpDrums settings, presets and kit layout are migrated automatically on first run.
-
-## No sound?
-
-Suite Drums Glorp is a virtual instrument, so the host must actually process the track:
-
-1. Insert it as an instrument (VST3i / LV2 instrument), not as an audio-only effect.
-2. Arm the track and enable input monitoring, or place a MIDI item on the track and press play.
-3. Clicking the drum art auditions only while the host is processing audio.
-4. Check the plugin's **MASTER** knob and make sure no mixer channel is muted or soloed.
-5. For multi-output setups, the dry main mix is **Out 1/2**.
-
-## Starter kit
-
-The optional starter kit is the **Glorp Demo Kit**, a compact two-overhead DrumGizmo kit. Its metadata credits Alexander Holm / GlorpDrums and licenses it as CC-BY-SA / CC0. See `NOTICE.md` for attribution. You can install it into `~/.config/SuiteDrumsGlorp/kits/` or point the plugin at any DrumGizmo kit folder.
-
-## License
-
-Suite Drums Glorp is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0). See `LICENSE`.
-
-It is based on GlorpDrums by asuka-glorp, also AGPL-3.0. JUCE is used under its AGPLv3 option. Bundled fonts are under the SIL Open Font License; see `resources/fonts/` and `NOTICE.md`.
-
-The Suite name and Suite Drums Glorp branding are not covered by the AGPL. Upstream GlorpDrums names and artwork remain the property of their authors.
+The DSP, sampler, kit format and mixer are inherited from
+[Suite Drums Glorp](https://github.com/tylorismusic-commits/suite-drums-glorp),
+which is itself a fork of GlorpDrums.

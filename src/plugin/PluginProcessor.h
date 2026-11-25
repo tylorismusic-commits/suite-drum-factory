@@ -14,6 +14,7 @@
 #pragma once
 
 #include "AudioEngine.h"
+#include "FactoryKit.h"
 #include "KitScanner.h"
 #include "MidiMap.h"
 #include "MidiRouter.h"
@@ -94,6 +95,22 @@ class PluginProcessor : public juce::AudioProcessor
     void loadKit(const juce::String &drumkitPath);
     void loadKitImpl(const juce::String &drumkitPath);
 
+    // -- Suite Drum Factory ------------------------------------------------
+    /// Rebuilds the assembled kit from Naked plus the selected shell module.
+    void loadFactoryKit();
+
+    /// Empty string means Naked's own shells. Otherwise "crocell", "drs",
+    /// "salamander" or "monster".
+    void setFactoryShellModule(const juce::String &moduleId);
+    juce::String getFactoryShellModule() const { return juce::String(factorySelection.shellModule); }
+
+    /// All pieces available for the current module choice, including disabled
+    /// ones, so the dropdown can draw checkmarks correctly.
+    const std::vector<factory::PieceEntry> &getFactoryPieces() const noexcept { return factoryPieces; }
+
+    bool isFactoryPieceEnabled(const juce::String &moduleId, const juce::String &pieceId) const;
+    void setFactoryPieceEnabled(const juce::String &moduleId, const juce::String &pieceId, bool enabled);
+
     /// Routes a mixer mic strip and its matching drum instruments together.
     void setMicOutputBus(int micStripIndex, int bus);
     void setInstrumentOutputBus(int instrumentIndex, int bus);
@@ -168,6 +185,8 @@ class PluginProcessor : public juce::AudioProcessor
   private:
     static BusesProperties createBusesProperties();
     void notifyParametersChanged();
+    void loadAssembledKit(DrumKit kit, const juce::String &kitPath);
+    void saveFactorySelection();
 
     ParameterManager parameterManager;
     MidiRouter midiRouter;
@@ -185,6 +204,9 @@ class PluginProcessor : public juce::AudioProcessor
     juce::String currentKitPath;
     juce::String lastKitError;
     DrumKit currentKit;
+
+    factory::Selection factorySelection;
+    std::vector<factory::PieceEntry> factoryPieces;
 
     std::atomic<float> lastHiHatCC4 {0.0f};
     std::atomic<float> lastSnareCC16 {0.5f};
