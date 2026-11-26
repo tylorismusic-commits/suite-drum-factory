@@ -465,6 +465,7 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
             ch->name = juce::String(lp.id.empty() ? lp.name : lp.id);
             ch->title = juce::String(lp.name);
             ch->params = MicStripParams {};
+            ch->params.reverbSend = 0.08f;
             ch->fx.prepare(currentSampleRate, currentBlockSize);
             ch->inserts.prepare(currentSampleRate, currentBlockSize);
 
@@ -564,7 +565,10 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
             bus->title = busTitles[b];
             bus->params = hadBusParams ? previousBusParams[static_cast<size_t>(b)] : MicStripParams {};
             if (!hadBusParams)
+            {
                 bus->params.level = b == 4 ? 0.85f : 1.0f;
+                bus->params.reverbSend = 0.04f;
+            }
             bus->fx.prepare(currentSampleRate, currentBlockSize);
             bus->inserts.prepare(currentSampleRate, currentBlockSize);
             factoryBuses[static_cast<size_t>(b)] = std::move(bus);
@@ -3373,12 +3377,23 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             // Output bus routing
             if (factoryPieceMode)
             {
-                const int bus = juce::jlimit(0, factoryMixBus, state.factoryBus);
-                if (!(anyBusSolo && bus == 3)
-                    && numSamples <= static_cast<int>(busScratchL[static_cast<size_t>(bus)].size()))
+                // Direct output routing bypasses the sums and Mix bus entirely.
+                const int directBus = state.params.outputBus;
+                if (directBus > 0 && directBus < totalBuses && output[directBus * 2] != nullptr
+                    && output[directBus * 2 + 1] != nullptr)
                 {
-                    juce::FloatVectorOperations::add(busScratchL[static_cast<size_t>(bus)].data(), sL, numSamples);
-                    juce::FloatVectorOperations::add(busScratchR[static_cast<size_t>(bus)].data(), sR, numSamples);
+                    juce::FloatVectorOperations::add(output[directBus * 2], sL, numSamples);
+                    juce::FloatVectorOperations::add(output[directBus * 2 + 1], sR, numSamples);
+                }
+                else
+                {
+                    const int bus = juce::jlimit(0, factoryMixBus, state.factoryBus);
+                    if (!(anyBusSolo && bus == factoryMixBus)
+                        && numSamples <= static_cast<int>(busScratchL[static_cast<size_t>(bus)].size()))
+                    {
+                        juce::FloatVectorOperations::add(busScratchL[static_cast<size_t>(bus)].data(), sL, numSamples);
+                        juce::FloatVectorOperations::add(busScratchR[static_cast<size_t>(bus)].data(), sR, numSamples);
+                    }
                 }
             }
             else

@@ -170,7 +170,7 @@ class MixerView
     //==========================================================================
     // Insert Rack Popup
     //==========================================================================
-    class InsertRackPopup : public juce::Component
+    class InsertRackPopup : public juce::Component, private juce::Timer
     {
       public:
         InsertRackPopup(MixerView &owner, PluginProcessor &processor);
@@ -185,6 +185,14 @@ class MixerView
         void mouseUp(const juce::MouseEvent &e) override;
 
       private:
+        void timerCallback() override;
+        void drawCompressorMeter(juce::Graphics &g, juce::Rectangle<float> area);
+        void drawClipperCurve(juce::Graphics &g, juce::Rectangle<float> area);
+        int eqNodeAt(juce::Point<float> pos, juce::Rectangle<float> plot,
+                     const InsertSlotState &state) const;
+        void moveEqNode(int node, juce::Point<float> pos, juce::Rectangle<float> plot,
+                        const InsertSlotState &state);
+
         MixerView &owner;
         PluginProcessor &processor;
         Theme theme = Theme::suite();
@@ -194,6 +202,7 @@ class MixerView
         int dragFrom = -1;
         int dragTo = -1;
         bool dragging = false;
+        int draggingEqNode = -1;
         juce::Point<float> dragStart;
 
         juce::TextButton closeBtn {"CLOSE"};
@@ -491,7 +500,7 @@ class MixerView
     std::unique_ptr<BleedMatrixPopup> bleedMatrixPopup;
 
     void applyPreset(int presetIndex);
-    void showInsertMenu(bool bus, int channel, int slot);
+    void showInsertMenu(bool bus, int channel, int slot, juce::Component *target, juce::Rectangle<int> area);
     void promptSavePreset();
 
     juce::String activePresetName {"Default Clean"};

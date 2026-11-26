@@ -44,6 +44,106 @@ juce::Colour insertColour(InsertType type)
     }
 }
 
+class InsertTypePicker : public juce::Component
+{
+  public:
+    InsertTypePicker(const Theme &themeToUse, std::function<void(InsertType)> callback)
+        : theme(themeToUse), onPick(std::move(callback))
+    {
+        setSize(196, 6 * 30 + 16);
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    }
+
+    void paint(juce::Graphics &g) override
+    {
+        g.setColour(theme.panel);
+        g.fillRoundedRectangle(getLocalBounds().toFloat(), 6.0f);
+        g.setColour(theme.panelEdge);
+        g.drawRoundedRectangle(getLocalBounds().toFloat(), 6.0f, 1.2f);
+
+        for (int i = 0; i < 6; ++i)
+        {
+            const auto r = row(i);
+            if (i == hovered)
+            {
+                g.setColour(theme.accent.withAlpha(0.16f));
+                g.fillRoundedRectangle(r.reduced(4.0f, 1.0f), 4.0f);
+            }
+            const auto type = typeAt(i);
+            g.setColour(insertColour(type));
+            g.fillEllipse(r.getX() + 10.0f, r.getCentreY() - 4.0f, 8.0f, 8.0f);
+            g.setColour(theme.ink);
+            g.setFont(uiFont(10.5f));
+            g.drawText(typeName(type), r.withTrimmedLeft(26.0f).toNearestInt(),
+                       juce::Justification::centredLeft, false);
+        }
+    }
+
+    void mouseMove(const juce::MouseEvent &e) override
+    {
+        hovered = rowAt(e.position);
+        repaint();
+    }
+    void mouseExit(const juce::MouseEvent &) override
+    {
+        hovered = -1;
+        repaint();
+    }
+    void mouseDown(const juce::MouseEvent &e) override
+    {
+        const int index = rowAt(e.position);
+        if (index < 0)
+            return;
+        if (onPick)
+            onPick(typeAt(index));
+        if (auto *box = findParentComponentOfClass<juce::CallOutBox>())
+            box->dismiss();
+    }
+
+  private:
+    Theme theme;
+    std::function<void(InsertType)> onPick;
+    int hovered = -1;
+
+    static InsertType typeAt(int index)
+    {
+        switch (index)
+        {
+            case 0: return InsertType::eq;
+            case 1: return InsertType::compressor;
+            case 2: return InsertType::drive;
+            case 3: return InsertType::transient;
+            case 4: return InsertType::limiter;
+            case 5: return InsertType::clipper;
+            default: return InsertType::none;
+        }
+    }
+
+    static juce::String typeName(InsertType type)
+    {
+        if (type == InsertType::eq) return "Graphical EQ";
+        if (type == InsertType::compressor) return "Compressor";
+        if (type == InsertType::drive) return "Drive";
+        if (type == InsertType::transient) return "Transient Shaper";
+        if (type == InsertType::limiter) return "Limiter";
+        if (type == InsertType::clipper) return "Clipper";
+        return "Off";
+    }
+
+    juce::Rectangle<float> row(int index) const
+    {
+        return {4.0f, 8.0f + index * 30.0f, static_cast<float>(getWidth() - 8), 28.0f};
+    }
+
+    int rowAt(juce::Point<float> pos) const
+    {
+        for (int i = 0; i < 6; ++i)
+            if (row(i).contains(pos))
+                return i;
+        return -1;
+    }
+};
+
 float linearToDb(float linear) noexcept
 {
     return linear > 1.0e-5f ? 20.0f * std::log10(linear) : -100.0f;
@@ -220,8 +320,10 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
         const int currentBus = processor.getSampler().getMicOutputBus(channelIndex_);
         for (int b = 0; b < 16; ++b)
         {
-            const juce::String busLabel =
-                (b == 0) ? "Out 1/2 (Master Mix)" : ("Out " + juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2));
+            const juce::String busLabel = (b == 0)
+                                              ? "Internal Sums (Kick/Snare/Toms/Cymbals/Room)"
+                                              : ("Direct Out " + juce::String(b * 2 + 1) + "/"
+                                                 + juce::String(b * 2 + 2));
             menu.addItem(busLabel,
                          true,
                          b == currentBus,
@@ -241,7 +343,7 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
     fxBtn.setVisible(false);
     bleedBtn.setVisible(false);
     monoBtn.setVisible(false);
-    busBtn.setVisible(false);
+    busBtn.setVisible(true);
 
     bleedKnob = std::make_unique<Knob>("BLEED", 0.0f, 1.0f, 0.15f);
     bleedKnob->setTheme(theme);
@@ -285,8 +387,9 @@ void MixerView::ChannelStripComponent::updateFromState()
     bleedBtn.setActive(hasBleed && bm.getMode() != BleedMatrix::Mode::disabled);
 
     const int b = processor.getSampler().getMicOutputBus(channelIndex_);
-    busBtn.setButtonText(b == 0 ? "M 1/2" : (juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2)));
+    busBtn.setButtonText(b == 0 ? "SUMS" : ("OUT " + juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2)));
     busBtn.activeColour = (b == 0) ? juce::Colour(0xffea8c16) : juce::Colour(0xff3498db);
+    busBtn.setActive(b > 0);
     busBtn.setActive(b > 0);
 
     repaint();
@@ -333,7 +436,7 @@ void MixerView::ChannelStripComponent::resized()
     fxBtn.setBounds(0, 0, 0, 0);
     bleedBtn.setBounds(0, 0, 0, 0);
     monoBtn.setBounds(0, 0, 0, 0);
-    busBtn.setBounds(0, 0, 0, 0);
+    busBtn.setBounds(r.getX() + 6.0f, r.getBottom() - 23.0f, r.getWidth() - 12.0f, 18.0f);
 }
 
 void MixerView::ChannelStripComponent::setTheme(const Theme &t)
@@ -586,7 +689,7 @@ void MixerView::ChannelStripComponent::mouseDown(const juce::MouseEvent &e)
         const auto state = processor.getSampler().getInsertState(false, channelIndex_, slot);
         if (state.type == InsertType::none)
         {
-            owner.showInsertMenu(false, channelIndex_, slot);
+            owner.showInsertMenu(false, channelIndex_, slot, this, area.toNearestInt());
             return;
         }
         if (p.x <= area.getX() + 15.0f)
@@ -871,7 +974,7 @@ void MixerView::BusStripComponent::mouseDown(const juce::MouseEvent &e)
         const auto state = processor.getSampler().getInsertState(true, busIndex_, slot);
         if (state.type == InsertType::none)
         {
-            owner.showInsertMenu(true, busIndex_, slot);
+            owner.showInsertMenu(true, busIndex_, slot, this, area.toNearestInt());
             return;
         }
         if (pos.x <= area.getX() + 15.0f)
@@ -954,13 +1057,21 @@ void MixerView::InsertRackPopup::open(bool bus, int channelIndex, int slot)
     rebuildKnobs();
     setVisible(true);
     toFront(true);
+    startTimerHz(30);
     repaint();
 }
 
 void MixerView::InsertRackPopup::close()
 {
+    stopTimer();
     setVisible(false);
     knobs.clear();
+}
+
+void MixerView::InsertRackPopup::timerCallback()
+{
+    if (isVisible())
+        repaint();
 }
 
 void MixerView::InsertRackPopup::setTheme(const Theme &t)
@@ -1001,6 +1112,7 @@ void MixerView::InsertRackPopup::rebuildKnobs()
         knob->onValueChanged = [this, i](float v)
         {
             processor.getSampler().setInsertValue(busTarget, channel, selectedSlot, i, v);
+            repaint();
         };
         addAndMakeVisible(*knob);
         knobs.push_back(std::move(knob));
@@ -1141,6 +1253,8 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
     const float mid = state.values[1];
     const float midF = state.values[2];
     const float high = state.values[3];
+    const float hpf = std::max(20.0f, state.values[4]);
+    const float lpf = std::max(hpf + 10.0f, state.values[5]);
 
     juce::Path curve;
     for (int i = 0; i <= 200; ++i)
@@ -1149,7 +1263,9 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
         const float lowResp = low / (1.0f + std::pow(f / 90.0f, 2.0f));
         const float midResp = mid * std::exp(-std::pow(std::log2(std::max(1.0f, f / std::max(1.0f, midF))) / 1.4f, 2.0f));
         const float highResp = high / (1.0f + std::pow(8000.0f / f, 2.0f));
-        const float db = lowResp + midResp + highResp;
+        const float hpDb = 20.0f * std::log10(f / std::sqrt(f * f + hpf * hpf));
+        const float lpDb = 20.0f * std::log10(1.0f / std::sqrt(1.0f + (f * f) / (lpf * lpf)));
+        const float db = lowResp + midResp + highResp + hpDb + lpDb;
         const float x = freqToX(f);
         const float y = gainToY(db);
         if (i == 0)
@@ -1170,9 +1286,22 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
     for (const auto &[freq, db] : {std::pair<float, float> {80.0f, low}, {midF, mid}, {10000.0f, high}})
     {
         g.setColour(theme.ink);
-        g.fillEllipse(freqToX(freq) - 3.0f, gainToY(db) - 3.0f, 6.0f, 6.0f);
+        g.fillEllipse(freqToX(freq) - 3.5f, gainToY(db) - 3.5f, 7.0f, 7.0f);
         g.setColour(theme.accent);
-        g.drawEllipse(freqToX(freq) - 4.0f, gainToY(db) - 4.0f, 8.0f, 8.0f, 1.0f);
+        g.drawEllipse(freqToX(freq) - 5.0f, gainToY(db) - 5.0f, 10.0f, 10.0f, 1.2f);
+    }
+
+    // Cut filter nodes sit on the bottom edge and drag horizontally.
+    for (const auto &[freq, label] : {std::pair<float, const char *> {hpf, "H"}, {lpf, "L"}})
+    {
+        const float x = freqToX(freq);
+        const float y = plot.getBottom() - 4.0f;
+        g.setColour(juce::Colour(0xff3fa7ff));
+        g.fillEllipse(x - 5.0f, y - 5.0f, 10.0f, 10.0f);
+        g.setColour(theme.ink);
+        g.setFont(uiFont(7.0f).boldened());
+        g.drawText(label, juce::Rectangle<float>(x - 5.0f, y - 5.0f, 10.0f, 10.0f),
+                   juce::Justification::centred, false);
     }
 
     g.setColour(theme.inkSoft);
@@ -1182,6 +1311,137 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
                juce::Justification::centred, false);
     g.drawText("20k", plot.getRight() - 30.0f, plot.getBottom() + 2.0f, 30.0f, 12.0f,
                juce::Justification::right, false);
+}
+
+void MixerView::InsertRackPopup::drawCompressorMeter(juce::Graphics &g, juce::Rectangle<float> area)
+{
+    const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
+    g.setColour(theme.trough);
+    g.fillRoundedRectangle(area, 5.0f);
+    g.setColour(theme.panelEdge);
+    g.drawRoundedRectangle(area, 5.0f, 1.0f);
+
+    auto inner = area.reduced(18.0f, 16.0f);
+    g.setColour(theme.inkSoft);
+    g.setFont(uiFont(10.0f).boldened());
+    g.drawText("GAIN REDUCTION", inner.removeFromTop(16.0f), juce::Justification::left, false);
+
+    auto meter = inner.removeFromTop(std::min(24.0f, inner.getHeight() * 0.25f)).reduced(0.0f, 3.0f);
+    g.setColour(theme.background);
+    g.fillRoundedRectangle(meter, 3.0f);
+    const float norm = juce::jlimit(0.0f, 1.0f, state.gainReductionDb / 20.0f);
+    g.setColour(norm > 0.75f ? juce::Colour(0xffe74c3c) : juce::Colour(0xff52d273));
+    g.fillRoundedRectangle(meter.withWidth(meter.getWidth() * norm), 3.0f);
+
+    g.setColour(theme.inkSoft);
+    g.setFont(uiFont(9.0f));
+    g.drawText(juce::String(state.gainReductionDb, 1) + " dB",
+               meter, juce::Justification::centredRight, false);
+}
+
+void MixerView::InsertRackPopup::drawClipperCurve(juce::Graphics &g, juce::Rectangle<float> area)
+{
+    const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
+    g.setColour(theme.trough);
+    g.fillRoundedRectangle(area, 5.0f);
+    g.setColour(theme.panelEdge);
+    g.drawRoundedRectangle(area, 5.0f, 1.0f);
+
+    auto plot = area.reduced(14.0f, 14.0f);
+    g.setColour(theme.panelEdge.withAlpha(0.6f));
+    g.drawRect(plot, 1.0f);
+    g.drawHorizontalLine(static_cast<int>(plot.getCentreY()), plot.getX(), plot.getRight());
+    g.drawVerticalLine(static_cast<int>(plot.getCentreX()), plot.getY(), plot.getBottom());
+
+    const float drive = 1.0f + state.values[0] * 12.0f;
+    const float ceiling = std::pow(10.0f, std::min(0.0f, state.values[1]) / 20.0f);
+
+    juce::Path curve;
+    for (int i = 0; i <= 180; ++i)
+    {
+        const float t = -1.0f + 2.0f * static_cast<float>(i) / 180.0f;
+        const float y = std::tanh(t * drive) * ceiling;
+        const float px = plot.getCentreX() + t * plot.getWidth() * 0.48f;
+        const float py = plot.getCentreY() - y * plot.getHeight() * 0.46f;
+        if (i == 0)
+            curve.startNewSubPath(px, py);
+        else
+            curve.lineTo(px, py);
+    }
+    g.setColour(theme.accent);
+    g.strokePath(curve, juce::PathStrokeType(2.0f));
+
+    g.setColour(theme.inkSoft);
+    g.setFont(uiFont(9.0f));
+    g.drawText("IN", plot.getX(), plot.getBottom() + 1.0f, 30.0f, 12.0f, juce::Justification::left, false);
+    g.drawText("OUT", plot.getRight() - 34.0f, plot.getY() - 13.0f, 34.0f, 12.0f,
+               juce::Justification::right, false);
+}
+
+int MixerView::InsertRackPopup::eqNodeAt(juce::Point<float> pos, juce::Rectangle<float> area,
+                                         const InsertSlotState &state) const
+{
+    auto plot = area.reduced(10.0f, 12.0f);
+    const auto freqToX = [&](float f)
+    {
+        const float t = std::log(std::max(20.0f, f) / 20.0f) / std::log(1000.0f);
+        return plot.getX() + juce::jlimit(0.0f, 1.0f, t) * plot.getWidth();
+    };
+    const auto gainToY = [&](float db)
+    {
+        return plot.getCentreY() - juce::jlimit(-18.0f, 18.0f, db) / 18.0f * plot.getHeight() * 0.5f;
+    };
+
+    const std::array<juce::Point<float>, 5> nodes {{
+        {freqToX(80.0f), gainToY(state.values[0])},
+        {freqToX(state.values[2]), gainToY(state.values[1])},
+        {freqToX(10000.0f), gainToY(state.values[3])},
+        {freqToX(state.values[4]), plot.getBottom() - 4.0f},
+        {freqToX(state.values[5]), plot.getBottom() - 4.0f},
+    }};
+
+    int best = -1;
+    float bestDistance = 18.0f;
+    for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
+    {
+        const float d = nodes[static_cast<size_t>(i)].getDistanceFrom(pos);
+        if (d < bestDistance)
+        {
+            best = i;
+            bestDistance = d;
+        }
+    }
+    return best;
+}
+
+void MixerView::InsertRackPopup::moveEqNode(int node, juce::Point<float> pos, juce::Rectangle<float> area,
+                                            const InsertSlotState &state)
+{
+    auto plot = area.reduced(10.0f, 12.0f);
+    const float xNorm = juce::jlimit(0.0f, 1.0f, (pos.x - plot.getX()) / plot.getWidth());
+    const float freq = 20.0f * std::pow(1000.0f, xNorm);
+    const float db = juce::jlimit(-12.0f, 12.0f,
+                                 (plot.getCentreY() - pos.y) / (plot.getHeight() * 0.5f) * 18.0f);
+
+    auto set = [&](int index, float value)
+    {
+        processor.getSampler().setInsertValue(busTarget, channel, selectedSlot, index, value);
+    };
+
+    switch (node)
+    {
+        case 0: set(0, db); break;
+        case 1:
+            set(2, freq);
+            set(1, db);
+            break;
+        case 2: set(3, db); break;
+        case 3: set(4, juce::jlimit(20.0f, 300.0f, freq)); break;
+        case 4: set(5, juce::jlimit(3000.0f, 20000.0f, freq)); break;
+        default: break;
+    }
+    juce::ignoreUnused(state);
+    repaint();
 }
 
 void MixerView::InsertRackPopup::paint(juce::Graphics &g)
@@ -1206,6 +1466,10 @@ void MixerView::InsertRackPopup::paint(juce::Graphics &g)
     const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
     if (state.type == InsertType::eq)
         drawEqGraph(g, graphBounds);
+    else if (state.type == InsertType::compressor)
+        drawCompressorMeter(g, graphBounds);
+    else if (state.type == InsertType::clipper)
+        drawClipperCurve(g, graphBounds);
 
     if (state.type == InsertType::none)
     {
@@ -1270,6 +1534,18 @@ void MixerView::InsertRackPopup::resized()
 
 void MixerView::InsertRackPopup::mouseDown(const juce::MouseEvent &e)
 {
+    const auto selected = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
+    if (selected.type == InsertType::eq && graphBounds.contains(e.position))
+    {
+        const int node = eqNodeAt(e.position, graphBounds, selected);
+        if (node >= 0)
+        {
+            draggingEqNode = node;
+            moveEqNode(node, e.position, graphBounds, selected);
+            return;
+        }
+    }
+
     const int slot = slotAt(e.position);
     if (slot < 0)
         return;
@@ -1307,6 +1583,13 @@ void MixerView::InsertRackPopup::mouseDown(const juce::MouseEvent &e)
 
 void MixerView::InsertRackPopup::mouseDrag(const juce::MouseEvent &e)
 {
+    if (draggingEqNode >= 0)
+    {
+        const auto selected = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
+        moveEqNode(draggingEqNode, e.position, graphBounds, selected);
+        return;
+    }
+
     if (dragFrom < 0)
         return;
     if (!dragging && e.position.getDistanceFrom(dragStart) < 7.0f)
@@ -1319,6 +1602,12 @@ void MixerView::InsertRackPopup::mouseDrag(const juce::MouseEvent &e)
 
 void MixerView::InsertRackPopup::mouseUp(const juce::MouseEvent &)
 {
+    if (draggingEqNode >= 0)
+    {
+        draggingEqNode = -1;
+        return;
+    }
+
     if (dragging && dragFrom >= 0 && dragTo >= 0 && dragTo != dragFrom)
     {
         processor.getSampler().moveInsert(busTarget, channel, dragFrom, dragTo);
@@ -3522,39 +3811,24 @@ void MixerView::closePopups()
         presetBrowser->close();
 }
 
-void MixerView::showInsertMenu(bool bus, int channelIndex, int slot)
+void MixerView::showInsertMenu(bool bus, int channelIndex, int slot, juce::Component *target,
+                               juce::Rectangle<int> area)
 {
-    juce::PopupMenu menu;
-    menu.addSectionHeader("ADD INSERT");
-    menu.addItem(1, "Graphical EQ");
-    menu.addItem(2, "Compressor");
-    menu.addItem(3, "Drive");
-    menu.addItem(4, "Transient Shaper");
-    menu.addItem(5, "Limiter");
-    menu.addItem(6, "Clipper");
-    menu.addSeparator();
-    menu.addItem(7, "Off");
+    auto picker = std::make_unique<InsertTypePicker>(
+        theme,
+        [this, bus, channelIndex, slot](InsertType type)
+        {
+            processor.getSampler().setInsertType(bus, channelIndex, slot, type);
+            for (auto &strip : channelStrips)
+                if (strip != nullptr)
+                    strip->repaint();
+            for (auto &strip : busStrips)
+                if (strip != nullptr)
+                    strip->repaint();
+        });
 
-    juce::Component::SafePointer<MixerView> safe(this);
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
-                       [safe, bus, channelIndex, slot](int result)
-                       {
-                           if (safe == nullptr || result <= 0)
-                               return;
-                           auto type = InsertType::none;
-                           switch (result)
-                           {
-                               case 1: type = InsertType::eq; break;
-                               case 2: type = InsertType::compressor; break;
-                               case 3: type = InsertType::drive; break;
-                               case 4: type = InsertType::transient; break;
-                               case 5: type = InsertType::limiter; break;
-                               case 6: type = InsertType::clipper; break;
-                               default: break;
-                           }
-                           safe->processor.getSampler().setInsertType(bus, channelIndex, slot, type);
-                           safe->refreshChannels();
-                       });
+    const auto screenArea = target != nullptr ? target->localAreaToGlobal(area) : juce::Rectangle<int>(0, 0, 1, 1);
+    juce::CallOutBox::launchAsynchronously(std::move(picker), screenArea, nullptr);
 }
 
 void MixerView::applyPreset(int presetIndex)

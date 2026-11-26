@@ -97,6 +97,20 @@ void Knob::paint(juce::Graphics &g)
     const auto labelArea = bounds.removeFromBottom(labelHeight);
     const auto knobArea = bounds.reduced(3.0f);
 
+    const auto valueText = [this]()
+    {
+        const float v = getValue();
+        int decimals = 1;
+        if (unitString == "Hz" || std::abs(v) >= 100.0f)
+            decimals = 0;
+        else if (std::abs(v) < 1.0f)
+            decimals = 2;
+        juce::String text(v, decimals);
+        if (unitString.isNotEmpty())
+            text += " " + unitString;
+        return text;
+    };
+
     const auto centre = knobArea.getCentre();
     const auto radius = juce::jmin(knobArea.getWidth(), knobArea.getHeight()) * 0.44f;
 
@@ -194,7 +208,8 @@ void Knob::paint(juce::Graphics &g)
         {
             g.setFont(font);
             g.setColour(theme.inkSoft);
-            g.drawText(labelText.toUpperCase(), labelArea, juce::Justification::centred, false);
+            g.drawFittedText(labelText.toUpperCase() + " " + valueText(),
+                             labelArea.toNearestInt(), juce::Justification::centred, 1, 0.55f);
         }
         return;
     }
@@ -252,7 +267,8 @@ void Knob::paint(juce::Graphics &g)
     {
         g.setFont(font);
         g.setColour(theme.ink);
-        g.drawText(labelText, labelArea, juce::Justification::centred, false);
+        g.drawFittedText(labelText + " " + valueText(), labelArea.toNearestInt(),
+                         juce::Justification::centred, 1, 0.55f);
     }
 }
 

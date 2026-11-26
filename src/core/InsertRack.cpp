@@ -173,7 +173,7 @@ void InsertSlot::reset()
 
 InsertSlotState InsertSlot::state() const noexcept
 {
-    return {type, bypass, values};
+    return {type, bypass, gainReductionDb, values};
 }
 
 void InsertSlot::setType(InsertType newType)
@@ -191,7 +191,10 @@ void InsertSlot::setType(InsertType newType)
 void InsertSlot::process(float *left, float *right, int numSamples)
 {
     if (!prepared || type == InsertType::none || bypass || numSamples <= 0)
+    {
+        gainReductionDb = 0.0f;
         return;
+    }
 
     switch (type)
     {
@@ -225,7 +228,23 @@ void InsertSlot::process(float *left, float *right, int numSamples)
             p.saturationDrive = 0.0f;
             p.transientAttack = 0.0f;
             p.transientSustain = 0.0f;
+
+            float inPeak = 0.0f;
+            for (int i = 0; i < numSamples; ++i)
+                inPeak = std::max(inPeak, std::max(std::abs(left[i]), std::abs(right[i])));
+
             fx.process(left, right, numSamples, p, nullptr, nullptr);
+
+            float outPeak = 0.0f;
+            for (int i = 0; i < numSamples; ++i)
+                outPeak = std::max(outPeak, std::max(std::abs(left[i]), std::abs(right[i])));
+
+            if (inPeak > 1.0e-5f)
+                gainReductionDb = std::clamp(20.0f * std::log10(inPeak / std::max(1.0e-5f, outPeak))
+                                                 - values[4],
+                                             0.0f, 30.0f);
+            else
+                gainReductionDb = 0.0f;
             break;
         }
         case InsertType::drive:

@@ -69,6 +69,7 @@ struct InsertSlotState
 {
     InsertType type = InsertType::none;
     bool bypass = false;
+    float gainReductionDb = 0.0f;
     std::array<float, 6> values {};
 };
 
@@ -76,6 +77,7 @@ struct InsertSlot
 {
     InsertType type = InsertType::none;
     bool bypass = false;
+    float gainReductionDb = 0.0f;
     std::array<float, 6> values {};
 
     void prepare(double sampleRate, int maxBlockSize);
