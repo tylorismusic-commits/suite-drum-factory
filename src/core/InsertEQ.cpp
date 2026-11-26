@@ -321,16 +321,43 @@ void buildSections(EqBiquad *sections, int &count, int index, const EqBandSettin
 
 void InsertEq::setSettings(const InsertEqSettings &settings) noexcept
 {
-    for (int i = 0; i < eqBandCount; ++i)
-        updateBand(i, settings.bands[static_cast<size_t>(i)]);
+    bool active = false;
 
-    outputGain = dbToGain(settings.outputGainDb);
+    for (int i = 0; i < eqBandCount; ++i)
+    {
+        const auto &next = settings.bands[static_cast<size_t>(i)];
+        const auto &previous = current.bands[static_cast<size_t>(i)];
+
+        const bool changed = !hasCurrent || next.on != previous.on || next.freq != previous.freq
+                             || next.gainDb != previous.gainDb || next.q != previous.q
+                             || next.slope != previous.slope;
+        if (changed)
+            updateBand(i, next);
+
+        current.bands[static_cast<size_t>(i)] = next;
+        active = active || bands[static_cast<size_t>(i)].active;
+    }
+
+    if (!hasCurrent || settings.outputGainDb != current.outputGainDb)
+        outputGain = dbToGain(settings.outputGainDb);
+
+    current.outputGainDb = settings.outputGainDb;
+    anyActive = active;
+    hasCurrent = true;
 }
 
 void InsertEq::updateBand(int index, const EqBandSettings &settings) noexcept
 {
     auto &band = bands[static_cast<size_t>(index)];
-    const bool active = settings.on && std::isfinite(settings.freq);
+    const auto shape = eqBandShape(index);
+
+    bool active = settings.on && std::isfinite(settings.freq);
+    if (active && eqBandHasGain(index) && std::abs(settings.gainDb) < 1.0e-4f)
+        active = false;
+    if (active && shape == EqBandShape::lowCut && settings.freq <= 21.0f)
+        active = false;
+    if (active && shape == EqBandShape::highCut && settings.freq >= 19500.0f)
+        active = false;
 
     int count = 0;
     if (active)
@@ -351,6 +378,9 @@ void InsertEq::updateBand(int index, const EqBandSettings &settings) noexcept
 void InsertEq::process(float *left, float *right, int numSamples) noexcept
 {
     if (left == nullptr || right == nullptr || numSamples <= 0)
+        return;
+
+    if (!anyActive && std::abs(outputGain - 1.0f) <= 1.0e-6f)
         return;
 
     for (auto &band : bands)

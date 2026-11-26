@@ -849,6 +849,11 @@ void Sampler::calibrateFactoryPieces()
         if (target > 0.0f && ref.source != "naked")
             gain = std::clamp(target / measured, 0.10f, 16.0f);
 
+        // The Naked base is the reference, but Snare 2 is a hotter variant.
+        // Match it to Snare 1 so the two choices are interchangeable in a mix.
+        if (ref.source == "naked" && micChannels[piece]->name.containsIgnoreCase("snare_2"))
+            gain = std::clamp(0.071f / measured, 0.10f, 4.0f);
+
         // Crocell's snare is slightly forward even after matching; take a
         // small trim rather than changing every other snare.
         if (ref.source == "crocell" && ref.role == "snare.main")
@@ -1114,7 +1119,7 @@ void Sampler::moveInsert(bool bus, int channel, int from, int to)
         chain->moveSlot(from, to);
 }
 
-void Sampler::applyMixerPreset(const MixerPreset &preset)
+void Sampler::applyMixerPreset(const MixerPreset &preset, bool preserveRouting)
 {
     masterStripParams = preset.master;
 
@@ -1140,9 +1145,12 @@ void Sampler::applyMixerPreset(const MixerPreset &preset)
         for (size_t i = 0; i < preset.micStrips.size() && i < micChannels.size(); ++i)
         {
             auto next = preset.micStrips[i];
-            // Direct output routing is a technical choice, not a mix flavour.
-            next.outputBus = micChannels[i]->params.outputBus;
-            next.sendToMaster = micChannels[i]->params.sendToMaster;
+            if (preserveRouting)
+            {
+                // Direct output routing is a technical choice, not a mix flavour.
+                next.outputBus = micChannels[i]->params.outputBus;
+                next.sendToMaster = micChannels[i]->params.sendToMaster;
+            }
             micChannels[i]->params = next;
         }
 
@@ -1169,8 +1177,11 @@ void Sampler::applyMixerPreset(const MixerPreset &preset)
             if (presetName.equalsIgnoreCase(channel->name) || presetName.equalsIgnoreCase(channel->title))
             {
                 auto next = preset.micStrips[i];
-                next.outputBus = channel->params.outputBus;
-                next.sendToMaster = channel->params.sendToMaster;
+                if (preserveRouting)
+                {
+                    next.outputBus = channel->params.outputBus;
+                    next.sendToMaster = channel->params.sendToMaster;
+                }
                 channel->params = next;
                 used[i] = true;
                 break;
@@ -2901,9 +2912,26 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             const int instBus = (v.instrument >= 0 && v.instrument < static_cast<int>(instrumentBuses.size()))
                                     ? instrumentBuses[static_cast<size_t>(v.instrument)]
                                     : 0;
-            const bool hasAuxBus = !factoryPieceMode && multiOutMode.load() && (instBus > 0)
-                                   && (instBus < totalBuses) && (output[instBus * 2] != nullptr)
-                                   && (output[instBus * 2 + 1] != nullptr);
+            bool hasAuxBus = !factoryPieceMode && multiOutMode.load() && (instBus > 0)
+                             && (instBus < totalBuses) && (output[instBus * 2] != nullptr)
+                             && (output[instBus * 2 + 1] != nullptr);
+
+            // When a mic strip itself is routed direct, keep the instrument in
+            // the mic path so the strip inserts, fader and pan are applied
+            // before the signal reaches the host bus.
+            if (hasAuxBus)
+            {
+                for (const auto &channelRef : hit.channels)
+                {
+                    const int micIdx = std::clamp(channelRef.kitChannelIndex, 0, numMics - 1);
+                    if (micChannels[static_cast<size_t>(micIdx)]->params.outputBus > 0)
+                    {
+                        hasAuxBus = false;
+                        break;
+                    }
+                }
+            }
+
             float *const auxDestL = hasAuxBus ? output[instBus * 2] : nullptr;
             float *const auxDestR = hasAuxBus ? output[instBus * 2 + 1] : nullptr;
 
@@ -2995,6 +3023,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     const float channelGainR = plan.gainR * (plan.room ? plan.bleed : 1.0f);
                     const float roomGainL = plan.room ? plan.gainL * (1.0f - plan.bleed) : 0.0f;
                     const float roomGainR = plan.room ? plan.gainR * (1.0f - plan.bleed) : 0.0f;
+                    const bool addRoom = roomGainL != 0.0f || roomGainR != 0.0f;
                     const double startOffset = v.position - static_cast<double>(resamplePos);
 
                     for (int i = 0; i < numSamples; ++i)
@@ -3007,8 +3036,11 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         const float sample = s0 + frac * (s1 - s0);
                         chL[i] += sample * channelGainL;
                         chR[i] += sample * channelGainR;
-                        roomL[i] += sample * roomGainL;
-                        roomR[i] += sample * roomGainR;
+                        if (addRoom)
+                        {
+                            roomL[i] += sample * roomGainL;
+                            roomR[i] += sample * roomGainR;
+                        }
                     }
                 }
 
@@ -3237,9 +3269,13 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                                                     : juce::jlimit(0.0f, 1.0f, roomParams.bleed);
                             const float l = sample * channelRef.gainL * instGainL * effGain;
                             const float r = sample * channelRef.gainR * instGainR * effGain;
-                            busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
-                            busScratchR[4][static_cast<size_t>(i)] += r * (1.0f - bleed);
-                            if (static_cast<size_t>(micIdx) < pieceRoomL.size()
+                            if (bleed < 0.999f)
+                            {
+                                busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
+                                busScratchR[4][static_cast<size_t>(i)] += r * (1.0f - bleed);
+                            }
+                            if (bleed > 0.001f
+                                && static_cast<size_t>(micIdx) < pieceRoomL.size()
                                 && static_cast<size_t>(i) < pieceRoomL[static_cast<size_t>(micIdx)].size())
                             {
                                 pieceRoomL[static_cast<size_t>(micIdx)][static_cast<size_t>(i)] += l * bleed;
@@ -3305,9 +3341,13 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                                                     : juce::jlimit(0.0f, 1.0f, roomParams.bleed);
                             const float l = sample * channelRef.gainL * instGainL * effGain;
                             const float r = sample * channelRef.gainR * instGainR * effGain;
-                            busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
-                            busScratchR[4][static_cast<size_t>(i)] += r * (1.0f - bleed);
-                            if (static_cast<size_t>(micIdx) < pieceRoomL.size()
+                            if (bleed < 0.999f)
+                            {
+                                busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
+                                busScratchR[4][static_cast<size_t>(i)] += r * (1.0f - bleed);
+                            }
+                            if (bleed > 0.001f
+                                && static_cast<size_t>(micIdx) < pieceRoomL.size()
                                 && static_cast<size_t>(i) < pieceRoomL[static_cast<size_t>(micIdx)].size())
                             {
                                 pieceRoomL[static_cast<size_t>(micIdx)][static_cast<size_t>(i)] += l * bleed;

@@ -2952,7 +2952,7 @@ void MixerView::PresetBrowserPopup::applyEntry(int index)
             return;
 
         owner.activePresetName = preset.name;
-        processor.getSampler().applyMixerPreset(preset);
+        processor.getSampler().applyMixerPreset(preset, true);
 
         for (auto &strip : owner.channelStrips)
             strip->updateFromState();
@@ -4153,7 +4153,7 @@ void MixerView::applyPreset(int presetIndex)
     const auto preset = MixerPreset::createConfigurationMix(presetIndex, pieces);
     activePresetName = preset.name;
 
-    processor.getSampler().applyMixerPreset(preset);
+    processor.getSampler().applyMixerPreset(preset, true);
 
     for (auto &s : channelStrips)
         s->updateFromState();

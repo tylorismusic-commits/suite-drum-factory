@@ -1650,17 +1650,42 @@ MixerPreset MixerPreset::createConfigurationMix(int flavour, const std::vector<M
         const auto title = piece.name.toLowerCase();
         const auto module = piece.module.toLowerCase();
 
-        const bool isKick = role.startsWith("kick.") || title.contains("kick");
-        const bool isSnare = role.startsWith("snare.") || title.contains("snare") || title.contains("rim");
-        const bool isTom = role.startsWith("tom.") || title.contains("tom");
-        const bool isCymbal = role.startsWith("base.") || title.contains("crash") || title.contains("ride")
-                              || title.contains("hihat") || title.contains("hat") || title.contains("china")
-                              || title.contains("splash") || title.contains("cymbal");
+        const bool isRoom = title.contains("amb") || title.contains("room") || title.contains("overhead")
+                            || title.contains("oh") || title.contains("o/h");
+        const bool isBottom = ! isRoom
+                              && (title.contains("bottom") || title.contains("under") || title.contains("btm"));
+        const bool isKick = ! isRoom
+                            && (role.startsWith("kick.") || title.contains("kick") || title.contains("kdrum")
+                                || title.contains("bdrum"));
+        const bool isSnare = ! isRoom && ! isBottom
+                             && (role.startsWith("snare.") || title.contains("snare") || title.contains("rim"));
+        const bool isTom = ! isRoom && (role.startsWith("tom.") || title.contains("tom"));
+        const bool isCymbal = ! isRoom
+                              && (role.startsWith("base.") || title.contains("crash") || title.contains("ride")
+                                  || title.contains("hihat") || title.contains("hat") || title.contains("china")
+                                  || title.contains("splash") || title.contains("cymbal"));
 
         MicStripParams s;
         s.reverbSend = 0.04f;
 
-        if (isKick)
+        if (isRoom)
+        {
+            s.level = room ? 0.72f : (tight ? 0.42f : (punch ? 0.52f : 0.60f));
+            s.hpfHz = 110.0f;
+            s.lpfHz = 16000.0f;
+            s.eqLowGainDb = -1.5f;
+            s.eqHighGainDb = -1.0f;
+            s.reverbSend = 0.03f;
+            const bool centered = title.contains("center") || title.contains("centre") || title.contains("mono");
+            if (! centered)
+            {
+                if (title.contains("left") || title.endsWith("l"))
+                    s.pan = -0.65f;
+                else if (title.contains("right") || title.endsWith("r"))
+                    s.pan = 0.65f;
+            }
+        }
+        else if (isKick)
         {
             s.level = punch ? 1.05f : 1.0f;
             s.hpfHz = tight ? 35.0f : 25.0f;
@@ -1677,6 +1702,21 @@ MixerPreset MixerPreset::createConfigurationMix(int flavour, const std::vector<M
             s.compMakeupDb = 1.0f;
             s.transientAttack = punch ? 0.30f : 0.10f;
             s.reverbSend = 0.02f;
+        }
+        else if (isBottom)
+        {
+            s.level = punch ? 0.60f : 0.55f;
+            s.hpfHz = tight ? 140.0f : 100.0f;
+            s.lpfHz = 9000.0f;
+            s.eqLowGainDb = -1.0f;
+            s.eqHighGainDb = -1.5f;
+            s.compEnabled = true;
+            s.compThresholdDb = -20.0f;
+            s.compRatio = 2.5f;
+            s.compAttackMs = 12.0f;
+            s.compReleaseMs = 90.0f;
+            s.compMakeupDb = 1.0f;
+            s.reverbSend = 0.04f;
         }
         else if (isSnare)
         {
@@ -1712,8 +1752,10 @@ MixerPreset MixerPreset::createConfigurationMix(int flavour, const std::vector<M
             s.compReleaseMs = 120.0f;
             s.compMakeupDb = 1.0f;
 
-            const int number = juce::jlimit(1, 5, role.fromFirstOccurrenceOf("tom.", false, false).getIntValue());
-            const int slot = number > 0 ? number - 1 : tomOrdinal;
+            const int parsed = role.startsWith("tom.")
+                                   ? role.fromFirstOccurrenceOf("tom.", false, false).getIntValue()
+                                   : 0;
+            const int slot = parsed > 0 ? juce::jlimit(0, 4, parsed - 1) : juce::jlimit(0, 4, tomOrdinal);
             s.pan = juce::jlimit(-0.5f, 0.5f, -0.42f + static_cast<float>(slot) * 0.21f);
             ++tomOrdinal;
             s.reverbSend = tight ? 0.04f : 0.07f;

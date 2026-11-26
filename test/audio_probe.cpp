@@ -13,6 +13,221 @@
 #include <iostream>
 #include <thread>
 
+
+namespace
+{
+struct QaStats
+{
+    float peak = 0.0f;
+    float directPeak = 0.0f;
+    double rms = 0.0;
+    int nonFinite = 0;
+    double wall = 0.0;
+    int blocks = 0;
+};
+
+void installAllInserts (glorp::PluginProcessor& proc)
+{
+    auto& sampler = proc.getSampler();
+    const auto eq = glorp::InsertType::eq;
+    const auto comp = glorp::InsertType::compressor;
+    const auto drive = glorp::InsertType::drive;
+    const auto transient = glorp::InsertType::transient;
+    const auto limiter = glorp::InsertType::limiter;
+    const auto clipper = glorp::InsertType::clipper;
+
+    for (int ch = 0; ch < sampler.numMicStrips(); ++ch)
+    {
+        sampler.setInsertType (false, ch, 0, eq);
+        sampler.setInsertType (false, ch, 1, comp);
+        sampler.setInsertType (false, ch, 2, drive);
+        sampler.setInsertType (false, ch, 3, (ch % 3) == 0 ? transient : ((ch % 3) == 1 ? limiter : clipper));
+
+        sampler.setInsertValue (false, ch, 0, glorp::eqParamFreq (3), 250.0f + 35.0f * static_cast<float> (ch));
+        sampler.setInsertValue (false, ch, 0, glorp::eqParamGain (3), 3.0f);
+        sampler.setInsertValue (false, ch, 0, glorp::eqParamGain (1), 1.5f);
+        sampler.setInsertValue (false, ch, 0, glorp::eqParamFreq (0), 30.0f);
+        sampler.setInsertValue (false, ch, 1, 4, 4.0f);
+        sampler.setInsertValue (false, ch, 2, 0, 0.30f);
+
+        if ((ch % 3) == 0)
+        {
+            sampler.setInsertValue (false, ch, 3, 0, 0.30f);
+            sampler.setInsertValue (false, ch, 3, 1, -0.10f);
+        }
+        else if ((ch % 3) == 1)
+        {
+            sampler.setInsertValue (false, ch, 3, 0, -0.5f);
+            sampler.setInsertValue (false, ch, 3, 1, 60.0f);
+        }
+        else
+        {
+            sampler.setInsertValue (false, ch, 3, 0, 0.40f);
+            sampler.setInsertValue (false, ch, 3, 1, -0.5f);
+        }
+    }
+
+    auto addBus = [&] (int busIndex)
+    {
+        sampler.setInsertType (true, busIndex, 0, eq);
+        sampler.setInsertType (true, busIndex, 1, comp);
+        sampler.setInsertType (true, busIndex, 2, limiter);
+        sampler.setInsertType (true, busIndex, 3, clipper);
+        sampler.setInsertValue (true, busIndex, 0, glorp::eqParamGain (1), 1.0f);
+        sampler.setInsertValue (true, busIndex, 0, glorp::eqParamGain (6), 0.8f);
+        sampler.setInsertValue (true, busIndex, 1, 4, 2.0f);
+        sampler.setInsertValue (true, busIndex, 3, 0, 0.25f);
+    };
+
+    for (int b = 0; b < sampler.numFactoryBuses(); ++b)
+        addBus (b);
+    addBus (5);
+}
+
+QaStats renderNote (glorp::PluginProcessor& proc, int note, double seconds)
+{
+    QaStats stats;
+    proc.prepareToPlay (48000.0, 512);
+    juce::AudioBuffer<float> buffer (32, 512);
+    const int blocks = static_cast<int> ((seconds * 48000.0) / 512.0);
+    double sumSq = 0.0;
+    int64_t frames = 0;
+
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, static_cast<juce::uint8> (100)), 0);
+        buffer.clear();
+        proc.processBlock (buffer, midi);
+
+        for (int ch = 0; ch < 4; ++ch)
+        {
+            const auto* data = buffer.getReadPointer (ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float v = data[i];
+                if (! std::isfinite (v))
+                    ++stats.nonFinite;
+                if (ch < 2)
+                {
+                    stats.peak = std::max (stats.peak, std::abs (v));
+                    sumSq += static_cast<double> (v) * v;
+                }
+                else
+                {
+                    stats.directPeak = std::max (stats.directPeak, std::abs (v));
+                }
+            }
+        }
+        frames += static_cast<int64_t> (buffer.getNumSamples()) * 2;
+    }
+
+    stats.rms = std::sqrt (sumSq / static_cast<double> (std::max<int64_t> (1, frames)));
+    stats.blocks = blocks;
+    return stats;
+}
+
+QaStats renderDense (glorp::PluginProcessor& proc, double seconds, int hitEveryBlocks = 3)
+{
+    QaStats stats;
+    proc.prepareToPlay (48000.0, 512);
+
+    juce::AudioBuffer<float> buffer (32, 512);
+    std::vector<int> notes;
+    auto& map = proc.getMidiMap();
+    for (int i = 0; i < proc.getSampler().numInstruments(); ++i)
+    {
+        const int note = map.noteForInstrument (i);
+        if (note >= 0)
+            notes.push_back (note);
+    }
+    if (notes.empty())
+        for (int note = 36; note <= 50; ++note)
+            notes.push_back (note);
+
+    const int blocks = static_cast<int> ((seconds * 48000.0) / 512.0);
+    double sumSq = 0.0;
+    int64_t frames = 0;
+
+    const auto start = std::chrono::steady_clock::now();
+
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::MidiBuffer midi;
+        if ((block % std::max (1, hitEveryBlocks)) == 0)
+        {
+            for (size_t n = 0; n < notes.size(); ++n)
+                midi.addEvent (juce::MidiMessage::noteOn (1, notes[n],
+                                                          static_cast<juce::uint8> (70 + (n % 40))),
+                               static_cast<int> (n % 7));
+        }
+
+        buffer.clear();
+        proc.processBlock (buffer, midi);
+
+        for (int ch = 0; ch < 4; ++ch)
+        {
+            const auto* data = buffer.getReadPointer (ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float v = data[i];
+                if (! std::isfinite (v))
+                    ++stats.nonFinite;
+                if (ch < 2)
+                {
+                    stats.peak = std::max (stats.peak, std::abs (v));
+                    sumSq += static_cast<double> (v) * v;
+                }
+                else
+                {
+                    stats.directPeak = std::max (stats.directPeak, std::abs (v));
+                }
+            }
+        }
+
+        for (int ch = 4; ch < 8; ++ch)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (! std::isfinite (buffer.getSample (ch, i)))
+                    ++stats.nonFinite;
+
+        frames += static_cast<int64_t> (buffer.getNumSamples()) * 2;
+    }
+
+    const auto end = std::chrono::steady_clock::now();
+    stats.wall = std::chrono::duration<double> (end - start).count();
+    stats.rms = std::sqrt (sumSq / static_cast<double> (std::max<int64_t> (1, frames)));
+    stats.blocks = blocks;
+    return stats;
+}
+
+std::vector<glorp::MixPieceInfo> currentPieces (glorp::PluginProcessor& proc)
+{
+    const auto& selection = proc.getFactorySelection();
+    const auto moduleForRole = [&selection] (const juce::String& role) -> juce::String
+    {
+        if (role.startsWithIgnoreCase ("kick."))
+            return juce::String (selection.kickModule);
+        if (role.startsWithIgnoreCase ("snare."))
+            return juce::String (selection.snareModule);
+        if (role.startsWithIgnoreCase ("tom."))
+        {
+            const int number = juce::jlimit (1, 5, role.fromFirstOccurrenceOf (".", false, false).getIntValue());
+            return juce::String (selection.tomModules[static_cast<size_t> (number - 1)]);
+        }
+        return "naked";
+    };
+
+    std::vector<glorp::MixPieceInfo> pieces;
+    for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)
+    {
+        const auto role = proc.getSampler().micStripRole (i);
+        pieces.push_back ({ proc.getSampler().micStripTitle (i), role, moduleForRole (role) });
+    }
+    return pieces;
+}
+} // namespace
+
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -145,6 +360,321 @@ int main (int argc, char** argv)
     std::cout << "Load error: " << proc.getLastKitError().toStdString() << std::endl;
     std::cout << "Instruments: " << proc.getSampler().numInstruments()
               << ", mics: " << proc.getCurrentKit().channels.size() << std::endl;
+
+    if (std::getenv ("GLORP_PROBE_STATE") != nullptr)
+    {
+        auto& sampler = proc.getSampler();
+
+        int strip = 0;
+        for (int i = 0; i < sampler.numMicStrips(); ++i)
+            if (sampler.micStripTitle (i).containsIgnoreCase ("kick"))
+            {
+                strip = i;
+                break;
+            }
+
+        sampler.setInsertType (false, strip, 0, glorp::InsertType::eq);
+        sampler.setInsertValue (false, strip, 0, glorp::eqParamFreq (3), 777.0f);
+        sampler.setInsertValue (false, strip, 0, glorp::eqParamGain (3), 5.5f);
+        sampler.setInsertValue (false, strip, 0, glorp::eqParamQ (3), 2.2f);
+        sampler.setInsertValue (false, strip, 0, glorp::eqParamFreq (0), 45.0f);
+        sampler.setInsertType (false, strip, 1, glorp::InsertType::compressor);
+        sampler.setInsertValue (false, strip, 1, 0, -22.0f);
+
+        sampler.setInsertType (true, 0, 0, glorp::InsertType::limiter);
+        sampler.setInsertValue (true, 0, 0, 0, -3.0f);
+        sampler.setInsertType (true, 5, 0, glorp::InsertType::clipper);
+        sampler.setInsertValue (true, 5, 0, 0, 0.6f);
+
+        if (sampler.numFactoryBuses() > 0)
+        {
+            auto bus = sampler.getFactoryBusParams (0);
+            bus.level = 0.42f;
+            sampler.setFactoryBusParams (0, bus);
+        }
+
+        proc.setMicOutputBus (strip, 3);
+
+        juce::MemoryBlock block;
+        proc.getStateInformation (block);
+
+        sampler.setInsertType (false, strip, 0, glorp::InsertType::none);
+        sampler.setInsertType (false, strip, 1, glorp::InsertType::none);
+        sampler.setInsertType (true, 0, 0, glorp::InsertType::none);
+        sampler.setInsertType (true, 5, 0, glorp::InsertType::none);
+        proc.setMicOutputBus (strip, 0);
+        if (sampler.numFactoryBuses() > 0)
+        {
+            auto bus = sampler.getFactoryBusParams (0);
+            bus.level = 1.0f;
+            sampler.setFactoryBusParams (0, bus);
+        }
+
+        proc.setStateInformation (block.getData(), static_cast<int> (block.getSize()));
+
+        const auto eq = sampler.getInsertState (false, strip, 0);
+        const auto comp = sampler.getInsertState (false, strip, 1);
+        const auto limiter = sampler.getInsertState (true, 0, 0);
+        const auto clipper = sampler.getInsertState (true, 5, 0);
+
+        bool ok = eq.type == glorp::InsertType::eq
+                  && std::abs (eq.values[static_cast<size_t> (glorp::eqParamFreq (3))] - 777.0f) < 0.5f
+                  && std::abs (eq.values[static_cast<size_t> (glorp::eqParamGain (3))] - 5.5f) < 0.05f
+                  && std::abs (eq.values[static_cast<size_t> (glorp::eqParamQ (3))] - 2.2f) < 0.05f
+                  && std::abs (eq.values[static_cast<size_t> (glorp::eqParamFreq (0))] - 45.0f) < 0.5f;
+        ok = ok && comp.type == glorp::InsertType::compressor && std::abs (comp.values[0] + 22.0f) < 0.05f;
+        ok = ok && limiter.type == glorp::InsertType::limiter && std::abs (limiter.values[0] + 3.0f) < 0.05f;
+        ok = ok && clipper.type == glorp::InsertType::clipper && std::abs (clipper.values[0] - 0.6f) < 0.05f;
+        ok = ok && sampler.getMicOutputBus (strip) == 3;
+
+        if (sampler.numFactoryBuses() > 0)
+            ok = ok && std::abs (sampler.getFactoryBusParams (0).level - 0.42f) < 0.01f;
+
+        std::cout << "state roundtrip " << (ok ? "PASS" : "FAIL")
+                  << " eqType=" << static_cast<int> (eq.type)
+                  << " eqFreq=" << eq.values[static_cast<size_t> (glorp::eqParamFreq (3))]
+                  << " eqGain=" << eq.values[static_cast<size_t> (glorp::eqParamGain (3))]
+                  << " compType=" << static_cast<int> (comp.type)
+                  << " limiterType=" << static_cast<int> (limiter.type)
+                  << " clipperType=" << static_cast<int> (clipper.type)
+                  << " outBus=" << sampler.getMicOutputBus (strip) << std::endl;
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_BUSES") != nullptr)
+    {
+        for (int i = 0; i < proc.getSampler().numInstruments(); ++i)
+            std::cout << "instrument " << i << " \"" << proc.getSampler().instrumentName (i).toStdString()
+                      << "\" role=" << proc.getSampler().instrumentRole (i).toStdString()
+                      << " bus=" << proc.getSampler().getInstrumentBus (i) << std::endl;
+        for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)
+            std::cout << "strip " << i << " \"" << proc.getSampler().micStripName (i).toStdString()
+                      << "\" title=\"" << proc.getSampler().micStripTitle (i).toStdString() << "\"" << std::endl;
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_MATRIX") != nullptr)
+    {
+        const auto configs = proc.getFactoryConfigurations();
+        std::cout << "matrix configs=" << configs.size() << std::endl;
+
+        for (const auto& config : configs)
+        {
+            proc.applyFactoryConfiguration (config);
+            const int strips = proc.getSampler().numMicStrips();
+            const int instruments = proc.getSampler().numInstruments();
+            std::cout << "matrix " << config.name.toStdString() << " strips=" << strips
+                      << " instruments=" << instruments
+                      << " err=" << proc.getLastKitError().toStdString() << std::endl;
+
+            if (strips <= 0 || instruments <= 0)
+            {
+                std::cout << "  FAIL: empty configuration" << std::endl;
+                continue;
+            }
+
+            const auto pieces = currentPieces (proc);
+            for (int flavour = 0; flavour < 4; ++flavour)
+            {
+                const auto preset = glorp::MixerPreset::createConfigurationMix (flavour, pieces);
+                proc.getSampler().applyMixerPreset (preset);
+
+                bool valid = preset.micStrips.size() == static_cast<size_t> (strips)
+                             && preset.busStrips.size() == 5;
+                for (const auto& strip : preset.micStrips)
+                    valid = valid && std::isfinite (strip.level) && strip.level >= 0.0f && strip.level <= 4.0f
+                            && std::isfinite (strip.pan) && strip.pan >= -1.0f && strip.pan <= 1.0f;
+                for (const auto& bus : preset.busStrips)
+                    valid = valid && std::isfinite (bus.level) && bus.level >= 0.0f && bus.level <= 4.0f;
+
+                if (! valid)
+                    std::cout << "  FAIL: preset " << preset.name.toStdString() << " values out of range" << std::endl;
+            }
+
+            installAllInserts (proc);
+            const auto stats = renderDense (proc, 2.0);
+            const auto rtf = stats.wall > 0.0 ? 2.0 / stats.wall : 0.0;
+            std::cout << "  peakDb=" << juce::Decibels::gainToDecibels (stats.peak)
+                      << " rmsDb=" << juce::Decibels::gainToDecibels (static_cast<float> (stats.rms))
+                      << " nonFinite=" << stats.nonFinite
+                      << " wall=" << stats.wall << "s rtf=" << rtf << std::endl;
+            if (stats.nonFinite > 0 || stats.peak <= 0.0f)
+                std::cout << "  FAIL: invalid render" << std::endl;
+        }
+
+        // Naked Snare 2 is a separate module choice, not a piece toggle.
+        proc.setFactorySnareModule ("naked2");
+        {
+            const auto stats = renderDense (proc, 1.0);
+            bool foundSnare2 = false;
+            for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)
+                foundSnare2 = foundSnare2 || proc.getSampler().micStripTitle (i).equalsIgnoreCase ("Snare 2");
+            std::cout << "naked2 strips=" << proc.getSampler().numMicStrips()
+                      << " foundSnare2=" << (foundSnare2 ? 1 : 0)
+                      << " peakDb=" << juce::Decibels::gainToDecibels (stats.peak)
+                      << " nonFinite=" << stats.nonFinite << std::endl;
+        }
+        proc.setFactorySnareModule ("naked");
+
+        // Snare 1 / Snare 2 alternation and piece disabling on the Naked base.
+        for (const auto& config : configs)
+        {
+            if (config.name != "Naked Drums")
+                continue;
+
+            proc.applyFactoryConfiguration (config);
+            std::vector<glorp::factory::PieceEntry> snares;
+            for (const auto& piece : proc.getFactoryPieces())
+                if (juce::String (piece.name).containsIgnoreCase ("snare")
+                    || juce::String (piece.id).containsIgnoreCase ("snare"))
+                    snares.push_back (piece);
+
+            for (const auto& piece : snares)
+                proc.setFactoryPieceEnabled (piece.moduleId, piece.id, false);
+
+            for (size_t i = 0; i < snares.size(); ++i)
+            {
+                proc.setFactoryPieceEnabled (snares[i].moduleId, snares[i].id, true);
+                const auto stats = renderDense (proc, 1.0);
+                std::cout << "snare-toggle " << snares[i].name << " strips=" << proc.getSampler().numMicStrips()
+                          << " peakDb=" << juce::Decibels::gainToDecibels (stats.peak)
+                          << " nonFinite=" << stats.nonFinite << std::endl;
+                proc.setFactoryPieceEnabled (snares[i].moduleId, snares[i].id, false);
+            }
+            break;
+        }
+
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_OUTSIDE") != nullptr)
+    {
+        juce::File dir = proc.getSettings().getConfigDirectory().getChildFile ("kits");
+        if (const auto* dirEnv = std::getenv ("GLORP_PROBE_OUTSIDE_DIR"))
+            dir = juce::File (dirEnv);
+        else if (! dir.isDirectory())
+            dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                      .getChildFile ("SuiteDrumsGlorp/kits");
+
+        juce::Array<juce::File> kits;
+        dir.findChildFiles (kits, juce::File::findFiles, false, "*.glorpkit");
+        juce::Array<juce::File> kitDirs;
+        dir.findChildFiles (kitDirs, juce::File::findDirectories, false);
+        for (const auto& d : kitDirs)
+            if (d.getChildFile ("drumkit.xml").existsAsFile())
+                kits.add (d.getChildFile ("drumkit.xml"));
+
+        int limit = 12;
+        if (const auto* limitEnv = std::getenv ("GLORP_PROBE_OUTSIDE_LIMIT"))
+            limit = juce::jmax (1, juce::String (limitEnv).getIntValue());
+
+        std::cout << "outside kits=" << kits.size() << " limit=" << limit << std::endl;
+
+        int index = 0;
+        for (const auto& kit : kits)
+        {
+            if (index++ >= limit)
+                break;
+
+            proc.loadKit (kit.getFullPathName());
+            const int strips = proc.getSampler().numMicStrips();
+            const int instruments = proc.getSampler().numInstruments();
+            std::cout << "outside " << kit.getFileName().toStdString()
+                      << " factoryPieceMode=" << (proc.getSampler().isFactoryPieceMode() ? 1 : 0)
+                      << " strips=" << strips << " instruments=" << instruments
+                      << " err=" << proc.getLastKitError().toStdString() << std::endl;
+
+            if (strips <= 0 || instruments <= 0)
+            {
+                std::cout << "  FAIL: outside kit did not load" << std::endl;
+                continue;
+            }
+
+            const auto pieces = currentPieces (proc);
+            proc.getSampler().applyMixerPreset (glorp::MixerPreset::createConfigurationMix (0, pieces));
+            installAllInserts (proc);
+
+            auto stats = renderDense (proc, 1.0);
+            std::cout << "  peakDb=" << juce::Decibels::gainToDecibels (stats.peak)
+                      << " rmsDb=" << juce::Decibels::gainToDecibels (static_cast<float> (stats.rms))
+                      << " nonFinite=" << stats.nonFinite << " directPeak=" << stats.directPeak << std::endl;
+
+            int directStrip = 0;
+            for (int i = 0; i < strips; ++i)
+            {
+                const auto title = proc.getSampler().micStripTitle (i).toLowerCase();
+                if (title.contains ("snare") || title.contains ("kick"))
+                {
+                    directStrip = i;
+                    break;
+                }
+            }
+
+            const auto directTitle = proc.getSampler().micStripTitle (directStrip).toLowerCase();
+            const int directNote = directTitle.contains ("snare") ? 38 : 36;
+
+            proc.setMicOutputBus (directStrip, 1);
+            stats = renderNote (proc, directNote, 0.5);
+            const float beforeInsert = stats.directPeak;
+            std::cout << "  direct strip=" << directStrip << " note=" << directNote
+                      << " peakDb=" << juce::Decibels::gainToDecibels (stats.peak)
+                      << " directPeakDb=" << juce::Decibels::gainToDecibels (stats.directPeak)
+                      << " nonFinite=" << stats.nonFinite << std::endl;
+
+            proc.getSampler().setInsertValue (false, directStrip, 0, glorp::eqParamOutputGain, -18.0f);
+            stats = renderNote (proc, directNote, 0.5);
+            std::cout << "  direct with -18dB insert directPeakDb="
+                      << juce::Decibels::gainToDecibels (stats.directPeak)
+                      << " deltaDb="
+                      << juce::Decibels::gainToDecibels (stats.directPeak)
+                             - juce::Decibels::gainToDecibels (beforeInsert)
+                      << std::endl;
+            proc.getSampler().setInsertValue (false, directStrip, 0, glorp::eqParamOutputGain, 0.0f);
+            proc.setMicOutputBus (directStrip, 0);
+
+            if (stats.nonFinite > 0)
+                std::cout << "  FAIL: non-finite samples" << std::endl;
+        }
+
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_DSPSTRESS") != nullptr)
+    {
+        if (! proc.getSampler().isFactoryPieceMode())
+        {
+            const auto configs = proc.getFactoryConfigurations();
+            for (const auto& config : configs)
+            {
+                if (config.name == "Naked Drums")
+                {
+                    proc.applyFactoryConfiguration (config);
+                    break;
+                }
+            }
+        }
+
+        const auto pieces = currentPieces (proc);
+        proc.getSampler().applyMixerPreset (glorp::MixerPreset::createConfigurationMix (0, pieces));
+        installAllInserts (proc);
+
+        for (int strip : {0, 3, 6})
+            if (strip < proc.getSampler().numMicStrips())
+                proc.setMicOutputBus (strip, 1);
+
+        const auto stats = renderDense (proc, 15.0, 2);
+        const auto rtf = stats.wall > 0.0 ? 15.0 / stats.wall : 0.0;
+        std::cout << "dspstress peak=" << stats.peak
+                  << " peakDb=" << juce::Decibels::gainToDecibels (stats.peak)
+                  << " rmsDb=" << juce::Decibels::gainToDecibels (static_cast<float> (stats.rms))
+                  << " directPeak=" << stats.directPeak
+                  << " nonFinite=" << stats.nonFinite
+                  << " blocks=" << stats.blocks
+                  << " wall=" << stats.wall << "s"
+                  << " rtf=" << rtf
+                  << " activeVoices=" << proc.getSampler().activeVoiceCount() << std::endl;
+        return 0;
+    }
 
     if (const auto* midiPath = std::getenv ("GLORP_PROBE_MIDI"))
     {

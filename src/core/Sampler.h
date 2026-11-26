@@ -251,7 +251,7 @@ class Sampler
     void setInsertValue(bool bus, int channel, int slot, int param, float value);
     void moveInsert(bool bus, int channel, int from, int to);
 
-    void applyMixerPreset(const MixerPreset &preset);
+    void applyMixerPreset(const MixerPreset &preset, bool preserveRouting = false);
     MixerPreset getCurrentMixerPreset(const juce::String &name) const;
 
     float getMicPeakL(int index) const noexcept;

@@ -104,6 +104,9 @@ class InsertEq
 
     double sr = 48000.0;
     std::array<BandRuntime, eqBandCount> bands {};
+    InsertEqSettings current {};
+    bool hasCurrent = false;
+    bool anyActive = false;
     float outputGain = 1.0f;
 };
 
