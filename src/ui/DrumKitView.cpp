@@ -130,7 +130,7 @@ const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &sing
         juce::Point<float>(0.523f, 0.109f), // splash 1 bow
         juce::Point<float>(0.596f, 0.109f), // splash 2 bow
         juce::Point<float>(0.148f, 0.373f), // china 1 bow
-        juce::Point<float>(0.925f, 0.545f), // china 2 bow
+        juce::Point<float>(0.856f, 0.533f), // china 2 bow
     }};
 
     return points;

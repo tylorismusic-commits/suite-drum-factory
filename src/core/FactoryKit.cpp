@@ -178,6 +178,40 @@ bool readCatalog(const std::string &moduleId, const std::string &path, Catalog &
     return catalog.valid;
 }
 
+int tomOrdinalForSlot(const std::string &moduleId, int slot)
+{
+    if (slot < 0 || slot >= tomSlots)
+        return -1;
+
+    if (moduleId == "salamander" || moduleId == "monster")
+    {
+        if (slot == 0)
+            return 0;
+        if (slot == 2)
+            return 1;
+        return -1;
+    }
+
+    return slot;
+}
+
+int tomSlotForOrdinal(const std::string &moduleId, int ordinal)
+{
+    if (ordinal < 0)
+        return -1;
+
+    if (moduleId == "salamander" || moduleId == "monster")
+    {
+        if (ordinal == 0)
+            return 0;
+        if (ordinal == 1)
+            return 2;
+        return -1;
+    }
+
+    return ordinal < tomSlots ? ordinal : -1;
+}
+
 std::vector<CatalogPiece> tomsOf(const Catalog &catalog)
 {
     std::vector<CatalogPiece> toms;
@@ -251,10 +285,11 @@ std::string moduleKitPath(const std::string &moduleId)
 std::vector<std::string> Selection::usedModules() const
 {
     std::vector<std::string> used;
-    auto add = [&used](const std::string &id)
+    auto add = [&used](const std::string &rawId)
     {
-        if (id.empty())
+        if (rawId.empty())
             return;
+        const std::string id = rawId == "naked2" ? "naked" : rawId;
         if (std::find(used.begin(), used.end(), id) == used.end())
             used.push_back(id);
     };
@@ -281,8 +316,10 @@ std::vector<Configuration> factoryConfigurations()
         c.factory = true;
         c.selection.kickModule = module;
         c.selection.snareModule = module;
-        for (auto &tom : c.selection.tomModules)
-            tom = module;
+        c.selection.tomModules = {"", "", "", "", ""};
+        for (int slot = 0; slot < tomSlots; ++slot)
+            c.selection.tomModules[static_cast<size_t>(slot)] =
+                tomOrdinalForSlot(module, slot) >= 0 ? module : std::string();
         return c;
     };
 
@@ -307,7 +344,7 @@ std::vector<Configuration> factoryConfigurations()
     vintage.factory = true;
     vintage.selection.kickModule = "salamander";
     vintage.selection.snareModule = "drs";
-    vintage.selection.tomModules = {"monster", "monster", "", "", ""};
+    vintage.selection.tomModules = {"monster", "", "monster", "", ""};
     list.push_back(std::move(vintage));
 
     return list;
@@ -396,6 +433,14 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
 
             const auto original = ch.name;
             ch.name = id + "_" + original;
+
+            // A bottom snare mic is normally polarity-inverted; Crocell ships
+            // it unflagged, which makes the snare thick and forward.
+            const auto micLower = lowerCopy(original);
+            if (id == "crocell"
+                && (micLower.find("snarebottom") != std::string::npos
+                    || micLower.find("snare_bottom") != std::string::npos))
+                ch.phaseInvert = true;
             if (!ch.title.empty())
                 ch.title = name + " " + ch.title;
             else
@@ -448,7 +493,8 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
                            const DrumKit::LogicalPiece &srcLp,
                            bool include,
                            ShellKind shellKind,
-                           int shellSlot)
+                           int shellSlot,
+                           bool forceSnareMain = false)
     {
         PieceEntry entry;
         entry.moduleId = moduleId;
@@ -516,45 +562,40 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
             }
             else if (shellKind == ShellKind::snare)
             {
-                const auto lower = roleToken(srcLp.name + " " + srcLp.id + " " + zi.name);
-                if (lower.find("stick") != std::string::npos || lower.find("rim") != std::string::npos)
-                {
-                    suggestedNote = 37;
-                    midiRole = "snare.stick";
-                }
-                else if (lower.find("rest") != std::string::npos || lower.find("off") != std::string::npos)
-                {
-                    suggestedNote = lower.find("2") != std::string::npos ? 41 : 39;
-                    midiRole = lower.find("2") != std::string::npos ? "snare.rest2" : "snare.rest";
-                }
-                else if (lower.find("2") != std::string::npos)
-                {
-                    suggestedNote = 40;
-                    midiRole = "snare.2";
-                }
-                else
+                if (forceSnareMain)
                 {
                     suggestedNote = 38;
                     midiRole = "snare.main";
+                }
+                else
+                {
+                    const auto lower = roleToken(srcLp.name + " " + srcLp.id + " " + zi.name);
+                    if (lower.find("stick") != std::string::npos || lower.find("rim") != std::string::npos)
+                    {
+                        suggestedNote = 37;
+                        midiRole = "snare.stick";
+                    }
+                    else if (lower.find("rest") != std::string::npos || lower.find("off") != std::string::npos)
+                    {
+                        suggestedNote = lower.find("2") != std::string::npos ? 41 : 39;
+                        midiRole = lower.find("2") != std::string::npos ? "snare.rest2" : "snare.rest";
+                    }
+                    else if (lower.find("2") != std::string::npos)
+                    {
+                        suggestedNote = 40;
+                        midiRole = "snare.2";
+                    }
+                    else
+                    {
+                        suggestedNote = 38;
+                        midiRole = "snare.main";
+                    }
                 }
             }
             else if (shellKind == ShellKind::tom)
             {
                 static const int tomNotes[tomSlots] {48, 47, 45, 43, 41};
-
-                // Salamander and Monster call their floor tom "Low Tom" and
-                // number it 2. Visually it belongs on the floor (tom.3), so
-                // keep the kit picture honest even though the source lists it
-                // as the second tom.
-                int roleSlot = std::clamp(shellSlot, 0, tomSlots - 1);
-                const auto tomName = roleToken(srcLp.name + " " + srcLp.id);
-                if ((moduleId == "salamander" || moduleId == "monster")
-                    && (tomName.find("low") != std::string::npos || tomName.find("ftom") != std::string::npos
-                        || tomName.find("floor") != std::string::npos))
-                {
-                    roleSlot = 2; // tom.3 = floor tom
-                }
-
+                const int roleSlot = std::clamp(shellSlot, 0, tomSlots - 1);
                 suggestedNote = tomNotes[roleSlot];
                 midiRole = "tom." + std::to_string(roleSlot + 1);
             }
@@ -601,15 +642,31 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
                                 ShellKind::kick, 0);
     }
 
-    // Snare: every snare piece from the chosen source (Crocell has a rest too).
+    // Snare: one Naked snare variant, or every snare piece from a module
+    // (Crocell also has a rest).
     if (!selection.snareModule.empty())
     {
-        const auto *kit = findKit(kits, selection.snareModule);
-        if (kit != nullptr)
+        if (selection.snareModule == "naked" || selection.snareModule == "naked2")
+        {
+            const auto *kit = base;
+            const std::string wanted = selection.snareModule == "naked2" ? "snare_2" : "snare_1";
             for (const auto &lp : kit->logicalPieces)
-                if (classifyPiece(lp.name, lp.id) == PieceClass::snare)
-                    appendPiece(selection.snareModule, *kit, lp, enabled(selection.snareModule, lp.id),
-                                ShellKind::snare, 0);
+                if (lp.id == wanted || (wanted == "snare_1" && lp.id == "snare"))
+                {
+                    appendPiece("naked", *kit, lp, enabled("naked", lp.id), ShellKind::snare, 0,
+                                selection.snareModule == "naked2");
+                    break;
+                }
+        }
+        else
+        {
+            const auto *kit = findKit(kits, selection.snareModule);
+            if (kit != nullptr)
+                for (const auto &lp : kit->logicalPieces)
+                    if (classifyPiece(lp.name, lp.id) == PieceClass::snare)
+                        appendPiece(selection.snareModule, *kit, lp, enabled(selection.snareModule, lp.id),
+                                    ShellKind::snare, 0);
+        }
     }
 
     // Toms: each slot can come from a different module.
@@ -623,15 +680,19 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
         if (kit == nullptr)
             continue;
 
+        const int ordinal = tomOrdinalForSlot(moduleId, slot);
+        if (ordinal < 0)
+            continue;
+
         const auto toms = sortedTomPieces(*kit);
-        if (slot >= static_cast<int>(toms.size()))
+        if (ordinal >= static_cast<int>(toms.size()))
         {
             out.warnings.push_back(moduleName(moduleId) + " has only " + std::to_string(toms.size())
                                    + " toms; tom slot " + std::to_string(slot + 1) + " is empty.");
             continue;
         }
 
-        const auto *lp = toms[static_cast<size_t>(slot)];
+        const auto *lp = toms[static_cast<size_t>(ordinal)];
         appendPiece(moduleId, *kit, *lp, enabled(moduleId, lp->id), ShellKind::tom, slot);
     }
 
@@ -694,6 +755,18 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
             const auto it = names.find(name);
             out.factoryMicPhaseInvert[it != names.end() ? it->second : name] = value;
         }
+
+        if (id == "crocell")
+        {
+            for (const auto &[original, mapped] : names)
+            {
+                const auto micLower = lowerCopy(original);
+                if (micLower.find("snarebottom") != std::string::npos
+                    || micLower.find("snare_bottom") != std::string::npos)
+                    out.factoryMicPhaseInvert[mapped] = true;
+            }
+        }
+
         out.warnings.insert(out.warnings.end(), kit->warnings.begin(), kit->warnings.end());
     }
 

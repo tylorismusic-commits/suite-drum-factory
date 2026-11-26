@@ -1979,8 +1979,9 @@ void Editor::updateShellSlotButtons()
         if (const auto it = catalogs.find(tomModuleIds[static_cast<size_t>(slot)]); it != catalogs.end())
         {
             const auto toms = factory::tomsOf(it->second);
-            if (slot < static_cast<int>(toms.size()))
-                tomPieceIds[static_cast<size_t>(slot)] = toms[static_cast<size_t>(slot)].id;
+            const int ordinal = factory::tomOrdinalForSlot(tomModuleIds[static_cast<size_t>(slot)], slot);
+            if (ordinal >= 0 && ordinal < static_cast<int>(toms.size()))
+                tomPieceIds[static_cast<size_t>(slot)] = toms[static_cast<size_t>(ordinal)].id;
         }
 
         const auto visual = visualPieceFor(tomModuleIds[static_cast<size_t>(slot)],
@@ -2041,8 +2042,22 @@ void Editor::showShellSlotMenu(ShellSlotKind kind, int slot)
                              : (kind == ShellSlotKind::snare ? processor.getFactorySnareModule().toStdString()
                                                              : processor.getFactoryTomModule(slot).toStdString());
 
+    auto nakedHasSnare2 = [&]()
+    {
+        const auto it = catalogs.find("naked");
+        if (it == catalogs.end())
+            return false;
+        for (const auto &piece : it->second.pieces)
+            if (piece.id == "snare_2")
+                return true;
+        return false;
+    };
+
     auto available = [&](const std::string &id)
     {
+        if (id == "naked2")
+            return kind == ShellSlotKind::snare && nakedHasSnare2();
+
         if (id == "naked")
             return catalogs.count("naked") != 0;
 
@@ -2051,7 +2066,10 @@ void Editor::showShellSlotMenu(ShellSlotKind kind, int slot)
             return false;
 
         if (kind == ShellSlotKind::tom)
-            return slot < static_cast<int>(factory::tomsOf(it->second).size());
+        {
+            const int ordinal = factory::tomOrdinalForSlot(id, slot);
+            return ordinal >= 0 && ordinal < static_cast<int>(factory::tomsOf(it->second).size());
+        }
 
         const auto wanted = kind == ShellSlotKind::kick ? factory::PieceClass::kick : factory::PieceClass::snare;
         for (const auto &piece : it->second.pieces)
@@ -2061,9 +2079,21 @@ void Editor::showShellSlotMenu(ShellSlotKind kind, int slot)
     };
 
     std::vector<std::string> choices {"naked"};
+    if (kind == ShellSlotKind::snare && nakedHasSnare2())
+        choices.push_back("naked2");
     for (const auto &m : factory::modules())
         if (available(m.id))
             choices.push_back(m.id);
+
+    auto choiceLabel = [&](const std::string &id)
+    {
+        if (id == "naked")
+            return kind == ShellSlotKind::snare ? juce::String("Naked Drums: Snare 1")
+                                                : juce::String("Naked Drums");
+        if (id == "naked2")
+            return juce::String("Naked Drums: Snare 2");
+        return juce::String(factory::moduleName(id));
+    };
 
     juce::PopupMenu menu;
     const auto title = kind == ShellSlotKind::kick
@@ -2073,7 +2103,7 @@ void Editor::showShellSlotMenu(ShellSlotKind kind, int slot)
     menu.addSectionHeader(title);
 
     for (int i = 0; i < static_cast<int>(choices.size()); ++i)
-        menu.addItem(100 + i, juce::String(factory::moduleName(choices[static_cast<size_t>(i)])), true,
+        menu.addItem(100 + i, choiceLabel(choices[static_cast<size_t>(i)]), true,
                      current == choices[static_cast<size_t>(i)]);
 
     menu.addSeparator();

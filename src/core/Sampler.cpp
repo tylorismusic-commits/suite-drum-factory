@@ -671,6 +671,11 @@ void Sampler::calibrateFactoryPieces()
         if (target > 0.0f && ref.source != "naked")
             gain = std::clamp(target / measured, 0.10f, 16.0f);
 
+        // Crocell's snare is slightly forward even after matching; take a
+        // small trim rather than changing every other snare.
+        if (ref.source == "crocell" && ref.role == "snare.main")
+            gain *= 0.92f;
+
         micChannels[piece]->autoGain = gain;
 
         if (debug)

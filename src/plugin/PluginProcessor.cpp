@@ -115,6 +115,18 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
     for (const auto &key : settings.factoryDisabledPieces)
         factorySelection.disabled.insert(key.toStdString());
 
+    // Older settings could put a Salamander/Monster low tom in visual Tom 2.
+    // Those kits have no Tom 2; move that choice to Tom 3.
+    for (int slot = 0; slot < factory::tomSlots; ++slot)
+    {
+        const auto &id = factorySelection.tomModules[static_cast<size_t>(slot)];
+        if ((id == "salamander" || id == "monster") && slot == 1)
+        {
+            factorySelection.tomModules[2] = id;
+            factorySelection.tomModules[1] = "";
+        }
+    }
+
     {
         const auto basePath = factory::baseKitPath();
         if (!basePath.empty())

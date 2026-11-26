@@ -70,6 +70,12 @@ bool readCatalog(const std::string &moduleId, const std::string &path, Catalog &
 /// Toms in playing order, highest pitch first.
 std::vector<CatalogPiece> tomsOf(const Catalog &catalog);
 
+/// Visual tom slot (0..4) -> source tom ordinal, or -1 when the module has no
+/// tom for that visual position. Salamander/Monster have no Tom 2: their high
+/// tom is Tom 1 and their low tom is Tom 3.
+int tomOrdinalForSlot(const std::string &moduleId, int slot);
+int tomSlotForOrdinal(const std::string &moduleId, int ordinal);
+
 /// A candidate piece before enable/disable filtering. `moduleId` is the stable
 /// source id ("naked", "crocell", ...) and `id` is the id inside that source kit.
 struct PieceEntry
