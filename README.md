@@ -52,6 +52,10 @@ Drums Glorp.
   compressor gain reduction and clipper transfer curves live.
 - Insert racks and bus levels are saved in the plugin state, so reopening a
   project restores the mixer.
+- **MIXES** opens the preset browser. Factory mixes are rebuilt for the active
+  configuration — Balanced, Punch, Room and Tight — and adapt their levels,
+  pans, EQ, compression, reverb sends and sum faders to the loaded kick, snare
+  and tom source modules.
 - Source-mic polarity is applied automatically while the piece is summed, so
   modules that mark a mic out of phase (for example DRS Kdrum_back) need no
   manual setup.

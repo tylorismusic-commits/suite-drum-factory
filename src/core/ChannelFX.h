@@ -207,12 +207,21 @@ class MasterFX
 //==============================================================================
 /** Named Mixer Preset (.glorpmix).
  */
+/// Description of one played piece, used to build configuration-aware mixes.
+struct MixPieceInfo
+{
+    juce::String name;
+    juce::String role;   ///< stable role key, e.g. "kick.main" or "base.naked.ride"
+    juce::String module; ///< source module id, e.g. "naked", "drs", "crocell"
+};
+
 struct MixerPreset
 {
     juce::String name;
     MasterStripParams master;
     std::vector<MicStripParams> micStrips;
     std::vector<juce::String> micNames;
+    std::vector<MicStripParams> busStrips; ///< Kick, Snare, Toms, Cymbals, Room sums
 
     static MixerPreset createDefaultClean(int numMics, const std::vector<juce::String> &names);
     static MixerPreset createMassiveRock(int numMics, const std::vector<juce::String> &names);
@@ -220,6 +229,11 @@ struct MixerPreset
     static MixerPreset createPunchyStudio(int numMics, const std::vector<juce::String> &names);
     static MixerPreset createDryTight(int numMics, const std::vector<juce::String> &names);
     static MixerPreset createMixReady(int numMics, const std::vector<juce::String> &names);
+
+    /// Builds a mix-ready preset for the exact pieces in the current
+    /// configuration. Flavours: 0 balanced, 1 punch, 2 room, 3 tight.
+    static MixerPreset createConfigurationMix(int flavour, const std::vector<MixPieceInfo> &pieces);
+    static juce::String configurationMixName(int flavour);
 
     juce::String toXmlString() const;
     static bool fromXmlString(const juce::String &xmlText, MixerPreset &outPreset);

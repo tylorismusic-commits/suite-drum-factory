@@ -1502,6 +1502,297 @@ MixerPreset MixerPreset::createMixReady(int numMics, const std::vector<juce::Str
 // XML Serialization
 //==============================================================================
 
+namespace
+{
+void writeMicStripXml(juce::XmlElement &e, const MicStripParams &s)
+{
+    e.setAttribute("level", static_cast<double>(s.level));
+    e.setAttribute("pan", static_cast<double>(s.pan));
+    e.setAttribute("mono", s.mono);
+    e.setAttribute("mute", s.mute);
+    e.setAttribute("solo", s.solo);
+    e.setAttribute("phaseInvert", s.phaseInvert);
+
+    e.setAttribute("hpfHz", static_cast<double>(s.hpfHz));
+    e.setAttribute("lpfHz", static_cast<double>(s.lpfHz));
+
+    e.setAttribute("eqEnabled", s.eqEnabled);
+    e.setAttribute("eqLowGainDb", static_cast<double>(s.eqLowGainDb));
+    e.setAttribute("eqMidGainDb", static_cast<double>(s.eqMidGainDb));
+    e.setAttribute("eqMidFreq", static_cast<double>(s.eqMidFreq));
+    e.setAttribute("eqMidQ", static_cast<double>(s.eqMidQ));
+    e.setAttribute("eqHighGainDb", static_cast<double>(s.eqHighGainDb));
+
+    e.setAttribute("compEnabled", s.compEnabled);
+    e.setAttribute("compThresholdDb", static_cast<double>(s.compThresholdDb));
+    e.setAttribute("compRatio", static_cast<double>(s.compRatio));
+    e.setAttribute("compAttackMs", static_cast<double>(s.compAttackMs));
+    e.setAttribute("compReleaseMs", static_cast<double>(s.compReleaseMs));
+    e.setAttribute("compMakeupDb", static_cast<double>(s.compMakeupDb));
+
+    e.setAttribute("saturationDrive", static_cast<double>(s.saturationDrive));
+    e.setAttribute("transientAttack", static_cast<double>(s.transientAttack));
+    e.setAttribute("transientSustain", static_cast<double>(s.transientSustain));
+    e.setAttribute("reverbSend", static_cast<double>(s.reverbSend));
+    e.setAttribute("bleed", static_cast<double>(s.bleed));
+    e.setAttribute("outputBus", s.outputBus);
+    e.setAttribute("sendToMaster", s.sendToMaster ? 1 : 0);
+}
+
+MicStripParams readMicStripXml(const juce::XmlElement &e)
+{
+    MicStripParams s;
+    s.level = static_cast<float>(e.getDoubleAttribute("level", 1.0));
+    s.pan = static_cast<float>(e.getDoubleAttribute("pan", 0.0));
+    s.mono = e.getBoolAttribute("mono", false);
+    s.mute = e.getBoolAttribute("mute", false);
+    s.solo = e.getBoolAttribute("solo", false);
+    s.phaseInvert = e.getBoolAttribute("phaseInvert", false);
+
+    s.hpfHz = static_cast<float>(e.getDoubleAttribute("hpfHz", 20.0));
+    s.lpfHz = static_cast<float>(e.getDoubleAttribute("lpfHz", 20000.0));
+
+    s.eqEnabled = e.getBoolAttribute("eqEnabled", true);
+    s.eqLowGainDb = static_cast<float>(e.getDoubleAttribute("eqLowGainDb", 0.0));
+    s.eqMidGainDb = static_cast<float>(e.getDoubleAttribute("eqMidGainDb", 0.0));
+    s.eqMidFreq = static_cast<float>(e.getDoubleAttribute("eqMidFreq", 1000.0));
+    s.eqMidQ = static_cast<float>(e.getDoubleAttribute("eqMidQ", 1.0));
+    s.eqHighGainDb = static_cast<float>(e.getDoubleAttribute("eqHighGainDb", 0.0));
+
+    s.compEnabled = e.getBoolAttribute("compEnabled", false);
+    s.compThresholdDb = static_cast<float>(e.getDoubleAttribute("compThresholdDb", -14.0));
+    s.compRatio = static_cast<float>(e.getDoubleAttribute("compRatio", 3.0));
+    s.compAttackMs = static_cast<float>(e.getDoubleAttribute("compAttackMs", 15.0));
+    s.compReleaseMs = static_cast<float>(e.getDoubleAttribute("compReleaseMs", 100.0));
+    s.compMakeupDb = static_cast<float>(e.getDoubleAttribute("compMakeupDb", 0.0));
+
+    s.saturationDrive = static_cast<float>(e.getDoubleAttribute("saturationDrive", 0.0));
+    s.transientAttack = static_cast<float>(e.getDoubleAttribute("transientAttack", 0.0));
+    s.transientSustain = static_cast<float>(e.getDoubleAttribute("transientSustain", 0.0));
+    s.reverbSend = static_cast<float>(e.getDoubleAttribute("reverbSend", 0.0));
+    s.bleed = static_cast<float>(e.getDoubleAttribute("bleed", 0.15));
+    s.outputBus = juce::jlimit(0, 15, e.getIntAttribute("outputBus", 0));
+    s.sendToMaster = e.getBoolAttribute("sendToMaster", false);
+    return s;
+}
+} // namespace
+
+juce::String MixerPreset::configurationMixName(int flavour)
+{
+    switch (flavour)
+    {
+        case 0: return "Balanced";
+        case 1: return "Punch";
+        case 2: return "Room";
+        case 3: return "Tight";
+        default: return "Balanced";
+    }
+}
+
+MixerPreset MixerPreset::createConfigurationMix(int flavour, const std::vector<MixPieceInfo> &pieces)
+{
+    flavour = juce::jlimit(0, 3, flavour);
+    const bool punch = flavour == 1;
+    const bool room = flavour == 2;
+    const bool tight = flavour == 3;
+
+    MixerPreset preset;
+    preset.name = configurationMixName(flavour);
+
+    preset.master = MasterStripParams {};
+    preset.master.level = 0.85f;
+    preset.master.limiterEnabled = true;
+    preset.master.reverbReturn = room ? 0.34f : (tight ? 0.13f : 0.22f);
+    preset.master.reverbSize = room ? 0.58f : (tight ? 0.30f : 0.45f);
+    preset.master.reverbDamp = 0.38f;
+    preset.master.reverbWidth = 0.90f;
+    preset.master.busEqLowDb = punch ? 0.9f : 0.4f;
+    preset.master.busEqHighDb = tight ? 0.2f : 0.6f;
+    preset.master.busCompEnabled = punch;
+    if (punch)
+    {
+        preset.master.busCompThresholdDb = -12.0f;
+        preset.master.busCompRatio = 2.5f;
+        preset.master.busCompAttackMs = 20.0f;
+        preset.master.busCompReleaseMs = 180.0f;
+        preset.master.busCompMakeupDb = 1.0f;
+        preset.master.busCompMix = 0.55f;
+    }
+    preset.master.busSaturationDrive = punch ? 0.12f : 0.05f;
+
+    // Sum faders: Kick, Snare, Toms, Cymbals, Room.
+    preset.busStrips.resize(5);
+    for (auto &bus : preset.busStrips)
+    {
+        bus = MicStripParams {};
+        bus.reverbSend = 0.04f;
+    }
+
+    preset.busStrips[0].level = punch ? 1.05f : 1.0f;
+    preset.busStrips[0].reverbSend = 0.02f;
+    preset.busStrips[1].level = 0.95f;
+    preset.busStrips[1].reverbSend = 0.05f;
+    preset.busStrips[2].level = punch ? 0.88f : 0.82f;
+    preset.busStrips[3].level = tight ? 0.70f : (room ? 0.86f : 0.80f);
+    preset.busStrips[3].eqHighGainDb = -0.8f;
+    preset.busStrips[4].level = room ? 1.0f : (tight ? 0.48f : (punch ? 0.62f : 0.75f));
+    preset.busStrips[4].reverbSend = 0.12f;
+
+    preset.micStrips.reserve(pieces.size());
+    preset.micNames.reserve(pieces.size());
+
+    int tomOrdinal = 0;
+    int cymbalOrdinal = 0;
+
+    for (const auto &piece : pieces)
+    {
+        const auto role = piece.role.toLowerCase();
+        const auto title = piece.name.toLowerCase();
+        const auto module = piece.module.toLowerCase();
+
+        const bool isKick = role.startsWith("kick.") || title.contains("kick");
+        const bool isSnare = role.startsWith("snare.") || title.contains("snare") || title.contains("rim");
+        const bool isTom = role.startsWith("tom.") || title.contains("tom");
+        const bool isCymbal = role.startsWith("base.") || title.contains("crash") || title.contains("ride")
+                              || title.contains("hihat") || title.contains("hat") || title.contains("china")
+                              || title.contains("splash") || title.contains("cymbal");
+
+        MicStripParams s;
+        s.reverbSend = 0.04f;
+
+        if (isKick)
+        {
+            s.level = punch ? 1.05f : 1.0f;
+            s.hpfHz = tight ? 35.0f : 25.0f;
+            s.lpfHz = 14000.0f;
+            s.eqLowGainDb = punch ? 2.5f : (tight ? 1.5f : 2.0f);
+            s.eqMidGainDb = tight ? -2.0f : -1.5f;
+            s.eqMidFreq = 450.0f;
+            s.eqHighGainDb = tight ? -0.5f : 0.0f;
+            s.compEnabled = true;
+            s.compThresholdDb = tight ? -20.0f : -16.0f;
+            s.compRatio = tight ? 4.0f : 3.0f;
+            s.compAttackMs = 20.0f;
+            s.compReleaseMs = 120.0f;
+            s.compMakeupDb = 1.0f;
+            s.transientAttack = punch ? 0.30f : 0.10f;
+            s.reverbSend = 0.02f;
+        }
+        else if (isSnare)
+        {
+            s.level = punch ? 0.92f : 0.85f;
+            s.hpfHz = tight ? 95.0f : 70.0f;
+            s.lpfHz = 16000.0f;
+            s.eqLowGainDb = 1.0f;
+            s.eqMidGainDb = tight ? -2.5f : -1.8f;
+            s.eqMidFreq = 650.0f;
+            s.eqHighGainDb = 1.5f;
+            s.compEnabled = true;
+            s.compThresholdDb = -18.0f;
+            s.compRatio = 3.0f;
+            s.compAttackMs = 12.0f;
+            s.compReleaseMs = 90.0f;
+            s.compMakeupDb = 1.5f;
+            s.transientAttack = punch ? 0.30f : 0.12f;
+            s.reverbSend = tight ? 0.05f : 0.09f;
+        }
+        else if (isTom)
+        {
+            s.level = punch ? 0.78f : (tight ? 0.68f : 0.74f);
+            s.hpfHz = tight ? 90.0f : 60.0f;
+            s.lpfHz = 14000.0f;
+            s.eqLowGainDb = 1.0f;
+            s.eqMidGainDb = tight ? -2.0f : -1.3f;
+            s.eqMidFreq = 500.0f;
+            s.eqHighGainDb = 0.8f;
+            s.compEnabled = true;
+            s.compThresholdDb = -20.0f;
+            s.compRatio = 2.5f;
+            s.compAttackMs = 18.0f;
+            s.compReleaseMs = 120.0f;
+            s.compMakeupDb = 1.0f;
+
+            const int number = juce::jlimit(1, 5, role.fromFirstOccurrenceOf("tom.", false, false).getIntValue());
+            const int slot = number > 0 ? number - 1 : tomOrdinal;
+            s.pan = juce::jlimit(-0.5f, 0.5f, -0.42f + static_cast<float>(slot) * 0.21f);
+            ++tomOrdinal;
+            s.reverbSend = tight ? 0.04f : 0.07f;
+        }
+        else if (isCymbal)
+        {
+            const float base = title.contains("hihat") || title.contains("hat") ? 0.44f
+                               : title.contains("ride")                       ? 0.50f
+                               : title.contains("china")                      ? 0.46f
+                               : title.contains("splash")                     ? 0.42f
+                                                                              : 0.50f;
+            s.level = base * (tight ? 0.85f : (room ? 1.05f : 1.0f));
+            s.hpfHz = tight ? 400.0f : 260.0f;
+            s.lpfHz = 18500.0f;
+            s.eqLowGainDb = -3.0f;
+            s.eqMidGainDb = -1.5f;
+            s.eqMidFreq = 3800.0f;
+            s.eqHighGainDb = tight ? -2.0f : -1.2f;
+            s.compEnabled = false;
+            s.reverbSend = room ? 0.10f : (tight ? 0.03f : 0.06f);
+
+            if (title.contains("hihat") || title.contains("hat"))
+                s.pan = -0.34f;
+            else if (title.contains("ride"))
+                s.pan = 0.32f;
+            else if (title.contains("china"))
+                s.pan = title.contains("2") ? 0.44f : -0.46f;
+            else if (title.contains("splash"))
+                s.pan = (cymbalOrdinal % 2) == 0 ? -0.20f : 0.20f;
+            else if (title.contains("crash"))
+                s.pan = (cymbalOrdinal % 2) == 0 ? -0.30f : 0.38f;
+            else
+                s.pan = juce::jlimit(-0.5f, 0.5f, -0.5f + static_cast<float>(cymbalOrdinal) * 0.14f);
+
+            ++cymbalOrdinal;
+        }
+        else
+        {
+            s.level = 0.85f;
+            s.reverbSend = 0.05f;
+        }
+
+        if (isKick)
+        {
+            if (module.contains("drs"))
+            {
+                s.level *= 0.90f;
+                s.hpfHz = juce::jmax(s.hpfHz, 32.0f);
+                s.eqMidGainDb -= 0.8f;
+            }
+            else if (module.contains("crocell"))
+            {
+                s.eqLowGainDb += 1.0f;
+                s.eqHighGainDb -= 0.8f;
+            }
+        }
+        else if (isSnare)
+        {
+            if (module.contains("crocell"))
+                s.eqHighGainDb += 0.8f;
+            else if (module.contains("salamander"))
+                s.level *= 1.06f;
+        }
+        else if (isTom && (module.contains("salamander") || module.contains("monster")))
+        {
+            s.level *= 1.04f;
+        }
+
+        s.eqLowGainDb = juce::jlimit(-12.0f, 12.0f, s.eqLowGainDb);
+        s.eqMidGainDb = juce::jlimit(-12.0f, 12.0f, s.eqMidGainDb);
+        s.eqHighGainDb = juce::jlimit(-12.0f, 12.0f, s.eqHighGainDb);
+
+        preset.micStrips.push_back(s);
+        preset.micNames.push_back(piece.name);
+    }
+
+    return preset;
+}
+
 juce::String MixerPreset::toXmlString() const
 {
     juce::XmlElement xml("GlorpMixPreset");
@@ -1537,37 +1828,14 @@ juce::String MixerPreset::toXmlString() const
         if (i < micNames.size())
             chXml->setAttribute("name", micNames[i]);
 
-        chXml->setAttribute("level", static_cast<double>(s.level));
-        chXml->setAttribute("pan", static_cast<double>(s.pan));
-        chXml->setAttribute("mono", s.mono);
-        chXml->setAttribute("mute", s.mute);
-        chXml->setAttribute("solo", s.solo);
-        chXml->setAttribute("phaseInvert", s.phaseInvert);
+        writeMicStripXml(*chXml, s);
+    }
 
-        chXml->setAttribute("hpfHz", static_cast<double>(s.hpfHz));
-        chXml->setAttribute("lpfHz", static_cast<double>(s.lpfHz));
-
-        chXml->setAttribute("eqEnabled", s.eqEnabled);
-        chXml->setAttribute("eqLowGainDb", static_cast<double>(s.eqLowGainDb));
-        chXml->setAttribute("eqMidGainDb", static_cast<double>(s.eqMidGainDb));
-        chXml->setAttribute("eqMidFreq", static_cast<double>(s.eqMidFreq));
-        chXml->setAttribute("eqMidQ", static_cast<double>(s.eqMidQ));
-        chXml->setAttribute("eqHighGainDb", static_cast<double>(s.eqHighGainDb));
-
-        chXml->setAttribute("compEnabled", s.compEnabled);
-        chXml->setAttribute("compThresholdDb", static_cast<double>(s.compThresholdDb));
-        chXml->setAttribute("compRatio", static_cast<double>(s.compRatio));
-        chXml->setAttribute("compAttackMs", static_cast<double>(s.compAttackMs));
-        chXml->setAttribute("compReleaseMs", static_cast<double>(s.compReleaseMs));
-        chXml->setAttribute("compMakeupDb", static_cast<double>(s.compMakeupDb));
-
-        chXml->setAttribute("saturationDrive", static_cast<double>(s.saturationDrive));
-        chXml->setAttribute("transientAttack", static_cast<double>(s.transientAttack));
-        chXml->setAttribute("transientSustain", static_cast<double>(s.transientSustain));
-        chXml->setAttribute("reverbSend", static_cast<double>(s.reverbSend));
-        chXml->setAttribute("bleed", static_cast<double>(s.bleed));
-        chXml->setAttribute("outputBus", s.outputBus);
-        chXml->setAttribute("sendToMaster", s.sendToMaster ? 1 : 0);
+    for (size_t i = 0; i < busStrips.size(); ++i)
+    {
+        auto *busXml = xml.createNewChildElement("Bus");
+        busXml->setAttribute("index", static_cast<int>(i));
+        writeMicStripXml(*busXml, busStrips[i]);
     }
 
     return xml.toString();
@@ -1612,41 +1880,21 @@ bool MixerPreset::fromXmlString(const juce::String &xmlText, MixerPreset &outPre
 
     for (auto *chXml : xml->getChildWithTagNameIterator("Channel"))
     {
-        MicStripParams s;
-        s.level = static_cast<float>(chXml->getDoubleAttribute("level", 1.0));
-        s.pan = static_cast<float>(chXml->getDoubleAttribute("pan", 0.0));
-        s.mono = chXml->getBoolAttribute("mono", false);
-        s.mute = chXml->getBoolAttribute("mute", false);
-        s.solo = chXml->getBoolAttribute("solo", false);
-        s.phaseInvert = chXml->getBoolAttribute("phaseInvert", false);
-
-        s.hpfHz = static_cast<float>(chXml->getDoubleAttribute("hpfHz", 20.0));
-        s.lpfHz = static_cast<float>(chXml->getDoubleAttribute("lpfHz", 20000.0));
-
-        s.eqEnabled = chXml->getBoolAttribute("eqEnabled", true);
-        s.eqLowGainDb = static_cast<float>(chXml->getDoubleAttribute("eqLowGainDb", 0.0));
-        s.eqMidGainDb = static_cast<float>(chXml->getDoubleAttribute("eqMidGainDb", 0.0));
-        s.eqMidFreq = static_cast<float>(chXml->getDoubleAttribute("eqMidFreq", 1000.0));
-        s.eqMidQ = static_cast<float>(chXml->getDoubleAttribute("eqMidQ", 1.0));
-        s.eqHighGainDb = static_cast<float>(chXml->getDoubleAttribute("eqHighGainDb", 0.0));
-
-        s.compEnabled = chXml->getBoolAttribute("compEnabled", false);
-        s.compThresholdDb = static_cast<float>(chXml->getDoubleAttribute("compThresholdDb", -14.0));
-        s.compRatio = static_cast<float>(chXml->getDoubleAttribute("compRatio", 3.0));
-        s.compAttackMs = static_cast<float>(chXml->getDoubleAttribute("compAttackMs", 15.0));
-        s.compReleaseMs = static_cast<float>(chXml->getDoubleAttribute("compReleaseMs", 100.0));
-        s.compMakeupDb = static_cast<float>(chXml->getDoubleAttribute("compMakeupDb", 0.0));
-
-        s.saturationDrive = static_cast<float>(chXml->getDoubleAttribute("saturationDrive", 0.0));
-        s.transientAttack = static_cast<float>(chXml->getDoubleAttribute("transientAttack", 0.0));
-        s.transientSustain = static_cast<float>(chXml->getDoubleAttribute("transientSustain", 0.0));
-        s.reverbSend = static_cast<float>(chXml->getDoubleAttribute("reverbSend", 0.0));
-        s.bleed = static_cast<float>(chXml->getDoubleAttribute("bleed", 0.15));
-        s.outputBus = juce::jlimit(0, 15, chXml->getIntAttribute("outputBus", 0));
-        s.sendToMaster = chXml->getBoolAttribute("sendToMaster", false);
+        const auto s = readMicStripXml(*chXml);
 
         outPreset.micStrips.push_back(s);
         outPreset.micNames.push_back(chXml->getStringAttribute("name"));
+    }
+
+    outPreset.busStrips.clear();
+    for (auto *busXml : xml->getChildWithTagNameIterator("Bus"))
+    {
+        const int index = busXml->getIntAttribute("index", static_cast<int>(outPreset.busStrips.size()));
+        if (index < 0)
+            continue;
+        if (static_cast<size_t>(index) >= outPreset.busStrips.size())
+            outPreset.busStrips.resize(static_cast<size_t>(index) + 1);
+        outPreset.busStrips[static_cast<size_t>(index)] = readMicStripXml(*busXml);
     }
 
     return true;

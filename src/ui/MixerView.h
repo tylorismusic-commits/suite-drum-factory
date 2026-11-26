@@ -513,7 +513,7 @@ class MixerView
     void hideInsertPicker();
     void promptSavePreset();
 
-    juce::String activePresetName {"Default Clean"};
+    juce::String activePresetName {"Balanced"};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MixerView)
 };

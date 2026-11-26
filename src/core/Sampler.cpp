@@ -942,6 +942,16 @@ juce::String Sampler::micStripTitle(int index) const
     return {};
 }
 
+juce::String Sampler::micStripRole(int index) const
+{
+    if (index >= 0 && index < static_cast<int>(micChannels.size()))
+    {
+        const auto &key = micChannels[static_cast<size_t>(index)]->insertKey;
+        return juce::String(key);
+    }
+    return {};
+}
+
 void Sampler::setMicStripParams(int index, const MicStripParams &params)
 {
     if (index >= 0 && index < static_cast<int>(micChannels.size()))
@@ -1108,6 +1118,10 @@ void Sampler::applyMixerPreset(const MixerPreset &preset)
 {
     masterStripParams = preset.master;
 
+    for (size_t b = 0; b < preset.busStrips.size() && b < factoryBuses.size(); ++b)
+        if (factoryBuses[b] != nullptr)
+            factoryBuses[b]->params = preset.busStrips[b];
+
     bool hasMicNames = false;
     for (const auto &name : preset.micNames)
     {
@@ -1173,6 +1187,11 @@ MixerPreset Sampler::getCurrentMixerPreset(const juce::String &name) const
         p.micStrips.push_back(ch->params);
         p.micNames.push_back(ch->title);
     }
+
+    for (const auto &bus : factoryBuses)
+        if (bus != nullptr)
+            p.busStrips.push_back(bus->params);
+
     return p;
 }
 

@@ -2877,9 +2877,7 @@ void MixerView::PresetBrowserPopup::rebuildEntries()
 {
     entries.clear();
 
-    static const char *factoryNames[] = {
-        "Default Clean", "Massive Rock", "Vintage Warmth", "Punchy Studio", "Dry & Tight", "Mix Ready"
-    };
+    static const char *factoryNames[] = {"Balanced", "Punch", "Room", "Tight"};
 
     for (int i = 0; i < static_cast<int>(std::size(factoryNames)); ++i)
         entries.push_back({factoryNames[i], {}, i, false});
@@ -3896,6 +3894,7 @@ MixerView::MixerView(PluginProcessor &proc) : processor(proc)
             presetBrowser->open();
         }
     };
+    addAndMakeVisible(presetBrowserBtn);
 
     // Generic factory presets from Suite Drums Glorp are intentionally not
     // shown; this bundle will get configuration-aware mix presets later.
@@ -4124,45 +4123,42 @@ void MixerView::hideInsertPicker()
 
 void MixerView::applyPreset(int presetIndex)
 {
-    const int numMics = processor.getSampler().numMicStrips();
-    std::vector<juce::String> names;
-    for (int i = 0; i < numMics; ++i)
-        names.push_back(processor.getSampler().micStripTitle(i));
+    presetIndex = juce::jlimit(0, 3, presetIndex);
 
-    MixerPreset p;
-    switch (presetIndex)
+    const auto &selection = processor.getFactorySelection();
+    const auto moduleForRole = [&selection](const juce::String &role) -> juce::String
     {
-        case 0:
-            p = MixerPreset::createDefaultClean(numMics, names);
-            activePresetName = "Default Clean";
-            break;
-        case 1:
-            p = MixerPreset::createMassiveRock(numMics, names);
-            activePresetName = "Massive Rock";
-            break;
-        case 2:
-            p = MixerPreset::createVintageWarmth(numMics, names);
-            activePresetName = "Vintage Warmth";
-            break;
-        case 3:
-            p = MixerPreset::createPunchyStudio(numMics, names);
-            activePresetName = "Punchy Studio";
-            break;
-        case 4:
-            p = MixerPreset::createDryTight(numMics, names);
-            activePresetName = "Dry & Tight";
-            break;
-        case 5:
-            p = MixerPreset::createMixReady(numMics, names);
-            activePresetName = "Mix Ready";
-            break;
-        default:
-            break;
+        if (role.startsWithIgnoreCase("kick."))
+            return juce::String(selection.kickModule);
+        if (role.startsWithIgnoreCase("snare."))
+            return juce::String(selection.snareModule);
+        if (role.startsWithIgnoreCase("tom."))
+        {
+            const int number = juce::jlimit(1, 5, role.fromFirstOccurrenceOf(".", false, false).getIntValue());
+            return juce::String(selection.tomModules[static_cast<size_t>(number - 1)]);
+        }
+        return "naked";
+    };
+
+    std::vector<MixPieceInfo> pieces;
+    const int count = processor.getSampler().numMicStrips();
+    pieces.reserve(static_cast<size_t>(count));
+
+    for (int i = 0; i < count; ++i)
+    {
+        const auto role = processor.getSampler().micStripRole(i);
+        pieces.push_back({processor.getSampler().micStripTitle(i), role, moduleForRole(role)});
     }
 
-    processor.getSampler().applyMixerPreset(p);
+    const auto preset = MixerPreset::createConfigurationMix(presetIndex, pieces);
+    activePresetName = preset.name;
+
+    processor.getSampler().applyMixerPreset(preset);
+
     for (auto &s : channelStrips)
         s->updateFromState();
+
+    refreshBusStates();
 
     if (masterStrip != nullptr)
         masterStrip->updateFromState();
@@ -4245,7 +4241,8 @@ void MixerView::resized()
     // Top control bar
     const float btnY = 10.0f;
     const float btnH = 26.0f;
-    bleedMatrixBtn.setBounds(16, btnY, 114, btnH);
+    presetBrowserBtn.setBounds(16, btnY, 96, btnH);
+    bleedMatrixBtn.setBounds(120, btnY, 114, btnH);
 
     // Channel Area vs Master Strip
     const float contentY = 46.0f;

@@ -930,6 +930,82 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    if (std::getenv ("GLORP_PROBE_MIXPRESET") != nullptr)
+    {
+        auto& sampler = proc.getSampler();
+        const auto& selection = proc.getFactorySelection();
+
+        const auto moduleForRole = [&selection] (const juce::String& role) -> juce::String
+        {
+            if (role.startsWithIgnoreCase ("kick."))
+                return juce::String (selection.kickModule);
+            if (role.startsWithIgnoreCase ("snare."))
+                return juce::String (selection.snareModule);
+            if (role.startsWithIgnoreCase ("tom."))
+            {
+                const int number = juce::jlimit (1, 5, role.fromFirstOccurrenceOf (".", false, false).getIntValue());
+                return juce::String (selection.tomModules[static_cast<size_t> (number - 1)]);
+            }
+            return "naked";
+        };
+
+        std::vector<glorp::MixPieceInfo> pieces;
+        for (int i = 0; i < sampler.numMicStrips(); ++i)
+        {
+            const auto role = sampler.micStripRole (i);
+            pieces.push_back ({ sampler.micStripTitle (i), role, moduleForRole (role) });
+        }
+
+        for (int flavour = 0; flavour < 4; ++flavour)
+        {
+            const auto preset = glorp::MixerPreset::createConfigurationMix (flavour, pieces);
+            sampler.applyMixerPreset (preset);
+
+            std::cout << "preset " << preset.name.toStdString()
+                      << " strips=" << preset.micStrips.size()
+                      << " buses=" << preset.busStrips.size() << std::endl;
+
+            for (int i = 0; i < sampler.numMicStrips(); ++i)
+            {
+                const auto params = sampler.getMicStripParams (i);
+                std::cout << "  " << sampler.micStripTitle (i).toStdString()
+                          << " role=" << sampler.micStripRole (i).toStdString()
+                          << " level=" << params.level
+                          << " pan=" << params.pan
+                          << " reverb=" << params.reverbSend << std::endl;
+            }
+
+            for (int b = 0; b < sampler.numFactoryBuses(); ++b)
+            {
+                const auto params = sampler.getFactoryBusParams (b);
+                std::cout << "  bus " << sampler.factoryBusTitle (b).toStdString()
+                          << " level=" << params.level << " pan=" << params.pan << std::endl;
+            }
+
+            if (flavour == 0)
+            {
+                proc.prepareToPlay (48000.0, 512);
+                juce::AudioBuffer<float> buffer (2, 512);
+                float peak = 0.0f;
+                for (int block = 0; block < 80; ++block)
+                {
+                    juce::MidiBuffer midi;
+                    if (block == 0)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 36, static_cast<juce::uint8> (100)), 0);
+                    buffer.clear();
+                    proc.processBlock (buffer, midi);
+                    for (int ch = 0; ch < 2; ++ch)
+                        for (int i = 0; i < buffer.getNumSamples(); ++i)
+                            peak = std::max (peak, std::abs (buffer.getSample (ch, i)));
+                }
+                std::cout << "  balanced mix peak=" << peak
+                          << " peakDb=" << juce::Decibels::gainToDecibels (peak) << std::endl;
+            }
+        }
+
+        return 0;
+    }
+
     if (std::getenv ("GLORP_PROBE_DIRECTOUT") != nullptr)
     {
         proc.prepareToPlay (48000.0, 512);
