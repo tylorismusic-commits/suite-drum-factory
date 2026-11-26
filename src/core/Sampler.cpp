@@ -1836,7 +1836,10 @@ int Sampler::chooseHit(int instrumentIndex, float velocity)
     const float targetPower = minPower + vel * powerRange;
 
     int tier = 0;
+    int secondTier = -1;
     float tierDistance = std::numeric_limits<float>::max();
+    float secondDistance = std::numeric_limits<float>::max();
+
     for (int t = 0; t < tierCount; ++t)
     {
         const float tierPower =
@@ -1844,8 +1847,15 @@ int Sampler::chooseHit(int instrumentIndex, float velocity)
         const float distance = std::abs(tierPower - targetPower);
         if (distance < tierDistance)
         {
+            secondTier = tier;
+            secondDistance = tierDistance;
             tierDistance = distance;
             tier = t;
+        }
+        else if (distance < secondDistance)
+        {
+            secondDistance = distance;
+            secondTier = t;
         }
     }
 
@@ -1857,7 +1867,23 @@ int Sampler::chooseHit(int instrumentIndex, float velocity)
         return 0;
 
     auto &cursor = roundRobinCursor[static_cast<size_t>(instrumentIndex)];
-    const auto chosen = runtime.sortedHits[static_cast<size_t>(begin + (cursor % count))];
+
+    // Some DRS kick articulations have one sample per velocity tier, so a
+    // repeated note is literally the same recording. Alternate between the
+    // two nearest tiers to remove the machine-gun effect.
+    int chosenTier = tier;
+    const bool alternateDrsKick = runtime.sourceModule == "drs"
+                                  && runtime.midiRole.startsWithIgnoreCase("kick.");
+    if (alternateDrsKick && count == 1 && secondTier >= 0)
+    {
+        if ((cursor % 2) == 1)
+            chosenTier = secondTier;
+    }
+
+    const int chosenBegin = runtime.tierStart[static_cast<size_t>(chosenTier)];
+    const int chosenEnd = runtime.tierStart[static_cast<size_t>(chosenTier) + 1];
+    const int chosenCount = std::max(1, chosenEnd - chosenBegin);
+    const auto chosen = runtime.sortedHits[static_cast<size_t>(chosenBegin + (cursor % chosenCount))];
     cursor = (cursor + 1) % 10000;
 
     return chosen;

@@ -766,12 +766,6 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
                     || micLower.find("snare_bottom") != std::string::npos)
                     out.factoryMicPhaseInvert[mapped] = true;
 
-                // Prefer the resonant outside mic over the beater-side inside
-                // mic; the inside channel carries most of the plastic click.
-                if (micLower.find("kdrumoutside") != std::string::npos)
-                    out.factoryMicLevels[mapped] = 1.60f;
-                else if (micLower.find("kdruminside") != std::string::npos)
-                    out.factoryMicLevels[mapped] = 0.45f;
             }
         }
 
