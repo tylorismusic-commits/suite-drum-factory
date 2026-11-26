@@ -106,6 +106,7 @@ void Settings::writeState(juce::MemoryBlock &destination) const
     root.setAttribute("midiLibraryPath", midiLibraryPath);
     root.setAttribute("factoryKickModule", factoryKickModule);
     root.setAttribute("factorySnareModule", factorySnareModule);
+    root.setAttribute("factoryCymbalsModule", factoryCymbalsModule);
     root.setAttribute("factoryStudioDefaultApplied", factoryStudioDefaultApplied);
 
     auto *factoryToms = root.createNewChildElement("FactoryTomModules");
@@ -118,6 +119,9 @@ void Settings::writeState(juce::MemoryBlock &destination) const
     root.setAttribute("midiSourceProfile", midiSourceProfile);
     root.setAttribute("midiPreviewSpeed", midiPreviewSpeed);
     root.setAttribute("fullWidthKitLayout", fullWidthKitLayout);
+    root.setAttribute("darkTheme", darkTheme);
+    root.setAttribute("accentDark", accentDark);
+    root.setAttribute("accentLight", accentLight);
     root.setAttribute("editorWidth", editorWidth);
     root.setAttribute("editorHeight", editorHeight);
     root.setAttribute("editorMaximised", editorMaximised);
@@ -156,6 +160,7 @@ void Settings::readState(const juce::MemoryBlock &source)
     midiLibraryPath = root->getStringAttribute("midiLibraryPath", midiLibraryPath);
     factoryKickModule = root->getStringAttribute("factoryKickModule", factoryKickModule);
     factorySnareModule = root->getStringAttribute("factorySnareModule", factorySnareModule);
+    factoryCymbalsModule = root->getStringAttribute("factoryCymbalsModule", factoryCymbalsModule);
     factoryStudioDefaultApplied = root->getBoolAttribute("factoryStudioDefaultApplied", factoryStudioDefaultApplied);
     if (auto *toms = root->getChildByName("FactoryTomModules"))
     {
@@ -172,6 +177,9 @@ void Settings::readState(const juce::MemoryBlock &source)
     midiSourceProfile = root->getStringAttribute("midiSourceProfile", midiSourceProfile);
     midiPreviewSpeed = juce::jlimit(0.25, 4.0, root->getDoubleAttribute("midiPreviewSpeed", midiPreviewSpeed));
     fullWidthKitLayout = root->getBoolAttribute("fullWidthKitLayout", fullWidthKitLayout);
+    darkTheme = root->getBoolAttribute("darkTheme", darkTheme);
+    accentDark = root->getStringAttribute("accentDark", accentDark);
+    accentLight = root->getStringAttribute("accentLight", accentLight);
     editorWidth = root->getIntAttribute("editorWidth", editorWidth);
     editorHeight = root->getIntAttribute("editorHeight", editorHeight);
     editorMaximised = root->getBoolAttribute("editorMaximised", editorMaximised);

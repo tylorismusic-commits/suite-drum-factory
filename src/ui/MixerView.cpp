@@ -596,8 +596,8 @@ void MixerView::ChannelStripComponent::paint(juce::Graphics &g)
 
         if (state.type == InsertType::none)
         {
-            g.setColour(theme.inkSoft);
-            g.setFont(uiFont(8.0f));
+            g.setColour(theme.isDark ? theme.inkSoft : theme.ink.withAlpha(0.62f));
+            g.setFont(uiFont(8.0f).boldened());
             g.drawText("+ ADD INSERT", area.reduced(5.0f, 0.0f), juce::Justification::centredLeft, false);
         }
         else
@@ -958,8 +958,8 @@ void MixerView::BusStripComponent::paint(juce::Graphics &g)
 
         if (state.type == InsertType::none)
         {
-            g.setColour(theme.inkSoft);
-            g.setFont(uiFont(8.0f));
+            g.setColour(theme.isDark ? theme.inkSoft : theme.ink.withAlpha(0.62f));
+            g.setFont(uiFont(8.0f).boldened());
             g.drawText("+ ADD INSERT", area.reduced(5.0f, 0.0f), juce::Justification::centredLeft, false);
         }
         else
@@ -1310,8 +1310,8 @@ void MixerView::InsertRackPopup::drawSlot(juce::Graphics &g, int slot, juce::Rec
     }
     else
     {
-        g.setColour(theme.inkSoft);
-        g.setFont(uiFont(9.0f));
+        g.setColour(theme.isDark ? theme.inkSoft : theme.ink.withAlpha(0.62f));
+        g.setFont(uiFont(9.0f).boldened());
         g.drawText("+ ADD INSERT", area.reduced(8.0f).removeFromBottom(20.0f).toNearestInt(),
                    juce::Justification::centred, false);
     }

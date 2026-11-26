@@ -97,6 +97,9 @@ struct Selection
         "naked", "naked", "naked", "naked", "naked"
     };
 
+    /// One source for the whole cymbal group (China/Crash/HiHat/Ride/Splash).
+    std::string cymbalsModule = "naked";
+
     /// Keys are "module:id", used for cymbals and any piece disabled from the
     /// piece list.
     std::set<std::string> disabled;
@@ -114,6 +117,8 @@ struct ModuleInfo
     std::string name;
     std::string kitFile;
     std::string folder;
+    bool shells = true;  ///< module can supply kick, snare and tom pieces
+    bool cymbals = false; ///< module can supply the whole cymbal group
 };
 
 struct Configuration
@@ -136,6 +141,7 @@ struct BuildResult
 
 /// Built-in shell modules. Naked is the base and is not in this list.
 const std::vector<ModuleInfo> &modules();
+void refreshModuleRegistry();
 
 std::string moduleName(const std::string &moduleId);
 

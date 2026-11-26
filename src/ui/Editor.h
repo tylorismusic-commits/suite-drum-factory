@@ -110,6 +110,9 @@ class Editor
 
     void buildHeaderMenu();
     void buildControls();
+    Theme makeThemeFromSettings() const;
+    void setDarkTheme(bool dark);
+    void openAccentPicker(bool dark);
     void buildLogicalInstruments();
     void rebuildZoneButtons();
 
@@ -136,6 +139,7 @@ class Editor
 
     void armLearn(int samplerIndex);
     void promptLoadKitFile();
+    bool installFactoryPack(const juce::File &pack, juce::String &message);
     void promptSaveMapPreset();
     void showFactoryPiecesMenu();
     void showFactoryConfigMenu();

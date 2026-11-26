@@ -43,6 +43,29 @@ struct Theme
     bool cleanStyle = false;   ///< Clean sans-serif fonts & straight geometric borders for high readability
     bool minimalStyle = false; ///< Flat hardware-minimal skin: kit grid instead of drum art & no timeline
 
+    static Theme suiteLight() noexcept
+    {
+        Theme t;
+        t.isDark = false;
+        t.cleanStyle = true;
+        t.minimalStyle = false;
+        t.background = juce::Colour(0xffe8e5de);
+        t.panel = juce::Colour(0xfff8f7f2);
+        t.panelEdge = juce::Colour(0xffc8c4b8);
+        t.ink = juce::Colour(0xff1f1f22);
+        t.inkSoft = juce::Colour(0xff50505a);
+        t.accent = juce::Colour(0xff1f9a82);
+        t.accentAlt = juce::Colour(0xff2f8f5b);
+        t.accentWarm = juce::Colour(0xffb8741a);
+        t.warning = juce::Colour(0xffc0392b);
+        t.trough = juce::Colour(0xffdedbd2);
+        t.shell = juce::Colour(0xffd9cbb0);
+        t.shellShade = juce::Colour(0xffc8b793);
+        t.cymbal = juce::Colour(0xffb08a3e);
+        t.head = juce::Colour(0xffe9e6dc);
+        return t;
+    }
+
     static Theme suite() noexcept
     {
         Theme t;

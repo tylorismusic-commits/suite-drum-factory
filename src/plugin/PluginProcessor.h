@@ -103,10 +103,13 @@ class PluginProcessor : public juce::AudioProcessor
     /// "drs", "salamander" and "monster" are the valid ids.
     void setFactoryKickModule(const juce::String &moduleId);
     void setFactorySnareModule(const juce::String &moduleId);
+    void setFactoryCymbalsModule(const juce::String &moduleId);
     void setFactoryTomModule(int slot, const juce::String &moduleId);
+    void refreshFactoryModules();
 
     juce::String getFactoryKickModule() const { return juce::String(factorySelection.kickModule); }
     juce::String getFactorySnareModule() const { return juce::String(factorySelection.snareModule); }
+    juce::String getFactoryCymbalsModule() const { return juce::String(factorySelection.cymbalsModule); }
     juce::String getFactoryTomModule(int slot) const;
 
     /// Piece lists read from each installed module without mapping audio.

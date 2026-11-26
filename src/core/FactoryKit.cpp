@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <set>
 
@@ -19,6 +20,14 @@ namespace fs = std::filesystem;
 std::string lowerCopy(std::string s)
 {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+std::string trimCopy(std::string s)
+{
+    const auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
+    s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
     return s;
 }
 
@@ -243,15 +252,117 @@ std::vector<CatalogPiece> tomsOf(const Catalog &catalog)
 }
 
 //==============================================================================
+namespace
+{
+std::vector<ModuleInfo> buildModuleRegistry()
+{
+    std::vector<ModuleInfo> list {
+        {"crocell", "Crocell", "CrocellKit.glorpkit", "CrocellKit", true, false},
+        {"drs", "DRS", "DRSKit.glorpkit", "DRSKit", true, false},
+        {"salamander", "Salamander", "Salamander Drumkit.glorpkit", "Salamander Drumkit", true, false},
+        {"monster", "Monster", "Monster Drumkit.glorpkit", "Monster Drumkit", true, false},
+    };
+
+    const auto home = homePath();
+    std::vector<fs::path> dirs;
+    if (const char *xdg = std::getenv("XDG_CONFIG_HOME"))
+        dirs.push_back(fs::path(xdg) / "SuiteDrumFactory/factory_packs");
+    if (!home.empty())
+    {
+        dirs.push_back(home / ".config/SuiteDrumFactory/factory_packs");
+        dirs.push_back(home / ".config/SuiteDrumsGlorp/factory_packs");
+    }
+
+    std::set<std::string> seen;
+    seen.insert("naked");
+    for (const auto &m : list)
+        seen.insert(m.id);
+
+    for (const auto &d : dirs)
+    {
+        std::error_code ec;
+        if (!fs::is_directory(d, ec))
+            continue;
+
+        for (const auto &entry : fs::directory_iterator(d, ec))
+        {
+            if (!entry.is_regular_file() || entry.path().extension() != ".txt")
+                continue;
+
+            std::ifstream input(entry.path());
+            if (!input)
+                continue;
+
+            ModuleInfo module;
+            bool shellsSpecified = false;
+            std::string line;
+            bool firstLine = true;
+            while (std::getline(input, line))
+            {
+                if (firstLine)
+                {
+                    firstLine = false;
+                    if (line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xef
+                        && static_cast<unsigned char>(line[1]) == 0xbb
+                        && static_cast<unsigned char>(line[2]) == 0xbf)
+                        line.erase(0, 3);
+                }
+
+                line = trimCopy(line);
+                if (line.empty() || line[0] == '#')
+                    continue;
+                const auto eq = line.find('=');
+                if (eq == std::string::npos)
+                    continue;
+                const auto key = trimCopy(line.substr(0, eq));
+                const auto value = trimCopy(line.substr(eq + 1));
+                if (key == "id") module.id = lowerCopy(value);
+                else if (key == "name") module.name = value;
+                else if (key == "kit") module.kitFile = value;
+                else if (key == "folder") module.folder = value;
+                else if (key == "cymbals")
+                    module.cymbals = value == "1" || lowerCopy(value) == "true";
+                else if (key == "shells")
+                {
+                    module.shells = value == "1" || lowerCopy(value) == "true";
+                    shellsSpecified = true;
+                }
+            }
+
+            // A pack that only advertises cymbals is not offered as a shell
+            // source unless it explicitly sets shells=1.
+            if (!shellsSpecified)
+                module.shells = !module.cymbals;
+
+            if (module.id == "naked" || module.id.empty() || module.name.empty()
+                || module.kitFile.empty())
+                continue;
+            if (module.folder.empty())
+                module.folder = fs::path(module.kitFile).stem().string();
+            if (!seen.insert(module.id).second)
+                continue;
+            list.push_back(std::move(module));
+        }
+    }
+
+    return list;
+}
+
+std::vector<ModuleInfo> &moduleRegistry()
+{
+    static std::vector<ModuleInfo> list = buildModuleRegistry();
+    return list;
+}
+} // namespace
+
 const std::vector<ModuleInfo> &modules()
 {
-    static const std::vector<ModuleInfo> list {
-        {"crocell", "Crocell", "CrocellKit.glorpkit", "CrocellKit"},
-        {"drs", "DRS", "DRSKit.glorpkit", "DRSKit"},
-        {"salamander", "Salamander", "Salamander Drumkit.glorpkit", "Salamander Drumkit"},
-        {"monster", "Monster", "Monster Drumkit.glorpkit", "Monster Drumkit"},
-    };
-    return list;
+    return moduleRegistry();
+}
+
+void refreshModuleRegistry()
+{
+    moduleRegistry() = buildModuleRegistry();
 }
 
 std::string moduleName(const std::string &moduleId)
@@ -310,6 +421,7 @@ std::vector<std::string> Selection::usedModules() const
     add("naked");
     add(kickModule);
     add(snareModule);
+    add(cymbalsModule);
     for (const auto &id : tomModules)
         add(id);
 
@@ -510,7 +622,8 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
                            bool include,
                            ShellKind shellKind,
                            int shellSlot,
-                           bool forceSnareMain = false)
+                           bool forceSnareMain = false,
+                           bool keepPieceIdentity = false)
     {
         PieceEntry entry;
         entry.moduleId = moduleId;
@@ -527,7 +640,7 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
         lp.sourceModule = moduleId;
         lp.sourceId = srcLp.id;
 
-        if (moduleId != "naked")
+        if (moduleId != "naked" && !keepPieceIdentity)
         {
             lp.id = moduleId + "_" + srcLp.id;
             lp.name = moduleName(moduleId) + " " + srcLp.name;
@@ -639,12 +752,63 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
         return selection.disabled.count(pieceKey(moduleId, pieceId)) == 0;
     };
 
-    // Cymbals, hi-hat, ride and auxiliary base pieces are always Naked.
-    for (const auto &lp : base->logicalPieces)
+    // Cymbals, hi-hat, ride and auxiliary pieces come from one group source.
+    // An expansion can replace the whole group while preserving the base piece
+    // ids so artwork, MIDI roles and mixer strips stay stable.
+    const std::string cymbalModule =
+        selection.cymbalsModule.empty() ? std::string("naked") : selection.cymbalsModule;
+    const auto *cymbalKit = cymbalModule == "naked" ? base : findKit(kits, cymbalModule);
+    if (cymbalKit == nullptr)
+        cymbalKit = base;
+
+    std::set<const DrumKit::LogicalPiece *> usedCymbalSources;
+    for (const auto &baseLp : base->logicalPieces)
     {
-        if (isShellClass(classifyPiece(lp.name, lp.id)))
+        const auto pieceClass = classifyPiece(baseLp.name, baseLp.id);
+        if (isShellClass(pieceClass))
             continue;
-        appendPiece("naked", *base, lp, enabled("naked", lp.id), ShellKind::none, 0);
+
+        const DrumKit::LogicalPiece *source = &baseLp;
+        if (cymbalModule != "naked")
+        {
+            source = nullptr;
+            for (const auto &candidate : cymbalKit->logicalPieces)
+                if (candidate.id == baseLp.id && usedCymbalSources.count(&candidate) == 0)
+                {
+                    source = &candidate;
+                    break;
+                }
+
+            if (source == nullptr)
+            {
+                for (const auto &candidate : cymbalKit->logicalPieces)
+                    if (classifyPiece(candidate.name, candidate.id) == pieceClass
+                        && usedCymbalSources.count(&candidate) == 0)
+                    {
+                        source = &candidate;
+                        break;
+                    }
+            }
+
+            if (source != nullptr)
+                usedCymbalSources.insert(source);
+        }
+
+        if (source == nullptr)
+        {
+            // Incomplete cymbal pack: keep the Naked piece rather than dropping
+            // a drum from the kit.
+            appendPiece("naked", *base, baseLp, enabled("naked", baseLp.id), ShellKind::none, 0);
+            out.warnings.push_back(moduleName(cymbalModule) + " has no piece for "
+                                   + baseLp.name + "; using Naked Drums.");
+            continue;
+        }
+
+        DrumKit::LogicalPiece mapped = *source;
+        mapped.id = baseLp.id;
+        mapped.name = baseLp.name;
+        appendPiece(cymbalModule, *cymbalKit, mapped, enabled(cymbalModule, baseLp.id),
+                    ShellKind::none, 0, false, true);
     }
 
     // Kick: every kick piece from the chosen source (Crocell has two).

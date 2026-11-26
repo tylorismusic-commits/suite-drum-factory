@@ -3,7 +3,8 @@
 **Suite Drum Factory** is a Linux drum instrument built on the Suite Drums Glorp
 engine. It keeps one sample set loaded as the base — Naked Drums — and lets you
 swap the shell pieces (kick, snare, toms) from Crocell, DRS, Salamander or
-Monster without losing the Naked cymbals, hi-hat or ride.
+Monster. Cymbals default to Naked and can be replaced as one group by an
+installed expansion pack.
 
 This repository is the prototype fork. It is a separate product from Suite
 Drums Glorp.
@@ -12,7 +13,10 @@ Drums Glorp.
 
 - Naked Drums is loaded as the fixed base.
 - One shell module can be selected at a time: Naked, Crocell, DRS, Salamander or
-  Monster. Module cymbals are ignored; only kick, snare and toms are used.
+  Monster. Expansion modules that provide shells also appear in those selectors.
+- The cymbal group (China, Crash, HiHat, Ride, Splash) can be switched as one
+  unit from **PIECES → Cymbals Source**. Naked is the default; a pack whose
+  manifest sets `cymbals=1` appears in the same menu.
 - Module mics are namespaced (`crocell_SnareTop`, etc.) so their mixer strips do
   not collapse into Naked's mics.
 - A source dropdown sits on the kick, snare and every tom image, so a kit can be
@@ -88,27 +92,32 @@ Drums Glorp.
   over the DAW instead of tiling behind it.
 - **CONFIG** sits under the mixer button and **PIECES** under settings. About
   opens an in-app attribution card.
+- **Settings → Appearance** switches between the dark console theme and a light
+  paper theme, with separate highlight-colour pickers for each mode. The choice
+  and both colours persist in `settings.txt`.
+- The plugin can be built and shipped without samples. Dragging a
+  `.suitefactory` factory pack onto the window unpacks its `.glorpkit` files,
+  installs the manifest and loads a factory configuration that the installed
+  kits support.
+- Third-party expansions use the same drag-in container. A `pack.txt` manifest
+  registers the module id, display name, kit file and cymbal capability. See
+  [docs/EXPANSIONS.md](docs/EXPANSIONS.md).
 - The existing kit view, MIDI browser, channel insert FX and master strip are
   inherited from Suite Drums Glorp.
 - Kit artwork is unchanged; the existing Naked art is reused for the prototype.
 
 ## Kit locations
 
-The factory looks for:
+The factory looks for kits in:
 
 ```
-~/.config/SuiteDrumsGlorp/kits/Naked Drums.glorpkit
-~/.config/SuiteDrumsGlorp/kits/CrocellKit.glorpkit
-~/.config/SuiteDrumsGlorp/kits/DRSKit.glorpkit
-~/.config/SuiteDrumsGlorp/kits/Salamander Drumkit.glorpkit
-~/.config/SuiteDrumsGlorp/kits/Monster Drumkit.glorpkit
-```
-
-The released share-folder layout is also searched:
-
-```
+~/.config/SuiteDrumFactory/kits/       # drag-in packs install here
+~/.config/SuiteDrumsGlorp/kits/        # legacy shared location
 ~/Documents/SuiteDrumsGlorpShare/<kit>/<kit>.glorpkit
 ```
+
+Expansion manifests live in `~/.config/SuiteDrumFactory/factory_packs/` and
+are rescanned when a pack is installed or a kit list is refreshed.
 
 ## Build
 
@@ -119,18 +128,33 @@ ctest --test-dir build --output-on-failure
 tools/install_plugins.sh
 ```
 
+Build the drag-in factory pack (all five kits) or a smaller test pack:
+
+```bash
+tools/make_factory_pack.sh dist/SuiteDrumFactory-Factory.suitefactory
+PACK_KITS="Naked Drums.glorpkit" \
+  tools/make_factory_pack.sh dist/Naked-base.suitefactory
+```
+
 The plugin installs as **Suite Drum Factory** in `~/.vst3` and `~/.lv2`.
 
 ## Architecture
 
-- `src/core/FactoryKit.*` — module catalog, piece role classification and
-  in-memory assembly of Naked + one shell module.
+- `src/core/FactoryKit.*` — dynamic module registry, piece role
+  classification, cymbal-group mapping and in-memory assembly of Naked plus
+  selected shell/cymbal modules.
 - `src/plugin/PluginProcessor.*` — factory selection, persistence and kit reload.
 - `src/ui/Editor.*` — the PIECES dropdown on the kit image.
 - `src/core/Sampler.*` — inherited sampler, per-mic mixer and insert DSP.
 
-The next stage is the fixed Kick / Snare / Room / Mix bus mixer with serial
-insert chains on each bus, fed from these piece strips.
+The mixer's fixed Kick / Snare / Room / Mix buses, serial insert chains and
+factory presets are inherited from the Glorp engine.
+
+## Documentation
+
+- [Expansion pack format](docs/EXPANSIONS.md)
+- [Kit art layout](docs/KIT_ART_LAYOUT.md)
+- [Roadmap](docs/ROADMAP.md)
 
 ## Licensing
 

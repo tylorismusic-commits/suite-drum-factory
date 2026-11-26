@@ -1,6 +1,10 @@
 #include "Editor.h"
 #include "Config.h"
+#include <juce_gui_extra/juce_gui_extra.h>
 #include "DebugLog.h"
+
+#include <cstdlib>
+#include <cstring>
 
 namespace glorp
 {
@@ -26,6 +30,258 @@ class StudioDeckBackdropComponent : public juce::Component
 };
 } // namespace
 
+
+namespace
+{
+juce::Colour parseAccentColour(const juce::String &text, juce::Colour fallback)
+{
+    auto hex = text.trim();
+    if (hex.isEmpty())
+        return fallback;
+
+    if (!hex.startsWithChar('#'))
+        hex = "#" + hex;
+
+    // Colour::fromString treats six hex digits as 0xAARRGGBB with zero alpha.
+    // Settings store plain #RRGGBB, so expand those to an opaque #FFRRGGBB.
+    if (hex.length() == 7)
+        hex = "#ff" + hex.substring(1);
+
+    const auto colour = juce::Colour::fromString(hex);
+    return colour.getAlpha() > 0 ? colour : fallback;
+}
+} // namespace
+
+namespace
+{
+juce::String tarString(const char *field, size_t length)
+{
+    size_t used = 0;
+    while (used < length && field[used] != '\0')
+        ++used;
+    return juce::String::fromUTF8(field, static_cast<int>(used)).trim();
+}
+
+juce::int64 tarNumber(const char *field, size_t length)
+{
+    const auto *bytes = reinterpret_cast<const unsigned char *>(field);
+    if ((bytes[0] & 0x80) != 0)
+    {
+        // GNU base-256 encoding, used for files and archives larger than the
+        // octal field can represent.
+        juce::int64 value = 0;
+        for (size_t i = 1; i < length; ++i)
+            value = (value << 8) | bytes[i];
+        return value;
+    }
+
+    juce::int64 value = 0;
+    for (size_t i = 0; i < length; ++i)
+    {
+        const char c = field[i];
+        if (c == '\0' || c == ' ')
+            break;
+        if (c < '0' || c > '7')
+            continue;
+        value = value * 8 + (c - '0');
+    }
+    return value;
+}
+
+bool skipTarBytes(juce::InputStream &input, juce::int64 amount)
+{
+    if (amount > 0)
+        input.skipNextBytes(amount);
+    return true;
+}
+
+/// Reads a POSIX/GNU tar archive. Small packs use ZIP; the full factory pack
+/// exceeds ZIP32 limits, so the builder emits tar for large archives.
+bool extractTarPack(const juce::File &pack,
+                    const juce::File &kitsDir,
+                    juce::String &packManifest,
+                    int &extracted,
+                    juce::String &error)
+{
+    juce::FileInputStream input(pack);
+    if (!input.openedOk())
+    {
+        error = "Could not open the pack archive.";
+        return false;
+    }
+
+    char header[512];
+    juce::String longName;
+    juce::HeapBlock<char> buffer(1 << 20);
+
+    while (true)
+    {
+        const int headerBytes = input.read(header, static_cast<int>(sizeof(header)));
+        if (headerBytes == 0)
+            break;
+        if (headerBytes != static_cast<int>(sizeof(header)))
+        {
+            error = "The pack archive is truncated.";
+            return false;
+        }
+
+        bool allZero = true;
+        for (char c : header)
+            if (c != 0)
+            {
+                allZero = false;
+                break;
+            }
+        if (allZero)
+            break;
+
+        if (std::memcmp(header + 257, "ustar", 5) != 0)
+        {
+            error = "This file is not a supported Suite pack archive.";
+            return false;
+        }
+
+        const char type = header[156];
+        const juce::int64 size = tarNumber(header + 124, 12);
+        const auto paddedSize = (size + 511) / 512 * 512;
+
+        if (type == 'L' || type == 'x' || type == 'g')
+        {
+            // GNU long name or PAX extended header. The name gets used by the
+            // following regular entry.
+            if (size > 0 && size < 1024 * 1024)
+            {
+                juce::MemoryBlock data(static_cast<size_t>(size));
+                if (input.read(data.getData(), static_cast<int>(size)) != static_cast<int>(size))
+                {
+                    error = "The pack archive is truncated.";
+                    return false;
+                }
+
+                if (type == 'L')
+                    longName = juce::String::fromUTF8(static_cast<const char *>(data.getData()),
+                                                      static_cast<int>(size)).trim();
+                else if (type == 'x')
+                {
+                    for (const auto &line : juce::StringArray::fromLines(
+                             juce::String::fromUTF8(static_cast<const char *>(data.getData()),
+                                                    static_cast<int>(size))))
+                        if (line.startsWith("path="))
+                            longName = line.fromFirstOccurrenceOf("=", false, false);
+                }
+            }
+
+            if (!skipTarBytes(input, paddedSize - size))
+                break;
+            continue;
+        }
+
+        juce::String name = longName.isNotEmpty() ? longName : tarString(header, 100);
+        longName.clear();
+
+        if (type == '0' || type == '\0')
+        {
+            const auto base = juce::File(name).getFileName();
+            const bool isManifest = base.equalsIgnoreCase("pack.txt");
+            const bool isKit = base.endsWithIgnoreCase(".glorpkit");
+
+            if (isManifest)
+            {
+                if (size > 1024 * 1024)
+                {
+                    if (!skipTarBytes(input, paddedSize))
+                        break;
+                    continue;
+                }
+
+                juce::MemoryBlock data(static_cast<size_t>(size));
+                if (input.read(data.getData(), static_cast<int>(size)) != static_cast<int>(size))
+                {
+                    error = "The pack archive is truncated.";
+                    return false;
+                }
+                packManifest = juce::String::fromUTF8(static_cast<const char *>(data.getData()),
+                                                      static_cast<int>(size));
+            }
+            else if (isKit)
+            {
+                const auto target = kitsDir.getChildFile(base);
+                target.deleteFile();
+                juce::FileOutputStream output(target);
+                if (!output.openedOk())
+                {
+                    error = "Could not write " + target.getFullPathName();
+                    return false;
+                }
+
+                juce::int64 remaining = size;
+                while (remaining > 0)
+                {
+                    const juce::int64 chunkLimit = 1 << 20;
+                    const int chunk = static_cast<int>(remaining < chunkLimit ? remaining : chunkLimit);
+                    const int got = input.read(buffer.getData(), chunk);
+                    if (got <= 0)
+                    {
+                        error = "The pack archive is truncated.";
+                        return false;
+                    }
+                    if (!output.write(buffer.getData(), static_cast<size_t>(got)))
+                    {
+                        error = "Could not write " + target.getFullPathName();
+                        return false;
+                    }
+                    remaining -= got;
+                }
+                ++extracted;
+            }
+            else if (!skipTarBytes(input, size))
+            {
+                break;
+            }
+
+            if (!skipTarBytes(input, paddedSize - size))
+                break;
+        }
+        else if (!skipTarBytes(input, paddedSize))
+        {
+            break;
+        }
+    }
+
+    return true;
+}
+} // namespace
+
+//==============================================================================
+class AccentColourPicker : public juce::Component
+    , private juce::ChangeListener
+{
+  public:
+    AccentColourPicker(juce::Colour initial, std::function<void(juce::Colour)> callback)
+        : selector(juce::ColourSelector::showColourAtTop | juce::ColourSelector::editableColour
+                   | juce::ColourSelector::showSliders | juce::ColourSelector::showColourspace)
+        , onChange(std::move(callback))
+    {
+        selector.setCurrentColour(initial);
+        selector.addChangeListener(this);
+        addAndMakeVisible(selector);
+        setSize(330, 380);
+    }
+
+    ~AccentColourPicker() override { selector.removeChangeListener(this); }
+
+    void changeListenerCallback(juce::ChangeBroadcaster *) override
+    {
+        if (onChange != nullptr)
+            onChange(selector.getCurrentColour());
+    }
+
+    void resized() override { selector.setBounds(getLocalBounds()); }
+
+  private:
+    juce::ColourSelector selector;
+    std::function<void(juce::Colour)> onChange;
+};
 
 //==============================================================================
 void Editor::MenuButton::paintButton(juce::Graphics &g, bool isHover, bool isDown)
@@ -1340,10 +1596,56 @@ class Editor::AboutCard : public juce::Component
     juce::TextButton closeButton;
 };
 
+Theme Editor::makeThemeFromSettings() const
+{
+    auto &settings = processor.getSettings();
+    auto theme = settings.darkTheme ? Theme::suite() : Theme::suiteLight();
+
+    theme.accent = parseAccentColour(settings.darkTheme ? settings.accentDark : settings.accentLight,
+                                     theme.accent);
+    return theme;
+}
+
+void Editor::setDarkTheme(bool dark)
+{
+    auto &settings = processor.getSettings();
+    if (settings.darkTheme == dark)
+        return;
+
+    settings.darkTheme = dark;
+    settings.markDirty();
+    settings.saveIfChanged();
+    theme = makeThemeFromSettings();
+    applyTheme(theme);
+}
+
+void Editor::openAccentPicker(bool dark)
+{
+    auto &settings = processor.getSettings();
+    const auto fallback = dark ? Theme::suite().accent : Theme::suiteLight().accent;
+    const auto current = parseAccentColour(dark ? settings.accentDark : settings.accentLight, fallback);
+    auto picker = std::make_unique<AccentColourPicker>(
+        current,
+        [this, dark](juce::Colour colour)
+        {
+            auto &s = processor.getSettings();
+            (dark ? s.accentDark : s.accentLight) = colour.toDisplayString(true);
+            s.markDirty();
+            s.saveIfChanged();
+            if (s.darkTheme == dark)
+                applyTheme(makeThemeFromSettings());
+        });
+
+    juce::CallOutBox::launchAsynchronously(
+        std::move(picker),
+        getLocalArea(&settingsButton, settingsButton.getLocalBounds()),
+        this);
+}
+
 Editor::Editor(PluginProcessor &p) : processor(p)
 {
     glorp::setUiTextScale(processor.getSettings().uiTextScale);
-    theme = Theme::suite();
+    theme = makeThemeFromSettings();
     glorp::setCleanStyleEnabled(theme.cleanStyle);
     glorp::setMinimalStyleEnabled(theme.minimalStyle);
 
@@ -2190,7 +2492,7 @@ void Editor::showShellSlotMenu(ShellSlotKind kind, int slot)
     if (kind == ShellSlotKind::snare && nakedHasSnare2())
         choices.push_back("naked2");
     for (const auto &m : factory::modules())
-        if (available(m.id))
+        if (m.shells && available(m.id))
             choices.push_back(m.id);
 
     auto choiceLabel = [&](const std::string &id)
@@ -2330,6 +2632,22 @@ void Editor::showFactoryPiecesMenu()
 {
     juce::PopupMenu menu;
     menu.addSectionHeader("KIT PIECES");
+
+    juce::PopupMenu cymbalMenu;
+    cymbalMenu.addItem("Naked Drums", true,
+                       processor.getFactoryCymbalsModule().equalsIgnoreCase("naked"), [this]
+                       {
+                           processor.setFactoryCymbalsModule("naked");
+                       });
+    for (const auto &module : factory::modules())
+        if (module.cymbals)
+            cymbalMenu.addItem(juce::String(module.name), true,
+                               processor.getFactoryCymbalsModule() == juce::String(module.id), [this, id = module.id]
+                               {
+                                   processor.setFactoryCymbalsModule(juce::String(id));
+                               });
+    menu.addSubMenu("Cymbals Source", cymbalMenu);
+    menu.addSeparator();
 
     const auto &pieces = processor.getFactoryPieces();
     juce::String lastModule;
@@ -2504,7 +2822,7 @@ bool Editor::isInterestedInFileDrag(const juce::StringArray &files)
     for (const auto &f : files)
     {
         const auto ext = juce::File(f).getFileExtension().toLowerCase();
-        if (ext == ".glorpkit" || ext == ".zip" || ext == ".xml")
+        if (ext == ".glorpkit" || ext == ".zip" || ext == ".xml" || ext == ".suitefactory")
             return true;
     }
     return false;
@@ -2514,13 +2832,204 @@ void Editor::filesDropped(const juce::StringArray &files, int /*x*/, int /*y*/)
 {
     for (const auto &f : files)
     {
-        const auto ext = juce::File(f).getFileExtension().toLowerCase();
+        const juce::File file(f);
+        const auto ext = file.getFileExtension().toLowerCase();
+        if (ext == ".suitefactory")
+        {
+            juce::String message;
+            setMouseCursor(juce::MouseCursor::WaitCursor);
+            const bool ok = installFactoryPack(file, message);
+            setMouseCursor(juce::MouseCursor::NormalCursor);
+
+            juce::AlertWindow::showMessageBoxAsync(ok ? juce::AlertWindow::InfoIcon
+                                                      : juce::AlertWindow::WarningIcon,
+                                                   ok ? "Suite Pack Installed"
+                                                      : "Suite Pack Problem",
+                                                   message,
+                                                   "OK",
+                                                   this);
+            repaint();
+            return;
+        }
         if (ext == ".glorpkit" || ext == ".zip" || ext == ".xml")
         {
             processor.loadKit(f);
             break;
         }
     }
+}
+
+bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
+{
+    if (!pack.existsAsFile())
+    {
+        message = "The selected factory pack could not be found.";
+        return false;
+    }
+
+    char magic[512] = {};
+    int magicBytes = 0;
+    {
+        juce::FileInputStream probe(pack);
+        if (probe.openedOk())
+            magicBytes = probe.read(magic, static_cast<int>(sizeof(magic)));
+    }
+
+    const bool isZip = magicBytes >= 2 && magic[0] == 'P' && magic[1] == 'K';
+    const bool isTar = magicBytes == static_cast<int>(sizeof(magic))
+                       && std::memcmp(magic + 257, "ustar", 5) == 0;
+
+    DebugLog::instance().logInfo("PACK", "Opening " + pack.getFullPathName() + " ("
+                                            + juce::String(pack.getSize()) + " bytes, "
+                                            + (isZip ? "ZIP" : (isTar ? "tar" : "unknown")) + ")");
+    if (!isZip && !isTar)
+    {
+        message = "This file is not a valid Suite factory pack.";
+        DebugLog::instance().logInfo("PACK", "Rejected: unrecognised archive header.");
+        return false;
+    }
+
+    auto kitsDir = processor.getSettings().getConfigDirectory().getChildFile("kits");
+    if (!kitsDir.createDirectory())
+    {
+        message = "Could not create the kit folder:\n" + kitsDir.getFullPathName();
+        return false;
+    }
+
+    int extracted = 0;
+    juce::String packManifest;
+    if (isZip)
+    {
+        juce::ZipFile zip(pack);
+        for (int i = 0; i < zip.getNumEntries(); ++i)
+        {
+            auto *entry = zip.getEntry(i);
+            if (entry == nullptr)
+                continue;
+
+            const auto name = juce::File(entry->filename).getFileName();
+            if (name.equalsIgnoreCase("pack.txt"))
+            {
+                std::unique_ptr<juce::InputStream> input(zip.createStreamForEntry(i));
+                if (input != nullptr)
+                    packManifest = input->readEntireStreamAsString();
+                continue;
+            }
+            if (!name.endsWithIgnoreCase(".glorpkit"))
+                continue;
+
+            const auto target = kitsDir.getChildFile(name);
+            std::unique_ptr<juce::InputStream> input(zip.createStreamForEntry(i));
+            if (input == nullptr)
+                continue;
+
+            target.deleteFile();
+            juce::FileOutputStream output(target);
+            if (output.openedOk() && output.writeFromInputStream(*input, -1))
+                ++extracted;
+        }
+    }
+    else
+    {
+        juce::String error;
+        if (!extractTarPack(pack, kitsDir, packManifest, extracted, error))
+        {
+            message = error;
+            DebugLog::instance().logInfo("PACK", "Tar extraction failed: " + error);
+            return false;
+        }
+    }
+
+    DebugLog::instance().logInfo("PACK", "Extracted " + juce::String(extracted) + " kit archive(s).");
+    if (extracted == 0)
+    {
+        message = "No .glorpkit files were found in this pack.";
+        return false;
+    }
+
+    juce::String registeredName;
+    bool manifestRejected = false;
+    if (packManifest.isNotEmpty())
+    {
+        juce::String moduleId;
+        for (const auto &line : juce::StringArray::fromLines(packManifest))
+        {
+            const auto trimmed = line.trim();
+            if (trimmed.startsWith("id="))
+                moduleId = trimmed.fromFirstOccurrenceOf("=", false, false).trim();
+            else if (trimmed.startsWith("name="))
+                registeredName = trimmed.fromFirstOccurrenceOf("=", false, false).trim();
+        }
+
+        moduleId = moduleId.retainCharacters(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_").toLowerCase();
+
+        if (moduleId.isEmpty() || moduleId.equalsIgnoreCase("naked"))
+        {
+            manifestRejected = true;
+            registeredName.clear();
+        }
+        else
+        {
+            if (registeredName.isEmpty())
+                registeredName = moduleId;
+
+            auto packsDir = processor.getSettings().getConfigDirectory().getChildFile("factory_packs");
+            if (packsDir.createDirectory())
+                packsDir.getChildFile(moduleId + ".txt").replaceWithText(packManifest);
+            else
+            {
+                manifestRejected = true;
+                registeredName.clear();
+            }
+        }
+    }
+
+    processor.refreshFactoryModules();
+    processor.refreshKitList();
+
+    const auto allModulesAvailable = [](const factory::Selection &selection)
+    {
+        for (const auto &id : selection.usedModules())
+            if (id != "naked" && factory::moduleKitPath(id).empty())
+                return false;
+        return !factory::baseKitPath().empty();
+    };
+
+    bool loaded = false;
+    if (allModulesAvailable(processor.getFactorySelection()))
+    {
+        processor.loadFactoryKit();
+        loaded = true;
+    }
+    else
+    {
+        for (const auto &configuration : processor.getFactoryConfigurations())
+        {
+            if (!allModulesAvailable(configuration.selection))
+                continue;
+            processor.applyFactoryConfiguration(configuration);
+            loaded = true;
+            break;
+        }
+    }
+
+    message = "Installed " + juce::String(extracted) + " factory kit"
+              + (extracted == 1 ? "" : "s") + ".";
+    if (registeredName.isNotEmpty())
+        message += "\nRegistered expansion '" + registeredName + "'.";
+    else if (manifestRejected)
+        message += "\nThe pack.txt manifest needs a unique id other than 'naked'; "
+                   "the kit was installed but not registered as an expansion.";
+    if (loaded && processor.getLastKitError().isEmpty())
+        message += "\nThe factory kit is ready.";
+    else if (!processor.getLastKitError().isEmpty())
+        message += "\nKit note: " + processor.getLastKitError();
+    else
+        message += "\nAdd the Naked Drums base pack to build the factory.";
+
+    kitChanged();
+    return true;
 }
 
 //==============================================================================
@@ -2873,6 +3382,18 @@ juce::PopupMenu Editor::buildMidiMenu()
 juce::PopupMenu Editor::buildSettingsMenu()
 {
     juce::PopupMenu menu;
+
+    {
+        auto &settings = processor.getSettings();
+        juce::PopupMenu appearance;
+        appearance.addItem("Dark Theme", true, settings.darkTheme, [this] { setDarkTheme(true); });
+        appearance.addItem("Light Theme", true, !settings.darkTheme, [this] { setDarkTheme(false); });
+        appearance.addSeparator();
+        appearance.addItem("Dark Highlight Colour...", [this] { openAccentPicker(true); });
+        appearance.addItem("Light Highlight Colour...", [this] { openAccentPicker(false); });
+        menu.addSubMenu("Appearance", appearance);
+        menu.addSeparator();
+    }
 
     {
         juce::PopupMenu windowMenu;

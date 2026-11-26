@@ -109,6 +109,7 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
 
     factorySelection.kickModule = settings.factoryKickModule.toStdString();
     factorySelection.snareModule = settings.factorySnareModule.toStdString();
+    factorySelection.cymbalsModule = settings.factoryCymbalsModule.toStdString();
     for (int i = 0; i < factory::tomSlots; ++i)
         if (i < settings.factoryTomModules.size())
             factorySelection.tomModules[static_cast<size_t>(i)] = settings.factoryTomModules[i].toStdString();
@@ -520,6 +521,19 @@ void PluginProcessor::loadFactoryKit()
         return;
     }
 
+    // A removed expansion pack must not leave the kit unloadable. Fall back to
+    // the Naked cymbal group and persist that choice.
+    if (factorySelection.cymbalsModule != "naked"
+        && factory::moduleKitPath(factorySelection.cymbalsModule).empty())
+    {
+        DebugLog::instance().logInfo(
+            "FACTORY",
+            "Cymbal expansion '" + juce::String(factorySelection.cymbalsModule)
+                + "' is not installed; using Naked Drums cymbals.");
+        factorySelection.cymbalsModule = "naked";
+        saveFactorySelection();
+    }
+
     try
     {
         auto result = factory::buildFromDisk(factorySelection);
@@ -569,6 +583,41 @@ void PluginProcessor::setFactorySnareModule(const juce::String &moduleId)
     factorySelection.snareModule = id;
     saveFactorySelection();
     loadFactoryKit();
+}
+
+void PluginProcessor::setFactoryCymbalsModule(const juce::String &moduleId)
+{
+    const auto id = moduleId.trim().toStdString();
+    if (id == factorySelection.cymbalsModule)
+        return;
+
+    factorySelection.cymbalsModule = id;
+    saveFactorySelection();
+    loadFactoryKit();
+}
+
+void PluginProcessor::refreshFactoryModules()
+{
+    factory::refreshModuleRegistry();
+    factoryCatalogs.clear();
+
+    const auto basePath = factory::baseKitPath();
+    if (!basePath.empty())
+    {
+        factory::Catalog catalog;
+        if (factory::readCatalog("naked", basePath, catalog))
+            factoryCatalogs["naked"] = std::move(catalog);
+    }
+
+    for (const auto &module : factory::modules())
+    {
+        const auto path = factory::moduleKitPath(module.id);
+        if (path.empty())
+            continue;
+        factory::Catalog catalog;
+        if (factory::readCatalog(module.id, path, catalog))
+            factoryCatalogs[module.id] = std::move(catalog);
+    }
 }
 
 void PluginProcessor::setFactoryTomModule(int slot, const juce::String &moduleId)
@@ -646,6 +695,7 @@ std::vector<PluginProcessor::FactoryConfiguration> PluginProcessor::getFactoryCo
             c.factory = false;
             c.selection.kickModule = xml->getStringAttribute("kick", "naked").toStdString();
             c.selection.snareModule = xml->getStringAttribute("snare", "naked").toStdString();
+            c.selection.cymbalsModule = xml->getStringAttribute("cymbals", "naked").toStdString();
             c.selection.tomModules = {"", "", "", "", ""};
             for (auto *tom : xml->getChildWithTagNameIterator("tom"))
             {
@@ -688,6 +738,8 @@ std::vector<MixPieceInfo> PluginProcessor::getMixPieces() const
                                             role.fromFirstOccurrenceOf(".", false, false).getIntValue());
             return juce::String(factorySelection.tomModules[static_cast<size_t>(number - 1)]);
         }
+        if (role.startsWithIgnoreCase("base."))
+            return juce::String(factorySelection.cymbalsModule);
         return "naked";
     };
 
@@ -730,6 +782,7 @@ juce::String PluginProcessor::saveFactoryConfiguration(const juce::String &name)
     xml.setAttribute("name", trimmed);
     xml.setAttribute("kick", juce::String(factorySelection.kickModule));
     xml.setAttribute("snare", juce::String(factorySelection.snareModule));
+    xml.setAttribute("cymbals", juce::String(factorySelection.cymbalsModule));
     for (int i = 0; i < factory::tomSlots; ++i)
     {
         auto *tom = xml.createNewChildElement("tom");
@@ -752,6 +805,7 @@ void PluginProcessor::saveFactorySelection()
 {
     settings.factoryKickModule = juce::String(factorySelection.kickModule);
     settings.factorySnareModule = juce::String(factorySelection.snareModule);
+    settings.factoryCymbalsModule = juce::String(factorySelection.cymbalsModule);
     settings.factoryTomModules.clear();
     for (const auto &id : factorySelection.tomModules)
         settings.factoryTomModules.add(juce::String(id));

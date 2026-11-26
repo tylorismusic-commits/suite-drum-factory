@@ -12,6 +12,7 @@
 #include "GlorpKit.h"
 #include "InsertEQ.h"
 #include "KitScanner.h"
+#include "Settings.h"
 // PitchShifter tests removed: varispeed resampling replaces WSOLA for drum tuning.
 #include "XmlLite.h"
 
@@ -1145,6 +1146,28 @@ void testBleedMatrixAndCrosstalk()
     checkNear (snareEnergyAfterReset, 0.0f, 1e-6f, "sympathetic rattle cleared after reset");
 }
 
+void testSettingsThemeRoundTrip()
+{
+    Settings original;
+    original.darkTheme = false;
+    original.accentDark = "#ff112233";
+    original.accentLight = "#ff445566";
+    original.factoryCymbalsModule = "test-cymbals";
+    original.fullWidthKitLayout = false;
+
+    juce::MemoryBlock block;
+    original.writeState (block);
+
+    Settings restored;
+    restored.readState (block);
+
+    check (! restored.darkTheme, "settings restored light theme");
+    checkEq (restored.accentDark.toStdString(), "#ff112233", "settings restored dark accent");
+    checkEq (restored.accentLight.toStdString(), "#ff445566", "settings restored light accent");
+    checkEq (restored.factoryCymbalsModule.toStdString(), "test-cymbals", "settings restored cymbal module");
+    check (! restored.fullWidthKitLayout, "settings restored classic layout");
+}
+
 int main (int argc, char** argv)
 {
     const fs::path work = argc > 1 ? fs::path (argv[1])
@@ -1170,6 +1193,7 @@ int main (int argc, char** argv)
     testBleedMatrixAndCrosstalk();
     testFactoryAssembly();
     testInsertEq();
+    testSettingsThemeRoundTrip();
 
     std::cout << "\n" << (checks - failures) << "/" << checks << " checks passed\n";
 

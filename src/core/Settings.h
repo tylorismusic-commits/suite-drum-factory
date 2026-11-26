@@ -54,12 +54,16 @@ class Settings
     // -- Suite Drum Factory -------------------------------------------------
     juce::String factoryKickModule {"monster"};
     juce::String factorySnareModule {"crocell"};
+    juce::String factoryCymbalsModule {"naked"};
     juce::StringArray factoryTomModules {"drs", "drs", "drs", "", ""};
     bool factoryStudioDefaultApplied = false;
     juce::StringArray factoryDisabledPieces; ///< "module:piece" keys
     juce::String midiSourceProfile {"General MIDI (extended)"}; ///< source-library note map
     double midiPreviewSpeed = 1.0; ///< 0.5x, 1.0x or 2.0x for preview and export
     bool fullWidthKitLayout = true; ///< new studio deck layout; false = classic sidebar
+    bool darkTheme = true;
+    juce::String accentDark {"#4cc2a8"};
+    juce::String accentLight {"#1f9a82"};
 
     // -- MIDI thru (no-kit mapper) ----------------------------------------
     bool midiThruEnabled = false;

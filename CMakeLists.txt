@@ -224,6 +224,7 @@ target_link_libraries(GlorpDrums
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        juce::juce_gui_extra
         juce::juce_opengl
     PUBLIC
         juce::juce_recommended_config_flags
@@ -343,6 +344,7 @@ if(GLORP_BUILD_TESTS)
         src/core/DrumKit.cpp
         src/core/FactoryKit.cpp
         src/core/KitScanner.cpp
+        src/core/Settings.cpp
         src/core/PitchShifter.cpp
         src/core/BleedMatrix.cpp
         src/core/AcousticCrosstalk.cpp
