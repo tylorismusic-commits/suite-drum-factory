@@ -286,9 +286,10 @@ void InsertSlot::process(float *left, float *right, int numSamples)
             for (int i = 0; i < numSamples; ++i)
                 outPeak = std::max(outPeak, std::max(std::abs(left[i]), std::abs(right[i])));
 
-            if (inPeak > 1.0e-5f)
-                gainReductionDb = std::clamp(20.0f * std::log10(inPeak / std::max(1.0e-5f, outPeak))
-                                                 - values[4],
+            // outPeak includes the make-up gain, so add it back to report the
+            // gain reduction the compressor actually applied.
+            if (inPeak > 1.0e-5f && outPeak > 1.0e-9f)
+                gainReductionDb = std::clamp(20.0f * std::log10(inPeak / outPeak) + values[4],
                                              0.0f, 30.0f);
             else
                 gainReductionDb = 0.0f;
