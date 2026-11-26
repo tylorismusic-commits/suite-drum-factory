@@ -37,6 +37,8 @@ Drums Glorp.
 - Every piece and sum has a four-slot serial insert rack: EQ, compressor,
   drive, transient shaper, limiter and clipper. Slots can be added, bypassed,
   removed and dragged to reorder. The EQ has an interactive-style curve view.
+- Insert racks and bus levels are saved in the plugin state, so reopening a
+  project restores the mixer.
 - Source-mic polarity is applied automatically while the piece is summed, so
   modules that mark a mic out of phase (for example DRS Kdrum_back) need no
   manual setup.

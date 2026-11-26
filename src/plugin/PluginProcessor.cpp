@@ -1144,6 +1144,47 @@ void PluginProcessor::getStateInformation(juce::MemoryBlock &destination)
         state.addChildElement(mixerXml.release());
     }
 
+    if (auto *buses = state.createNewChildElement("FactoryBuses"))
+    {
+        for (int b = 0; b < audioEngine.getSampler().numFactoryBuses(); ++b)
+        {
+            const auto p = audioEngine.getSampler().getFactoryBusParams(b);
+            auto *node = buses->createNewChildElement("Bus");
+            node->setAttribute("index", b);
+            node->setAttribute("level", static_cast<double>(p.level));
+            node->setAttribute("pan", static_cast<double>(p.pan));
+            node->setAttribute("mute", p.mute ? 1 : 0);
+            node->setAttribute("solo", p.solo ? 1 : 0);
+        }
+    }
+
+    if (auto *racks = state.createNewChildElement("InsertRacks"))
+    {
+        auto addRack = [&](bool bus, int channel)
+        {
+            auto *rack = racks->createNewChildElement("Rack");
+            rack->setAttribute("bus", bus ? 1 : 0);
+            rack->setAttribute("channel", channel);
+            for (int slot = 0; slot < Sampler::insertSlots; ++slot)
+            {
+                const auto s = audioEngine.getSampler().getInsertState(bus, channel, slot);
+                if (s.type == InsertType::none)
+                    continue;
+                auto *node = rack->createNewChildElement("Slot");
+                node->setAttribute("index", slot);
+                node->setAttribute("type", static_cast<int>(s.type));
+                node->setAttribute("bypass", s.bypass ? 1 : 0);
+                for (int v = 0; v < 6; ++v)
+                    node->setAttribute("v" + juce::String(v), static_cast<double>(s.values[static_cast<size_t>(v)]));
+            }
+        };
+
+        for (int b = 0; b < audioEngine.getSampler().numFactoryBuses(); ++b)
+            addRack(true, b);
+        for (int ch = 0; ch < audioEngine.getSampler().numMicStrips(); ++ch)
+            addRack(false, ch);
+    }
+
     audioEngine.getSampler().getBleedMatrix().writeXml(state);
 
     auto *parameters = state.createNewChildElement("Parameters");
@@ -1238,6 +1279,64 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
 
     auto kitPath = xml->getStringAttribute("kit");
 
+    struct StoredRackSlot
+    {
+        int slot = 0;
+        InsertType type = InsertType::none;
+        bool bypass = false;
+        std::array<float, 6> values {};
+    };
+    struct StoredRack
+    {
+        bool bus = false;
+        int channel = 0;
+        std::vector<StoredRackSlot> slots;
+    };
+    std::vector<StoredRack> storedRacks;
+
+    if (auto *racks = xml->getChildByName("InsertRacks"))
+    {
+        for (auto *rackNode : racks->getChildIterator())
+        {
+            StoredRack rack;
+            rack.bus = rackNode->getIntAttribute("bus", 0) != 0;
+            rack.channel = rackNode->getIntAttribute("channel", 0);
+            for (auto *slotNode : rackNode->getChildIterator())
+            {
+                StoredRackSlot s;
+                s.slot = slotNode->getIntAttribute("index", 0);
+                s.type = static_cast<InsertType>(slotNode->getIntAttribute("type", 0));
+                s.bypass = slotNode->getIntAttribute("bypass", 0) != 0;
+                for (int v = 0; v < 6; ++v)
+                    s.values[static_cast<size_t>(v)] = static_cast<float>(
+                        slotNode->getDoubleAttribute("v" + juce::String(v), 0.0));
+                rack.slots.push_back(s);
+            }
+            storedRacks.push_back(std::move(rack));
+        }
+    }
+
+    struct StoredBus
+    {
+        int index = 0;
+        MicStripParams params;
+    };
+    std::vector<StoredBus> storedBuses;
+    if (auto *buses = xml->getChildByName("FactoryBuses"))
+    {
+        for (auto *busNode : buses->getChildIterator())
+        {
+            StoredBus b;
+            b.index = busNode->getIntAttribute("index", -1);
+            b.params.level = static_cast<float>(busNode->getDoubleAttribute("level", 1.0));
+            b.params.pan = static_cast<float>(busNode->getDoubleAttribute("pan", 0.0));
+            b.params.mute = busNode->getIntAttribute("mute", 0) != 0;
+            b.params.solo = busNode->getIntAttribute("solo", 0) != 0;
+            if (b.index >= 0)
+                storedBuses.push_back(b);
+        }
+    }
+
     if (xml->hasAttribute("hiHatMode"))
     {
         const int modeInt = xml->getIntAttribute("hiHatMode", 0);
@@ -1292,7 +1391,10 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
 
     if (kitPath.isNotEmpty() && kitPath != currentKitPath)
     {
-        loadKit(kitPath);
+        if (kitPath == juce::String(factory::baseKitPath()))
+            loadFactoryKit();
+        else
+            loadKit(kitPath);
         if (auto *map = xml->getChildByName("MidiMap"))
             getMidiMap().importXml(*map);
         listeners.call(&Listener::kitChanged);
@@ -1304,6 +1406,26 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
             getMidiMap().importXml(*map);
         listeners.call(&Listener::kitChanged);
         listeners.call(&Listener::parametersChanged);
+    }
+
+    for (const auto &bus : storedBuses)
+    {
+        if (bus.index >= 0 && bus.index < audioEngine.getSampler().numFactoryBuses())
+            audioEngine.getSampler().setFactoryBusParams(bus.index, bus.params);
+    }
+
+    for (const auto &rack : storedRacks)
+    {
+        for (const auto &s : rack.slots)
+        {
+            if (s.slot < 0 || s.slot >= Sampler::insertSlots)
+                continue;
+            audioEngine.getSampler().setInsertType(rack.bus, rack.channel, s.slot, s.type);
+            audioEngine.getSampler().setInsertBypass(rack.bus, rack.channel, s.slot, s.bypass);
+            for (int v = 0; v < 6; ++v)
+                audioEngine.getSampler().setInsertValue(rack.bus, rack.channel, s.slot, v,
+                                                        s.values[static_cast<size_t>(v)]);
+        }
     }
 
     for (const auto &stored : storedCurves)

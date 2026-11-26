@@ -3600,6 +3600,9 @@ void MixerView::mouseDown(const juce::MouseEvent &e)
     if (channelFXPopup && channelFXPopup->isOpen() && !channelFXPopup->getBounds().contains(e.position.toInt()))
         channelFXPopup->close();
 
+    if (insertRackPopup && insertRackPopup->isOpen() && !insertRackPopup->getBounds().contains(e.position.toInt()))
+        insertRackPopup->close();
+
     if (masterFXPopup && masterFXPopup->isOpen() && !masterFXPopup->getBounds().contains(e.position.toInt()))
         masterFXPopup->close();
 
