@@ -288,6 +288,10 @@ class Sampler
     int64_t currentSamplePosition() const noexcept { return sampleClock; }
 
     /// Multi-out routing mode. When false (default), all instruments mix to stereo Bus 0.
+    /// Serialises the audio callback with kit mutation. Re-entrant, so render()
+    /// can be called while the audio thread already holds it.
+    juce::CriticalSection &getKitLock() noexcept { return kitLock; }
+
     void setMultiOutMode(bool enabled) noexcept { multiOutMode.store(enabled); }
     bool isMultiOutMode() const noexcept { return multiOutMode.load(); }
 
@@ -433,7 +437,8 @@ class Sampler
         return busCount > 0 ? std::min(instrument, busCount - 1) : 0;
     }
 
-    void resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out);
+    void resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out,
+                                   int pieceIndex);
     void calibrateFactoryPieces();
     InsertChain *insertChain(bool bus, int channel) noexcept;
     const InsertChain *insertChain(bool bus, int channel) const noexcept;

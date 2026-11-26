@@ -3929,6 +3929,10 @@ MixerView::~MixerView()
 
 void MixerView::refreshChannels()
 {
+    // A kit change invalidates every strip index, so drop any popup that was
+    // editing one of them before rebuilding the channel list.
+    closePopups();
+
     channelStrips.clear();
     const int numMics = processor.getSampler().numMicStrips();
 

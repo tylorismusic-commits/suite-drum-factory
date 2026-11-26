@@ -68,6 +68,24 @@ void AudioEngine::render(float *const *busOutputs,
                          std::atomic<float> &lastHiHatCC4,
                          std::atomic<float> &lastSnareCC16)
 {
+    // Kit loads mutate instruments and mixer channels on the message thread.
+    // Keep parameter/MIDI work out of that window; if a swap owns the lock,
+    // emit silence for this block instead of touching half-updated state.
+    auto &kitLock = sampler.getKitLock();
+    if (!kitLock.tryEnter())
+    {
+        for (int bus = 0; bus < numBusOutputs; ++bus)
+            if (busOutputs[bus] != nullptr)
+                juce::FloatVectorOperations::clear(busOutputs[bus], numSamples);
+        return;
+    }
+
+    struct KitLockGuard
+    {
+        juce::CriticalSection &lock;
+        ~KitLockGuard() { lock.exit(); }
+    } kitLockGuard {kitLock};
+
     // Update global parameters only when changed
     GlobalParams globals;
     globals.masterLevel =

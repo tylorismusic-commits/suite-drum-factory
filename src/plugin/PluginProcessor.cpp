@@ -822,6 +822,11 @@ void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
                                  "Loaded kit '" + kitPath + "' ("
                                      + juce::String(audioEngine.getSampler().numInstruments()) + " instruments)");
 
+    // The audio callback reads the note map while rendering. Rebuild it under
+    // the sampler lock so a live loop cannot observe a half-cleared map.
+    {
+    const juce::ScopedLock mapLock(audioEngine.getSampler().getKitLock());
+
     // Delegate note mapping to MidiRouter (handles kit midimap, GM fallback, and default assignments)
     if (factorySwap)
     {
@@ -897,6 +902,7 @@ void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
             }
         }
     }
+    } // mapLock
 
     // Reset per-instrument controls for the new kit.
     audioEngine.getSampler().resetInstrumentParams();

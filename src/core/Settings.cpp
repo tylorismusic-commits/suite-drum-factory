@@ -156,10 +156,12 @@ void Settings::readState(const juce::MemoryBlock &source)
     factoryKickModule = root->getStringAttribute("factoryKickModule", factoryKickModule);
     factorySnareModule = root->getStringAttribute("factorySnareModule", factorySnareModule);
     factoryStudioDefaultApplied = root->getBoolAttribute("factoryStudioDefaultApplied", factoryStudioDefaultApplied);
-    factoryTomModules.clear();
     if (auto *toms = root->getChildByName("FactoryTomModules"))
+    {
+        factoryTomModules.clear();
         for (auto *t : toms->getChildIterator())
             factoryTomModules.add(t->getStringAttribute("module"));
+    }
 
     factoryDisabledPieces.clear();
     if (auto *pieces = root->getChildByName("FactoryDisabledPieces"))

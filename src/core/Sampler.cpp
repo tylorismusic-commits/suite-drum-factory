@@ -222,19 +222,18 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
                                  "-Dconfig::MAX_INSTRUMENT_BUSES for full separation.");
     }
 
-    // Factory kits present one mixer strip per played piece. Map every
-    // instrument (zone) to its logical piece before channels are resolved, so
-    // voices accumulate into piece buffers instead of mic buffers.
-    factoryPieceMode = kit.isFactoryAssembly && !kit.logicalPieces.empty();
-    instrumentPiece.assign(kit.instruments.size(), -1);
-    if (factoryPieceMode)
+    // Build the incoming piece map locally so sample resolution can use it
+    // without publishing half-updated state to the audio thread.
+    const bool newFactoryPieceMode = kit.isFactoryAssembly && !kit.logicalPieces.empty();
+    std::vector<int> newInstrumentPiece(kit.instruments.size(), -1);
+    if (newFactoryPieceMode)
     {
         int pieceIndex = -1;
         for (const auto &lp : kit.logicalPieces)
         {
             bool hasInstrument = false;
             for (const auto &zone : lp.zones)
-                if (zone.samplerIndex >= 0 && zone.samplerIndex < static_cast<int>(instrumentPiece.size()))
+                if (zone.samplerIndex >= 0 && zone.samplerIndex < static_cast<int>(newInstrumentPiece.size()))
                 {
                     hasInstrument = true;
                     break;
@@ -245,8 +244,8 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
 
             ++pieceIndex;
             for (const auto &zone : lp.zones)
-                if (zone.samplerIndex >= 0 && zone.samplerIndex < static_cast<int>(instrumentPiece.size()))
-                    instrumentPiece[static_cast<size_t>(zone.samplerIndex)] = pieceIndex;
+                if (zone.samplerIndex >= 0 && zone.samplerIndex < static_cast<int>(newInstrumentPiece.size()))
+                    newInstrumentPiece[static_cast<size_t>(zone.samplerIndex)] = pieceIndex;
         }
     }
 
@@ -255,10 +254,13 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
 
     int missingFiles = 0;
 
-    for (const auto &instrument : kit.instruments)
+    for (size_t instrumentIndex = 0; instrumentIndex < kit.instruments.size(); ++instrumentIndex)
     {
         InstrumentRuntime runtime;
-        resolveInstrumentChannels(kit, instrument, runtime);
+        const int pieceIndex = instrumentIndex < newInstrumentPiece.size()
+                                   ? newInstrumentPiece[instrumentIndex]
+                                   : -1;
+        resolveInstrumentChannels(kit, kit.instruments[instrumentIndex], runtime, pieceIndex);
 
         if (runtime.hits.empty())
             ++missingFiles;
@@ -295,6 +297,12 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
 
     kitLoaded.store(false);
     allNotesOff();
+
+    // Publish the new piece map only while the render lock is held. Sample
+    // resolution used the local copy, so the audio thread never sees factory
+    // mode paired with the previous kit's (already reset) buses.
+    factoryPieceMode = newFactoryPieceMode;
+    instrumentPiece = std::move(newInstrumentPiece);
 
     instruments_ = std::move(resolved);
     kitChannels_ = kit.channels;
@@ -453,7 +461,7 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
         {
             bool hasInstrument = false;
             for (const auto &zone : lp.zones)
-                if (zone.samplerIndex >= 0)
+                if (zone.samplerIndex >= 0 && zone.samplerIndex < static_cast<int>(instruments_.size()))
                 {
                     hasInstrument = true;
                     break;
@@ -1586,7 +1594,8 @@ GlobalParams Sampler::getGlobalParams() const
 }
 
 //==============================================================================
-void Sampler::resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out)
+void Sampler::resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out,
+                                        int pieceIndex)
 {
     out.name = instrument.displayName;
     out.midiRole = juce::String(instrument.midiRole);
@@ -1683,12 +1692,8 @@ void Sampler::resolveInstrumentChannels(const DrumKit &kit, const Instrument &in
             // Factory mode: sum every mic of the piece into that piece's strip.
             // The source mic's pan, level and polarity are baked into the voice
             // gain here, because the mic strips themselves are not exposed.
-            if (factoryPieceMode && instrument.index >= 0
-                && instrument.index < static_cast<int>(instrumentPiece.size()))
+            if (pieceIndex >= 0)
             {
-                const int pieceIndex = instrumentPiece[static_cast<size_t>(instrument.index)];
-                if (pieceIndex >= 0)
-                {
                     float panL = 1.0f, panR = 1.0f;
                     float level = 1.0f;
                     bool invert = false;
@@ -1734,7 +1739,6 @@ void Sampler::resolveInstrumentChannels(const DrumKit &kit, const Instrument &in
                     channelRef.roomMic = sourceMicIndex >= 0
                                              && (isRoomMicName(kit.channels[static_cast<size_t>(sourceMicIndex)].name)
                                                  || isRoomMicName(kit.channels[static_cast<size_t>(sourceMicIndex)].title));
-                }
             }
 
             const double kitRate = kit.declaredSampleRate > 0 ? static_cast<double>(kit.declaredSampleRate)

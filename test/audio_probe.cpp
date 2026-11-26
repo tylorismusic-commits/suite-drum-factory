@@ -445,6 +445,11 @@ int main (int argc, char** argv)
     {
         if (std::getenv ("GLORP_PROBE_BUSES_RELOAD") != nullptr)
             proc.loadFactoryKit();
+        std::cout << "selection kick=" << proc.getFactoryKickModule().toStdString()
+                  << " snare=" << proc.getFactorySnareModule().toStdString();
+        for (int i = 0; i < 5; ++i)
+            std::cout << " tom" << i << "=" << proc.getFactoryTomModule (i).toStdString();
+        std::cout << std::endl;
         for (int i = 0; i < proc.getSampler().numInstruments(); ++i)
             std::cout << "instrument " << i << " \"" << proc.getSampler().instrumentName (i).toStdString()
                       << "\" role=" << proc.getSampler().instrumentRole (i).toStdString()
@@ -1418,6 +1423,69 @@ int main (int argc, char** argv)
                   << " relinkError=" << relinkError.toStdString()
                   << " relinkMic=" << relinkMic
                   << " relinkHpf=" << relinkStrip.hpfHz << std::endl;
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_SWAPRACE") != nullptr)
+    {
+        juce::String externalPath;
+        if (const auto* env = std::getenv ("GLORP_PROBE_SWAP_KIT"))
+            externalPath = juce::String (env);
+        if (externalPath.isEmpty())
+            externalPath = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                               .getChildFile ("SuiteDrumsGlorp/kits/SM Drums.glorpkit")
+                               .getFullPathName();
+
+        proc.loadKit (externalPath);
+        std::cout << "swaprace external=" << externalPath.toStdString()
+                  << " strips=" << proc.getSampler().numMicStrips()
+                  << " err=" << proc.getLastKitError().toStdString() << std::endl;
+
+        glorp::PluginProcessor::FactoryConfiguration naked;
+        for (const auto& config : proc.getFactoryConfigurations())
+            if (config.name == "Naked Drums")
+                naked = config;
+
+        proc.prepareToPlay (48000.0, 512);
+        std::atomic<bool> running { true };
+        std::atomic<int> blocks { 0 };
+
+        std::thread audio ([&]
+        {
+            juce::AudioBuffer<float> buffer (2, 512);
+            int block = 0;
+            while (running.load (std::memory_order_relaxed))
+            {
+                juce::MidiBuffer midi;
+                if ((block % 3) == 0)
+                {
+                    const int notes[] {36, 38, 48, 49, 51};
+                    midi.addEvent (juce::MidiMessage::noteOn (1, notes[block % 5],
+                                                              static_cast<juce::uint8> (90 + (block % 30))),
+                                   0);
+                }
+                buffer.clear();
+                proc.processBlock (buffer, midi);
+                ++blocks;
+                ++block;
+                std::this_thread::sleep_for (std::chrono::milliseconds (2));
+            }
+        });
+
+        for (int i = 0; i < 12; ++i)
+        {
+            proc.loadKit (externalPath);
+            std::this_thread::sleep_for (std::chrono::milliseconds (20));
+            proc.applyFactoryConfiguration (naked);
+            std::cout << "swap " << i << " strips=" << proc.getSampler().numMicStrips()
+                      << " factory=" << (proc.getSampler().isFactoryPieceMode() ? 1 : 0)
+                      << " blocks=" << blocks.load() << std::endl;
+            std::this_thread::sleep_for (std::chrono::milliseconds (20));
+        }
+
+        running.store (false);
+        audio.join();
+        std::cout << "swaprace done blocks=" << blocks.load() << std::endl;
         return 0;
     }
 
