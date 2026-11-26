@@ -1153,20 +1153,25 @@ KitPiece DrumKitView::pieceAt(juce::Point<float> pos) const
 
         for (const auto piece : cymbalOrder)
         {
+            if (!pieceEnabled[static_cast<size_t>(piece)])
+                continue;
             if (ellipseContains(singlePieceBounds[static_cast<size_t>(piece)], pos) && opaqueAt(pos))
                 return piece;
         }
 
+        // Tom 4 sits in front of Tom 3 where their silhouettes overlap.
         const KitPiece shellOrder[] = {KitPiece::snare,
                                        KitPiece::kick,
                                        KitPiece::tom5,
-                                       KitPiece::tom3,
                                        KitPiece::tom4,
+                                       KitPiece::tom3,
                                        KitPiece::tom1,
                                        KitPiece::tom2};
 
         for (const auto piece : shellOrder)
         {
+            if (!pieceEnabled[static_cast<size_t>(piece)])
+                continue;
             if (!singlePieceBodyBounds[static_cast<size_t>(piece)].contains(pos))
                 continue;
             if (opaqueAt(pos))
