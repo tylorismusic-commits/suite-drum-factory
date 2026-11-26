@@ -1,14 +1,15 @@
 /*
     FactoryKit.h - per-piece shell sourcing for Suite Drum Factory.
 
-    Naked Drums is the fixed base for cymbals, hi-hat, ride and any pieces the
-    user has not reassigned. The kick, snare and each tom can come from Naked,
-    Crocell, DRS, Salamander or Monster independently, so a kit can be a
-    Monster kick, a Crocell snare and DRS toms.
+    Naked Drums is the fixed base. The kick, snare and each tom can come from
+    Naked, Crocell, DRS, Salamander, Monster or an installed expansion module
+    independently, so a kit can be a Monster kick, a Crocell snare and DRS
+    toms.
 
-    Modules contribute shell pieces only. Their cymbals are never loaded, so a
-    kit cannot end up with two rides or three crashes competing for the same
-    notes.
+    Cymbals default to Naked but can be replaced as one group by a module whose
+    manifest sets cymbals=1. Per-piece cymbal sourcing is intentionally not
+    exposed in v1, so a kit cannot end up with two rides or three crashes
+    competing for the same notes.
 */
 
 #pragma once

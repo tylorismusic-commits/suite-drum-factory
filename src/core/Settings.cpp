@@ -126,6 +126,7 @@ void Settings::writeState(juce::MemoryBlock &destination) const
     root.setAttribute("editorHeight", editorHeight);
     root.setAttribute("editorMaximised", editorMaximised);
     root.setAttribute("uiTextScale", static_cast<double>(uiTextScale));
+    root.setAttribute("uiScale", static_cast<double>(uiScale));
     root.setAttribute("openGlEnabled", openGlEnabled);
 
     juce::MemoryOutputStream stream(destination, false);
@@ -142,11 +143,13 @@ void Settings::readState(const juce::MemoryBlock &source)
         || (root->getTagName() != "SuiteDrumsGlorpSettings" && root->getTagName() != "GlorpDrumsSettings"))
         return;
 
+    extraKitPaths.clear();
     if (auto *kits = root->getChildByName("KitPaths"))
         for (auto *p : kits->getChildIterator())
             if (auto v = p->getStringAttribute("value"); v.isNotEmpty())
                 extraKitPaths.add(v);
 
+    recentKits.clear();
     if (auto *recent = root->getChildByName("RecentKits"))
         for (auto *k : recent->getChildIterator())
             if (auto v = k->getStringAttribute("value"); v.isNotEmpty())

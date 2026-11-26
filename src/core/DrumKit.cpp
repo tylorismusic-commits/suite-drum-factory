@@ -41,11 +41,24 @@ std::string joinPath(const std::string &dir, const std::string &relative)
     if (relative.empty())
         return dir;
 
-    const fs::path r(relative);
-    if (r.is_absolute())
-        return r.lexically_normal().string();
+    std::error_code ec;
+    const auto base = fs::absolute(fs::path(dir), ec).lexically_normal();
+    if (ec)
+        return {};
 
-    return (fs::path(dir) / r).lexically_normal().string();
+    const auto candidate = fs::absolute(base / fs::path(relative), ec).lexically_normal();
+    if (ec)
+        return {};
+
+    // Kit XML and archive metadata are untrusted. Never let a sample or
+    // instrument path escape the kit/cache root.
+    auto baseIt = base.begin();
+    auto candidateIt = candidate.begin();
+    for (; baseIt != base.end(); ++baseIt, ++candidateIt)
+        if (candidateIt == candidate.end() || *baseIt != *candidateIt)
+            return {};
+
+    return candidate.string();
 }
 } // namespace
 

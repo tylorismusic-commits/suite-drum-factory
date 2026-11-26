@@ -124,9 +124,14 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
                              && factorySelection.snareModule == "naked"
                              && factorySelection.disabled.empty();
         for (const auto &id : factorySelection.tomModules)
-            nakedDefaults = nakedDefaults && id == "naked";
+            nakedDefaults = nakedDefaults && (id.empty() || id == "naked");
 
-        if (nakedDefaults)
+        // Only open on the Studio Mix when the three shell kits it uses are
+        // actually installed. A Naked-only install must start on Naked.
+        const bool studioAvailable = !factory::moduleKitPath("monster").empty()
+                                     && !factory::moduleKitPath("crocell").empty()
+                                     && !factory::moduleKitPath("drs").empty();
+        if (nakedDefaults && studioAvailable)
         {
             factorySelection.kickModule = "monster";
             factorySelection.snareModule = "crocell";
@@ -483,6 +488,7 @@ juce::AudioProcessorParameter *PluginProcessor::findParameter(const juce::String
 void PluginProcessor::refreshKitList()
 {
     kitList = KitScanner::scan(settings.allSearchPaths());
+    refreshFactoryModules();
 }
 
 void PluginProcessor::loadKit(const juce::String &drumkitPath)
@@ -509,7 +515,7 @@ void PluginProcessor::loadKit(const juce::String &drumkitPath)
     }
 }
 
-void PluginProcessor::loadFactoryKit()
+bool PluginProcessor::loadFactoryKit()
 {
     lastKitError.clear();
 
@@ -518,21 +524,46 @@ void PluginProcessor::loadFactoryKit()
     {
         lastKitError = "Naked Drums is not installed. Add Naked Drums.glorpkit to the kit folder.";
         DebugLog::instance().logInfo("FACTORY", lastKitError);
-        return;
+        return false;
     }
 
-    // A removed expansion pack must not leave the kit unloadable. Fall back to
-    // the Naked cymbal group and persist that choice.
-    if (factorySelection.cymbalsModule != "naked"
-        && factory::moduleKitPath(factorySelection.cymbalsModule).empty())
+    // A removed or incomplete module must not leave the kit unloadable. The
+    // Naked kit is the guaranteed base, so missing shell/cymbal modules fall
+    // back to it and missing tom modules disable only their slot.
+    bool selectionChanged = false;
+    const auto fallbackMissingModule = [&](std::string &moduleId, const juce::String &slot)
     {
+        if (moduleId.empty() || moduleId == "naked" || moduleId == "naked2")
+            return;
+        if (!factory::moduleKitPath(moduleId).empty())
+            return;
+
         DebugLog::instance().logInfo(
-            "FACTORY",
-            "Cymbal expansion '" + juce::String(factorySelection.cymbalsModule)
-                + "' is not installed; using Naked Drums cymbals.");
-        factorySelection.cymbalsModule = "naked";
-        saveFactorySelection();
+            "FACTORY", "Module '" + juce::String(moduleId) + "' used by " + slot
+                           + " is not installed; falling back to Naked Drums.");
+        moduleId = "naked";
+        selectionChanged = true;
+    };
+
+    fallbackMissingModule(factorySelection.kickModule, "the kick");
+    fallbackMissingModule(factorySelection.snareModule, "the snare");
+    fallbackMissingModule(factorySelection.cymbalsModule, "the cymbal group");
+    for (auto &tomModule : factorySelection.tomModules)
+    {
+        if (tomModule.empty() || tomModule == "naked" || tomModule == "naked2")
+            continue;
+        if (!factory::moduleKitPath(tomModule).empty())
+            continue;
+
+        DebugLog::instance().logInfo(
+            "FACTORY", "Tom module '" + juce::String(tomModule)
+                           + "' is not installed; disabling that tom slot.");
+        tomModule.clear();
+        selectionChanged = true;
     }
+
+    if (selectionChanged)
+        saveFactorySelection();
 
     try
     {
@@ -543,13 +574,14 @@ void PluginProcessor::loadFactoryKit()
         {
             lastKitError = juce::String(result.error);
             DebugLog::instance().logInfo("FACTORY", "Assembly failed: " + lastKitError);
-            return;
+            return false;
         }
 
         DebugLog::instance().logInfo("FACTORY",
                                      "Assembled " + juce::String(result.kit.title) + " with "
                                          + juce::String(result.kit.instruments.size()) + " instruments");
         loadAssembledKit(std::move(result.kit), juce::String(basePath));
+        return audioEngine.getSampler().isKitLoaded();
     }
     catch (const std::exception &e)
     {
@@ -561,6 +593,23 @@ void PluginProcessor::loadFactoryKit()
         lastKitError = "Could not assemble kit: unknown error";
         DebugLog::instance().logInfo("FACTORY", lastKitError);
     }
+    return false;
+}
+
+bool PluginProcessor::applyFactorySelection(const factory::Selection &candidate)
+{
+    const auto previous = factorySelection;
+    factorySelection = candidate;
+
+    if (!loadFactoryKit())
+    {
+        factorySelection = previous;
+        loadFactoryKit();
+        return false;
+    }
+
+    saveFactorySelection();
+    return true;
 }
 
 void PluginProcessor::setFactoryKickModule(const juce::String &moduleId)
@@ -569,9 +618,9 @@ void PluginProcessor::setFactoryKickModule(const juce::String &moduleId)
     if (id == factorySelection.kickModule)
         return;
 
-    factorySelection.kickModule = id;
-    saveFactorySelection();
-    loadFactoryKit();
+    auto candidate = factorySelection;
+    candidate.kickModule = id;
+    applyFactorySelection(candidate);
 }
 
 void PluginProcessor::setFactorySnareModule(const juce::String &moduleId)
@@ -580,9 +629,9 @@ void PluginProcessor::setFactorySnareModule(const juce::String &moduleId)
     if (id == factorySelection.snareModule)
         return;
 
-    factorySelection.snareModule = id;
-    saveFactorySelection();
-    loadFactoryKit();
+    auto candidate = factorySelection;
+    candidate.snareModule = id;
+    applyFactorySelection(candidate);
 }
 
 void PluginProcessor::setFactoryCymbalsModule(const juce::String &moduleId)
@@ -591,9 +640,9 @@ void PluginProcessor::setFactoryCymbalsModule(const juce::String &moduleId)
     if (id == factorySelection.cymbalsModule)
         return;
 
-    factorySelection.cymbalsModule = id;
-    saveFactorySelection();
-    loadFactoryKit();
+    auto candidate = factorySelection;
+    candidate.cymbalsModule = id;
+    applyFactorySelection(candidate);
 }
 
 void PluginProcessor::refreshFactoryModules()
@@ -630,9 +679,9 @@ void PluginProcessor::setFactoryTomModule(int slot, const juce::String &moduleId
     if (id == target)
         return;
 
-    target = id;
-    saveFactorySelection();
-    loadFactoryKit();
+    auto candidate = factorySelection;
+    candidate.tomModules[static_cast<size_t>(slot)] = id;
+    applyFactorySelection(candidate);
 }
 
 juce::String PluginProcessor::getFactoryTomModule(int slot) const
@@ -656,13 +705,12 @@ void PluginProcessor::setFactoryPieceEnabled(const juce::String &moduleId,
     if (currentlyEnabled == enabled)
         return;
 
+    auto candidate = factorySelection;
     if (enabled)
-        factorySelection.disabled.erase(key);
+        candidate.disabled.erase(key);
     else
-        factorySelection.disabled.insert(key);
-
-    saveFactorySelection();
-    loadFactoryKit();
+        candidate.disabled.insert(key);
+    applyFactorySelection(candidate);
 }
 
 std::vector<PluginProcessor::FactoryConfiguration> PluginProcessor::getFactoryConfigurations() const
@@ -758,9 +806,7 @@ std::vector<MixPieceInfo> PluginProcessor::getMixPieces() const
 
 void PluginProcessor::applyFactoryConfiguration(const FactoryConfiguration &configuration)
 {
-    factorySelection = configuration.selection;
-    saveFactorySelection();
-    loadFactoryKit();
+    applyFactorySelection(configuration.selection);
 }
 
 juce::String PluginProcessor::saveFactoryConfiguration(const juce::String &name)
@@ -1256,6 +1302,31 @@ void PluginProcessor::getStateInformation(juce::MemoryBlock &destination)
     state.setAttribute("hiHatMode", static_cast<int>(audioEngine.getSampler().getHiHatMode()));
     state.setAttribute("outputMode", static_cast<int>(audioEngine.getSampler().getOutputMode()));
 
+    // Project state must carry the factory piece selection. Settings are a
+    // user default, not a song setting; without this, reopening a project after
+    // changing the global selection would load different shells and cymbals.
+    if (currentKit.isFactoryAssembly)
+    {
+        if (auto *factory = state.createNewChildElement("FactorySelection"))
+        {
+            factory->setAttribute("kick", juce::String(factorySelection.kickModule));
+            factory->setAttribute("snare", juce::String(factorySelection.snareModule));
+            factory->setAttribute("cymbals", juce::String(factorySelection.cymbalsModule));
+            for (int i = 0; i < factory::tomSlots; ++i)
+            {
+                auto *tom = factory->createNewChildElement("tom");
+                tom->setAttribute("slot", i);
+                tom->setAttribute("module",
+                                  juce::String(factorySelection.tomModules[static_cast<size_t>(i)]));
+            }
+            for (const auto &key : factorySelection.disabled)
+            {
+                auto *piece = factory->createNewChildElement("disabled");
+                piece->setAttribute("key", juce::String(key));
+            }
+        }
+    }
+
     const auto mixerPreset = audioEngine.getSampler().getCurrentMixerPreset("CurrentMix");
     if (auto mixerXml = juce::XmlDocument::parse(mixerPreset.toXmlString()))
     {
@@ -1402,6 +1473,30 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
 
     auto kitPath = xml->getStringAttribute("kit");
 
+    bool restoredFactory = false;
+    factory::Selection restoredSelection;
+    if (auto *factory = xml->getChildByName("FactorySelection"))
+    {
+        restoredFactory = true;
+        restoredSelection.kickModule = factory->getStringAttribute("kick", "naked").toStdString();
+        restoredSelection.snareModule = factory->getStringAttribute("snare", "naked").toStdString();
+        restoredSelection.cymbalsModule = factory->getStringAttribute("cymbals", "naked").toStdString();
+        restoredSelection.tomModules = {"", "", "", "", ""};
+        for (auto *tom : factory->getChildWithTagNameIterator("tom"))
+        {
+            const int slot = tom->getIntAttribute("slot", -1);
+            if (slot >= 0 && slot < factory::tomSlots)
+                restoredSelection.tomModules[static_cast<size_t>(slot)] =
+                    tom->getStringAttribute("module").toStdString();
+        }
+        for (auto *piece : factory->getChildWithTagNameIterator("disabled"))
+        {
+            const auto key = piece->getStringAttribute("key");
+            if (key.isNotEmpty())
+                restoredSelection.disabled.insert(key.toStdString());
+        }
+    }
+
     struct StoredRackSlot
     {
         int slot = 0;
@@ -1518,9 +1613,15 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
         }
     }
 
-    if (kitPath.isNotEmpty() && kitPath != currentKitPath)
+    if (restoredFactory)
     {
-        if (kitPath == juce::String(factory::baseKitPath()))
+        factorySelection = restoredSelection;
+        saveFactorySelection();
+    }
+
+    if ((kitPath.isNotEmpty() && kitPath != currentKitPath) || restoredFactory)
+    {
+        if (restoredFactory || kitPath == juce::String(factory::baseKitPath()))
             loadFactoryKit();
         else
             loadKit(kitPath);

@@ -97,7 +97,7 @@ class PluginProcessor : public juce::AudioProcessor
 
     // -- Suite Drum Factory ------------------------------------------------
     /// Rebuilds the assembled kit from the per-piece shell selection.
-    void loadFactoryKit();
+    bool loadFactoryKit();
 
     /// Per-slot source modules. Empty disables the slot. "naked", "crocell",
     /// "drs", "salamander" and "monster" are the valid ids.
@@ -214,6 +214,7 @@ class PluginProcessor : public juce::AudioProcessor
     void notifyParametersChanged();
     void loadAssembledKit(DrumKit kit, const juce::String &kitPath);
     void saveFactorySelection();
+    bool applyFactorySelection(const factory::Selection &candidate);
 
     ParameterManager parameterManager;
     MidiRouter midiRouter;

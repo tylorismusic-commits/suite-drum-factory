@@ -161,7 +161,7 @@ if(GLORP_BUILD_LV2 AND NOT GLORP_IS_WINDOWS)
         COMMAND ${CMAKE_COMMAND}
             -DPLUGIN_TTL_DIR=$<TARGET_FILE_DIR:GlorpDrums_LV2>
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/mark_lv2_instrument.cmake"
-        COMMENT "Marking Suite Drums Glorp as an LV2 instrument"
+        COMMENT "Marking Suite Drum Factory as an LV2 instrument"
         VERBATIM)
 endif()
 

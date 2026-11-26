@@ -47,8 +47,11 @@ IFS=',' read -r -a REQUESTED <<< "${PACK_KITS:-$(IFS=,; echo "${DEFAULT_KITS[*]}
 find_kit() {
     local name="$1"
     local folder="${FOLDERS[$name]:-}"
+    local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
     local candidates=(
         "${KITS_DIR:-}/$name"
+        "$config_home/SuiteDrumFactory/kits/$name"
+        "$config_home/SuiteDrumsGlorp/kits/$name"
         "$HOME/.config/SuiteDrumFactory/kits/$name"
         "$HOME/.config/SuiteDrumsGlorp/kits/$name"
         "$HOME/Documents/SuiteDrumsGlorpShare/${folder}/$name"

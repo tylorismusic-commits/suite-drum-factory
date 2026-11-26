@@ -266,7 +266,10 @@ std::vector<ModuleInfo> buildModuleRegistry()
     const auto home = homePath();
     std::vector<fs::path> dirs;
     if (const char *xdg = std::getenv("XDG_CONFIG_HOME"))
+    {
         dirs.push_back(fs::path(xdg) / "SuiteDrumFactory/factory_packs");
+        dirs.push_back(fs::path(xdg) / "SuiteDrumsGlorp/factory_packs");
+    }
     if (!home.empty())
     {
         dirs.push_back(home / ".config/SuiteDrumFactory/factory_packs");
@@ -284,10 +287,14 @@ std::vector<ModuleInfo> buildModuleRegistry()
         if (!fs::is_directory(d, ec))
             continue;
 
-        for (const auto &entry : fs::directory_iterator(d, ec))
+        try
         {
-            if (!entry.is_regular_file() || entry.path().extension() != ".txt")
-                continue;
+            for (const auto &entry : fs::directory_iterator(d, ec))
+            {
+                std::error_code entryEc;
+                if (!entry.is_regular_file(entryEc) || entryEc
+                    || entry.path().extension() != ".txt")
+                    continue;
 
             std::ifstream input(entry.path());
             if (!input)
@@ -334,14 +341,29 @@ std::vector<ModuleInfo> buildModuleRegistry()
             if (!shellsSpecified)
                 module.shells = !module.cymbals;
 
-            if (module.id == "naked" || module.id.empty() || module.name.empty()
+            if (module.id == "naked" || module.id == "naked2" || module.id.empty()
+                || module.name.empty()
                 || module.kitFile.empty())
                 continue;
-            if (module.folder.empty())
-                module.folder = fs::path(module.kitFile).stem().string();
+
+            // Manifests are user-supplied. Keep paths as single path components
+            // so a pack cannot point the loader outside the known kit folders.
+            module.kitFile = fs::path(module.kitFile).filename().string();
+            module.folder = module.folder.empty()
+                                ? fs::path(module.kitFile).stem().string()
+                                : fs::path(module.folder).filename().string();
+            if (module.kitFile.empty())
+                continue;
             if (!seen.insert(module.id).second)
                 continue;
-            list.push_back(std::move(module));
+                list.push_back(std::move(module));
+            }
+        }
+        catch (const fs::filesystem_error &)
+        {
+            // A permission or transient filesystem error must not stop the
+            // plugin from starting with the remaining modules.
+            continue;
         }
     }
 
@@ -383,10 +405,13 @@ std::string findKitPath(const std::string &kitFile, const std::string &folder)
 
     std::vector<fs::path> candidates;
     if (const char *xdg = std::getenv("XDG_CONFIG_HOME"))
+    {
+        candidates.push_back(fs::path(xdg) / "SuiteDrumFactory/kits" / kitFile);
         candidates.push_back(fs::path(xdg) / "SuiteDrumsGlorp/kits" / kitFile);
+    }
 
-    candidates.push_back(home / ".config/SuiteDrumsGlorp/kits" / kitFile);
     candidates.push_back(home / ".config/SuiteDrumFactory/kits" / kitFile);
+    candidates.push_back(home / ".config/SuiteDrumsGlorp/kits" / kitFile);
     if (!folder.empty())
         candidates.push_back(home / "Documents/SuiteDrumsGlorpShare" / folder / kitFile);
 

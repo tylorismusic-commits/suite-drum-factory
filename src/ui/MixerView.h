@@ -66,10 +66,13 @@ class MixerView
         bool getActive() const noexcept { return active; }
         void setTheme(const Theme &t)
         {
+            if (accentDriven)
+                activeColour = t.accent;
             theme = t;
             repaint();
         }
         juce::Colour activeColour = juce::Colour(0xff4cc2a8);
+        bool accentDriven = true;
 
       private:
         bool isToggle_ = false;

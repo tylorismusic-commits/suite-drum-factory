@@ -6,10 +6,14 @@ swap the shell pieces (kick, snare, toms) from Crocell, DRS, Salamander or
 Monster. Cymbals default to Naked and can be replaced as one group by an
 installed expansion pack.
 
-This repository is the prototype fork. It is a separate product from Suite
-Drums Glorp.
+**Current release: 0.1.0.** This repository is the Suite Drum Factory product
+fork, separate from Suite Drums Glorp.
 
-## What works in this prototype
+The plugin is sample-free by default. Factory samples are distributed separately
+as drag-in `.suitefactory` packs; see [Expansion packs](docs/EXPANSIONS.md) and
+`NOTICE.md`.
+
+## What works
 
 - Naked Drums is loaded as the fixed base.
 - One shell module can be selected at a time: Naked, Crocell, DRS, Salamander or
@@ -128,7 +132,17 @@ ctest --test-dir build --output-on-failure
 tools/install_plugins.sh
 ```
 
-Build the drag-in factory pack (all five kits) or a smaller test pack:
+Build the Linux release archive:
+
+```bash
+tools/package_linux.sh 0.1.0
+# -> build/dist/suite-drum-factory-0.1.0-linux-x86_64.zip
+```
+
+The archive contains the plugin only. Factory samples are installed separately
+with `.suitefactory` packs.
+
+Build the full factory pack (all five kits) or a smaller test pack:
 
 ```bash
 tools/make_factory_pack.sh dist/SuiteDrumFactory-Factory.suitefactory
@@ -136,7 +150,13 @@ PACK_KITS="Naked Drums.glorpkit" \
   tools/make_factory_pack.sh dist/Naked-base.suitefactory
 ```
 
+The full factory pack is about 15 GB. Installing it streams and writes all
+archives in one action and can take several minutes; keep the DAW open until
+the confirmation dialog appears.
+
 The plugin installs as **Suite Drum Factory** in `~/.vst3` and `~/.lv2`.
+Release archives include an `install.sh` that does the same for a prebuilt
+bundle.
 
 ## Architecture
 
@@ -152,6 +172,7 @@ factory presets are inherited from the Glorp engine.
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Expansion pack format](docs/EXPANSIONS.md)
 - [Kit art layout](docs/KIT_ART_LAYOUT.md)
 - [Roadmap](docs/ROADMAP.md)

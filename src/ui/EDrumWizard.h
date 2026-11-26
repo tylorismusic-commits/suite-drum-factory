@@ -25,6 +25,11 @@ class EDrumWizard
 
     void open();
     void close();
+    void setTheme(const Theme &newTheme)
+    {
+        theme = newTheme;
+        repaint();
+    }
 
     std::function<void()> onClose;
 

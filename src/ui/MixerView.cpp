@@ -302,6 +302,7 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
 {
     phaseBtn.setButtonText(juce::CharPointer_UTF8("\xc3\x98")); // Ø
     phaseBtn.activeColour = juce::Colour(0xff00ffcc);           // Neon Cyan
+    phaseBtn.accentDriven = false;
     phaseBtn.onClick = [this]()
     {
         auto params = processor.getSampler().getMicStripParams(channelIndex_);
@@ -339,6 +340,7 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
 
     muteBtn.setButtonText("M");
     muteBtn.activeColour = juce::Colour(0xffe74c3c);
+    muteBtn.accentDriven = false;
     muteBtn.onClick = [this]()
     {
         auto params = processor.getSampler().getMicStripParams(channelIndex_);
@@ -350,6 +352,7 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
 
     monoBtn.setButtonText("MONO");
     monoBtn.activeColour = juce::Colour(0xffa78bfa);
+    monoBtn.accentDriven = false;
     monoBtn.onClick = [this]()
     {
         auto params = processor.getSampler().getMicStripParams(channelIndex_);
@@ -447,6 +450,7 @@ void MixerView::ChannelStripComponent::updateFromState()
     const int b = processor.getSampler().getMicOutputBus(channelIndex_);
     busBtn.setButtonText(b == 0 ? "SUMS" : ("OUT " + juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2)));
     busBtn.activeColour = (b == 0) ? juce::Colour(0xff4cc2a8) : juce::Colour(0xff3498db);
+    busBtn.accentDriven = (b == 0);
     busBtn.setActive(b > 0);
     busBtn.setActive(b > 0);
 
@@ -1883,6 +1887,7 @@ MixerView::MasterStripComponent::MasterStripComponent(MixerView &o, PluginProces
 {
     limiterBtn.setButtonText("LIMITER");
     limiterBtn.activeColour = juce::Colour(0xff2ecc71);
+    limiterBtn.accentDriven = false;
     limiterBtn.onClick = [this]()
     {
         auto params = processor.getSampler().getMasterStripParams();
@@ -1894,6 +1899,7 @@ MixerView::MasterStripComponent::MasterStripComponent(MixerView &o, PluginProces
 
     fxBtn.setButtonText("MASTER FX");
     fxBtn.activeColour = juce::Colour(0xff9b59b6);
+    fxBtn.accentDriven = false;
     fxBtn.onClick = [this]()
     {
         owner.closePopups();
@@ -3151,6 +3157,7 @@ MixerView::BleedMatrixPopup::BleedMatrixPopup(MixerView &o, PluginProcessor &pro
     // Modes
     hybridModeBtn.setButtonText("HYBRID ACOUSTIC");
     hybridModeBtn.activeColour = juce::Colour(0xff2ecc71);
+    hybridModeBtn.accentDriven = false;
     hybridModeBtn.onClick = [this]()
     {
         processor.getSampler().getBleedMatrix().setMode(BleedMatrix::Mode::hybridAcoustic);
@@ -3160,6 +3167,7 @@ MixerView::BleedMatrixPopup::BleedMatrixPopup(MixerView &o, PluginProcessor &pro
 
     recordedModeBtn.setButtonText("RECORDED ONLY");
     recordedModeBtn.activeColour = juce::Colour(0xff3498db);
+    recordedModeBtn.accentDriven = false;
     recordedModeBtn.onClick = [this]()
     {
         processor.getSampler().getBleedMatrix().setMode(BleedMatrix::Mode::recordedOnly);
@@ -3169,6 +3177,7 @@ MixerView::BleedMatrixPopup::BleedMatrixPopup(MixerView &o, PluginProcessor &pro
 
     disabledModeBtn.setButtonText("MUTE BLEED");
     disabledModeBtn.activeColour = juce::Colour(0xffe74c3c);
+    disabledModeBtn.accentDriven = false;
     disabledModeBtn.onClick = [this]()
     {
         processor.getSampler().getBleedMatrix().setMode(BleedMatrix::Mode::disabled);

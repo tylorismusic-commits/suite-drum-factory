@@ -1,11 +1,11 @@
-# Install rules for Suite Drums Glorp.
+# Install rules for Suite Drum Factory.
 #
 # Formats are installed into the user's home by default so the plugin is usable
 # without root. Pass -DGLORP_INSTALL_PREFIX=/usr to do a system-wide install
 # instead, which is what the packaging step wants.
 
-set(GLORP_APP_NAME "Suite Drums Glorp")
-set(GLORP_CONFIG_NAME "SuiteDrumsGlorp")
+set(GLORP_APP_NAME "Suite Drum Factory")
+set(GLORP_CONFIG_NAME "SuiteDrumFactory")
 set(GLORP_KIT_STUDIO_NAME "SuiteKitStudio")
 
 # Platform-specific install destinations
@@ -115,8 +115,8 @@ endif()
 install(FILES "assets/suite_drums_icon.png" "assets/suite_kit_studio_icon.png"
     DESTINATION "${GLORP_DEST}/icons")
 
-if(NOT GLORP_IS_WINDOWS)
-    # Linux .desktop files
+if(GLORP_BUILD_KIT_EDITOR AND NOT GLORP_IS_WINDOWS)
+    # Linux .desktop files for the optional kit editor.
     install(CODE "
         file(MAKE_DIRECTORY \"$ENV{HOME}/.local/share/icons/hicolor/256x256/apps\")
         file(MAKE_DIRECTORY \"$ENV{HOME}/.local/share/applications\")
@@ -136,6 +136,8 @@ Categories=AudioVideo;Audio;
 StartupWMClass=${GLORP_KIT_STUDIO_NAME}
 \")
     ")
+elseif(NOT GLORP_IS_WINDOWS)
+    message(STATUS "Kit editor disabled: no desktop launcher installed")
 else()
     # Windows: Start Menu shortcuts created by NSIS installer (tools/install_windows.nsi)
     # No CMake install-time shortcut creation needed

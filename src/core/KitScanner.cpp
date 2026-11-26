@@ -127,10 +127,17 @@ std::vector<std::string> KitScanner::defaultSearchPaths()
         }
     }
 
+    if (const auto *xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0')
+    {
+        paths.push_back(std::string(xdg) + "/SuiteDrumFactory/kits");
+        paths.push_back(std::string(xdg) + "/SuiteDrumsGlorp/kits");
+    }
+
     if (const auto home = homeDirectory(); !home.empty())
     {
-        // Suite paths first, then the original GlorpDrums locations for people
-        // upgrading with kits already installed.
+        // Dragged-in packs live here. Legacy GlorpDrums locations follow for
+        // people upgrading with kits already installed.
+        paths.push_back(home + "/.config/SuiteDrumFactory/kits");
         paths.push_back(home + "/.suitedrumsglorp/kits");
         paths.push_back(home + "/.config/SuiteDrumsGlorp/kits");
         paths.push_back(home + "/.glorpdrums/kits");

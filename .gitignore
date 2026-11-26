@@ -37,7 +37,7 @@ test/test/
 check_raw_wav
 test_crocell
 test_menu
-test_*
+/test_*
 /core
 core.[0-9]*
 vgcore.*

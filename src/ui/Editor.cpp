@@ -54,6 +54,19 @@ juce::Colour parseAccentColour(const juce::String &text, juce::Colour fallback)
 
 namespace
 {
+bool isPackNotice(const juce::String &path, const juce::String &base)
+{
+    const auto lowerBase = base.toLowerCase();
+    const auto lowerPath = path.toLowerCase();
+
+    return lowerBase.startsWith("readme") || lowerBase.startsWith("license")
+           || lowerBase.startsWith("licence") || lowerBase.startsWith("attribution")
+           || lowerBase.startsWith("copying") || lowerBase.startsWith("notice")
+           || lowerBase.startsWith("copyright") || lowerBase.startsWith("unlicense")
+           || lowerPath.startsWith("licenses/") || lowerPath.contains("/licenses/")
+           || lowerPath.startsWith("license/") || lowerPath.contains("/license/");
+}
+
 juce::String tarString(const char *field, size_t length)
 {
     size_t used = 0;
@@ -185,12 +198,7 @@ bool extractTarPack(const juce::File &pack,
             const auto base = juce::File(name).getFileName();
             const bool isManifest = base.equalsIgnoreCase("pack.txt");
             const bool isKit = base.endsWithIgnoreCase(".glorpkit");
-            const bool isDoc = name.startsWithIgnoreCase("README")
-                               || name.startsWithIgnoreCase("LICENSE")
-                               || name.startsWithIgnoreCase("LICENCE")
-                               || name.startsWithIgnoreCase("ATTRIBUTION")
-                               || name.startsWithIgnoreCase("COPYING")
-                               || name.startsWithIgnoreCase("LICENSES/");
+            const bool isDoc = isPackNotice(name, base);
 
             if (isManifest)
             {
@@ -220,11 +228,13 @@ bool extractTarPack(const juce::File &pack,
                 }
 
                 const auto target = isDoc ? docsDir.getChildFile(base) : kitsDir.getChildFile(base);
-                target.deleteFile();
-                juce::FileOutputStream output(target);
-                if (!output.openedOk())
+                const auto temp = target.getSiblingFile(target.getFileName() + ".part");
+                temp.deleteFile();
+
+                auto output = std::make_unique<juce::FileOutputStream>(temp);
+                if (!output->openedOk())
                 {
-                    error = "Could not write " + target.getFullPathName();
+                    error = "Could not write " + temp.getFullPathName();
                     return false;
                 }
 
@@ -236,18 +246,42 @@ bool extractTarPack(const juce::File &pack,
                     const int got = input.read(buffer.getData(), chunk);
                     if (got <= 0)
                     {
+                        output.reset();
+                        temp.deleteFile();
                         error = "The pack archive is truncated.";
                         return false;
                     }
-                    if (!output.write(buffer.getData(), static_cast<size_t>(got)))
+                    if (!output->write(buffer.getData(), static_cast<size_t>(got)))
                     {
-                        error = "Could not write " + target.getFullPathName();
+                        output.reset();
+                        temp.deleteFile();
+                        error = "Could not write " + temp.getFullPathName();
                         return false;
                     }
                     remaining -= got;
                 }
+                output->flush();
+                output.reset();
+
+                if (target.getSize() > 0)
+                    target.deleteFile();
+                if (!temp.moveFileTo(target))
+                {
+                    temp.deleteFile();
+                    error = "Could not install " + target.getFullPathName();
+                    return false;
+                }
+
                 if (isKit)
+                {
+                    if (target.getSize() <= 0)
+                    {
+                        target.deleteFile();
+                        error = "The pack contains an empty kit archive: " + base;
+                        return false;
+                    }
                     ++extracted;
+                }
             }
             else if (!skipTarBytes(input, size))
             {
@@ -1545,9 +1579,15 @@ class Editor::AboutCard : public juce::Component
         setInterceptsMouseClicks(true, true);
         closeButton.setButtonText("CLOSE");
         closeButton.onClick = [this] { if (onClose) onClose(); };
-        closeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2f2f34));
-        closeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xfff2f2f0));
         addAndMakeVisible(closeButton);
+        applyThemeToControls();
+    }
+
+    void setTheme(const Theme &newTheme)
+    {
+        theme = newTheme;
+        applyThemeToControls();
+        repaint();
     }
 
     std::function<void()> onClose;
@@ -1559,17 +1599,17 @@ class Editor::AboutCard : public juce::Component
         auto card = getLocalBounds().toFloat();
         card = card.withSizeKeepingCentre(std::min(660.0f, card.getWidth() - 80.0f),
                                           std::min(560.0f, card.getHeight() - 80.0f));
-        g.setColour(juce::Colour(0xff1e1e22));
+        g.setColour(theme.panel);
         g.fillRoundedRectangle(card, 14.0f);
-        g.setColour(juce::Colour(0xff4cc2a8));
+        g.setColour(theme.accent);
         g.drawRoundedRectangle(card.reduced(1.0f), 14.0f, 1.5f);
 
         auto area = card.reduced(34.0f, 26.0f);
-        g.setColour(juce::Colour(0xfff2f2f0));
+        g.setColour(theme.ink);
         g.setFont(juce::Font(juce::FontOptions(30.0f)));
         g.drawText("SUITE DRUM FACTORY", area.removeFromTop(40.0f), juce::Justification::centredLeft, false);
 
-        g.setColour(juce::Colour(0xff9a9aa0));
+        g.setColour(theme.inkSoft);
         g.setFont(juce::Font(juce::FontOptions(15.0f)));
         g.drawText("VST3 / LV2 drum instrument  ·  " + juce::String(JucePlugin_VersionString),
                    area.removeFromTop(24.0f), juce::Justification::centredLeft, false);
@@ -1579,7 +1619,7 @@ class Editor::AboutCard : public juce::Component
         juce::AttributedString body;
         body.setJustification(juce::Justification::topLeft);
         body.setFont(juce::Font(juce::FontOptions(15.5f)));
-        body.setColour(juce::Colour(0xffd8d8d8));
+        body.setColour(theme.ink);
         body.append(
             "Built around Naked Drums, with swappable shells from Crocell, DRS, Salamander and Monster.\n\n"
             "Thanks to the original sample providers and the communities who recorded and released these kits:\n\n"
@@ -1608,17 +1648,25 @@ class Editor::AboutCard : public juce::Component
     }
 
   private:
+    void applyThemeToControls()
+    {
+        closeButton.setColour(juce::TextButton::buttonColourId, theme.panelEdge);
+        closeButton.setColour(juce::TextButton::buttonOnColourId, theme.accent);
+        closeButton.setColour(juce::TextButton::textColourOffId, theme.ink);
+    }
+
     juce::TextButton closeButton;
+    Theme theme = Theme::suite();
 };
 
 Theme Editor::makeThemeFromSettings() const
 {
     auto &settings = processor.getSettings();
-    auto theme = settings.darkTheme ? Theme::suite() : Theme::suiteLight();
+    auto result = settings.darkTheme ? Theme::suite() : Theme::suiteLight();
 
-    theme.accent = parseAccentColour(settings.darkTheme ? settings.accentDark : settings.accentLight,
-                                     theme.accent);
-    return theme;
+    result.accent = parseAccentColour(settings.darkTheme ? settings.accentDark : settings.accentLight,
+                                      result.accent);
+    return result;
 }
 
 void Editor::setDarkTheme(bool dark)
@@ -1717,6 +1765,7 @@ Editor::Editor(PluginProcessor &p) : processor(p)
     { startExternalMidiDrag(source, file); };
 
     edrumWizard = std::make_unique<EDrumWizard>(processor);
+    edrumWizard->setTheme(theme);
     addChildComponent(*edrumWizard);
     edrumWizard->onClose = [this]
     {
@@ -2048,6 +2097,12 @@ void Editor::applyTheme(const Theme &newTheme)
 
     if (midiBrowser != nullptr)
         midiBrowser->setTheme(theme);
+
+    if (edrumWizard != nullptr)
+        edrumWizard->setTheme(theme);
+
+    if (aboutCard != nullptr)
+        aboutCard->setTheme(theme);
 
     sendLookAndFeelChange();
     syncTopLevelWindowTheme();
@@ -2569,6 +2624,7 @@ void Editor::showFactoryConfigMenu()
     {
         const auto &s = config.selection;
         return s.kickModule == current.kickModule && s.snareModule == current.snareModule
+               && s.cymbalsModule == current.cymbalsModule
                && s.tomModules == current.tomModules && s.disabled == current.disabled;
     };
 
@@ -2655,7 +2711,7 @@ void Editor::showFactoryPiecesMenu()
                            processor.setFactoryCymbalsModule("naked");
                        });
     for (const auto &module : factory::modules())
-        if (module.cymbals)
+        if (module.cymbals && !factory::moduleKitPath(module.id).empty())
             cymbalMenu.addItem(juce::String(module.name), true,
                                processor.getFactoryCymbalsModule() == juce::String(module.id), [this, id = module.id]
                                {
@@ -2710,6 +2766,7 @@ void Editor::showAboutCard()
     if (aboutCard == nullptr)
     {
         aboutCard = std::make_unique<AboutCard>();
+        aboutCard->setTheme(theme);
         aboutCard->onClose = [this] { aboutCard->setVisible(false); };
         addChildComponent(*aboutCard);
     }
@@ -2904,10 +2961,32 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
         return false;
     }
 
+    // JUCE's ZIP reader predates reliable Zip64 support. The pack builder uses
+    // tar above 4 GiB; reject an oversized ZIP before it is misread.
+    constexpr juce::int64 zip32Limit = 4LL * 1024 * 1024 * 1024;
+    if (isZip && pack.getSize() >= zip32Limit)
+    {
+        message = "This ZIP is larger than the supported 4 GB limit.\n"
+                  "Rebuild it with PACK_FORMAT=tar (the release builder does this automatically).";
+        DebugLog::instance().logInfo("PACK", "Rejected: ZIP archive is too large for ZIP32.");
+        return false;
+    }
+
     auto kitsDir = processor.getSettings().getConfigDirectory().getChildFile("kits");
     if (!kitsDir.createDirectory())
     {
         message = "Could not create the kit folder:\n" + kitsDir.getFullPathName();
+        return false;
+    }
+
+    const auto freeBytes = kitsDir.getBytesFreeOnVolume();
+    const auto requiredBytes = pack.getSize() + 256LL * 1024 * 1024;
+    if (freeBytes > 0 && requiredBytes > freeBytes)
+    {
+        message = "Not enough free disk space to install this pack.\n"
+                  "Required: " + juce::File::descriptionOfSizeInBytes(requiredBytes)
+                  + "\nFree: " + juce::File::descriptionOfSizeInBytes(freeBytes);
+        DebugLog::instance().logInfo("PACK", "Rejected: insufficient disk space.");
         return false;
     }
 
@@ -2925,38 +3004,83 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
             if (entry == nullptr)
                 continue;
 
-            const auto name = juce::File(entry->filename).getFileName();
-            const auto originalName = juce::String(entry->filename);
+            const auto originalName = juce::String(entry->filename).replaceCharacter('\\', '/');
+            const auto name = juce::File(originalName).getFileName();
             if (name.equalsIgnoreCase("pack.txt"))
             {
+                if (entry->uncompressedSize > 1024 * 1024)
+                {
+                    message = "The pack.txt manifest is too large.";
+                    return false;
+                }
+
                 std::unique_ptr<juce::InputStream> input(zip.createStreamForEntry(i));
-                if (input != nullptr)
-                    packManifest = input->readEntireStreamAsString();
+                if (input == nullptr)
+                {
+                    message = "Could not read pack.txt from this pack.";
+                    return false;
+                }
+                packManifest = input->readEntireStreamAsString();
                 continue;
             }
 
             const bool isKit = name.endsWithIgnoreCase(".glorpkit");
-            const bool isDoc = originalName.startsWithIgnoreCase("README")
-                               || originalName.startsWithIgnoreCase("LICENSE")
-                               || originalName.startsWithIgnoreCase("LICENCE")
-                               || originalName.startsWithIgnoreCase("ATTRIBUTION")
-                               || originalName.startsWithIgnoreCase("COPYING")
-                               || originalName.startsWithIgnoreCase("LICENSES/");
+            const bool isDoc = isPackNotice(originalName, name);
             if (!isKit && !isDoc)
                 continue;
 
             if (isDoc && !docsDir.createDirectory())
-                continue;
+            {
+                message = "Could not create the pack documentation folder:\n"
+                          + docsDir.getFullPathName();
+                return false;
+            }
 
             const auto target = isDoc ? docsDir.getChildFile(name) : kitsDir.getChildFile(name);
+            const auto temp = target.getSiblingFile(target.getFileName() + ".part");
             std::unique_ptr<juce::InputStream> input(zip.createStreamForEntry(i));
             if (input == nullptr)
-                continue;
+            {
+                message = "Could not read " + name + " from this pack.";
+                return false;
+            }
 
-            target.deleteFile();
-            juce::FileOutputStream output(target);
-            if (output.openedOk() && output.writeFromInputStream(*input, -1) && isKit)
+            temp.deleteFile();
+            {
+                auto output = std::make_unique<juce::FileOutputStream>(temp);
+                if (!output->openedOk())
+                {
+                    message = "Could not write " + temp.getFullPathName();
+                    return false;
+                }
+                if (!output->writeFromInputStream(*input, -1))
+                {
+                    output.reset();
+                    temp.deleteFile();
+                    message = "Could not extract " + name + ".";
+                    return false;
+                }
+                output->flush();
+            }
+
+            if (target.getSize() > 0)
+                target.deleteFile();
+            if (!temp.moveFileTo(target))
+            {
+                temp.deleteFile();
+                message = "Could not install " + target.getFullPathName();
+                return false;
+            }
+            if (isKit)
+            {
+                if (target.getSize() <= 0)
+                {
+                    target.deleteFile();
+                    message = "The pack contains an empty kit archive: " + name;
+                    return false;
+                }
                 ++extracted;
+            }
         }
     }
     else
@@ -2977,45 +3101,67 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
         return false;
     }
 
+    juce::String registeredId;
     juce::String registeredName;
+    juce::String registeredKit;
     bool manifestRejected = false;
     if (packManifest.isNotEmpty())
     {
-        juce::String moduleId;
         for (const auto &line : juce::StringArray::fromLines(packManifest))
         {
             const auto trimmed = line.trim();
-            if (trimmed.startsWith("id="))
-                moduleId = trimmed.fromFirstOccurrenceOf("=", false, false).trim();
-            else if (trimmed.startsWith("name="))
-                registeredName = trimmed.fromFirstOccurrenceOf("=", false, false).trim();
+            if (trimmed.isEmpty() || trimmed.startsWithChar('#'))
+                continue;
+
+            const int eq = trimmed.indexOfChar('=');
+            if (eq < 0)
+                continue;
+
+            const auto key = trimmed.substring(0, eq).trim().toLowerCase();
+            const auto value = trimmed.substring(eq + 1).trim();
+            if (key == "id")
+                registeredId = value;
+            else if (key == "name")
+                registeredName = value;
+            else if (key == "kit")
+                registeredKit = value;
         }
 
-        moduleId = moduleId.retainCharacters(
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_").toLowerCase();
+        const auto normalisedId = registeredId.trim().toLowerCase();
+        registeredId = normalisedId.retainCharacters(
+            "abcdefghijklmnopqrstuvwxyz0123456789-_");
+        const bool cleanId = registeredId == normalisedId;
+        const bool cleanKit = juce::File(registeredKit).getFileName() == registeredKit
+                              && !registeredKit.contains("..")
+                              && !registeredKit.containsChar('/')
+                              && !registeredKit.containsChar('\\');
 
-        if (moduleId.isEmpty() || moduleId.equalsIgnoreCase("naked"))
+        const bool builtInId = registeredId == "naked" || registeredId == "naked2"
+                               || registeredId == "crocell"
+                               || registeredId == "drs" || registeredId == "salamander"
+                               || registeredId == "monster";
+        if (!cleanId || !cleanKit || registeredId.isEmpty() || registeredName.isEmpty()
+            || registeredKit.isEmpty() || builtInId)
         {
             manifestRejected = true;
+            registeredId.clear();
             registeredName.clear();
+            registeredKit.clear();
         }
         else
         {
-            if (registeredName.isEmpty())
-                registeredName = moduleId;
-
             auto packsDir = processor.getSettings().getConfigDirectory().getChildFile("factory_packs");
-            if (packsDir.createDirectory())
-                packsDir.getChildFile(moduleId + ".txt").replaceWithText(packManifest);
-            else
+            if (!packsDir.createDirectory()
+                || !packsDir.getChildFile(registeredId + ".txt").replaceWithText(packManifest))
             {
                 manifestRejected = true;
+                registeredId.clear();
                 registeredName.clear();
+                registeredKit.clear();
             }
         }
     }
 
-    processor.refreshFactoryModules();
     processor.refreshKitList();
 
     const auto allModulesAvailable = [](const factory::Selection &selection)
@@ -3026,13 +3172,38 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
         return !factory::baseKitPath().empty();
     };
 
+    const auto selectionIsNakedOnly = [](const factory::Selection &selection)
+    {
+        if (selection.kickModule != "naked" || selection.snareModule != "naked"
+            || selection.cymbalsModule != "naked" || !selection.disabled.empty())
+            return false;
+        for (const auto &tom : selection.tomModules)
+            if (!tom.empty() && tom != "naked")
+                return false;
+        return true;
+    };
+
+    // A sample-free plugin is Naked-only before its first factory pack. When
+    // that full pack arrives, land on Studio Mix for the intended first-run
+    // experience. An expansion pack never overrides the current selection.
     bool loaded = false;
-    if (allModulesAvailable(processor.getFactorySelection()))
+    if (packManifest.isEmpty() && selectionIsNakedOnly(processor.getFactorySelection()))
+    {
+        for (const auto &configuration : processor.getFactoryConfigurations())
+            if (configuration.id == "studio" && allModulesAvailable(configuration.selection))
+            {
+                processor.applyFactoryConfiguration(configuration);
+                loaded = true;
+                break;
+            }
+    }
+
+    if (!loaded && allModulesAvailable(processor.getFactorySelection()))
     {
         processor.loadFactoryKit();
         loaded = true;
     }
-    else
+    else if (!loaded)
     {
         for (const auto &configuration : processor.getFactoryConfigurations())
         {
@@ -3047,10 +3218,16 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
     message = "Installed " + juce::String(extracted) + " factory kit"
               + (extracted == 1 ? "" : "s") + ".";
     if (registeredName.isNotEmpty())
+    {
         message += "\nRegistered expansion '" + registeredName + "'.";
+        if (factory::moduleKitPath(registeredId.toStdString()).empty())
+            message += "\nManifest note: the kit '" + registeredKit
+                       + "' was not found; install that kit or correct pack.txt.";
+    }
     else if (manifestRejected)
-        message += "\nThe pack.txt manifest needs a unique id other than 'naked'; "
-                   "the kit was installed but not registered as an expansion.";
+        message += "\nThe pack.txt manifest needs a non-empty id, name and kit, and must not "
+                   "reuse a built-in id (naked, crocell, drs, salamander, monster). "
+                   "The kit was installed but not registered as an expansion.";
     if (loaded && processor.getLastKitError().isEmpty())
         message += "\nThe factory kit is ready.";
     else if (!processor.getLastKitError().isEmpty())
@@ -5403,7 +5580,7 @@ void Editor::paint(juce::Graphics &g)
                 (learningInstrument == samplerIdx && samplerIdx >= 0) ? "???" : noteLabelFor(samplerIdx);
 
             g.setFont(displayFont(17.5f));
-            g.setColour(juce::Colour(0xff4cc2a8));
+            g.setColour(theme.accent);
             g.drawText(noteStr,
                        juce::Rectangle<float>(noteRowX + pfxW, noteRowY, noteMaxW - pfxW, noteRowH),
                        juce::Justification::centredLeft,

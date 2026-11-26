@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag (for example v0.1.0-alpha.1)'
+        description: 'Release tag (for example v0.1.0)'
         required: true
-        default: 'v0.1.0-alpha.1'
+        default: 'v0.1.0'
 
 permissions:
   contents: write
@@ -46,7 +46,7 @@ jobs:
             -DGLORP_BUILD_VST3=ON \
             -DGLORP_BUILD_LV2=ON \
             -DGLORP_BUILD_CLAP=OFF \
-            -DGLORP_BUILD_KIT_EDITOR=ON \
+            -DGLORP_BUILD_KIT_EDITOR=OFF \
             -DGLORP_BUILD_TESTS=ON
 
       - name: Build
@@ -65,9 +65,18 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.ref_name }}
-          name: Suite Drums Glorp ${{ inputs.tag_name || github.ref_name }}
+          name: Suite Drum Factory ${{ inputs.tag_name || github.ref_name }}
+          body: |
+            Suite Drum Factory Linux release.
+
+            This download contains the plugin only. Factory samples are
+            distributed separately as drag-in `.suitefactory` packs; see the
+            README and `docs/EXPANSIONS.md`.
+
+            The plugin starts without samples. Naked Drums is the base kit.
           draft: false
           prerelease: ${{ contains(inputs.tag_name || github.ref_name, 'alpha') || contains(inputs.tag_name || github.ref_name, 'beta') }}
+          fail_on_unmatched_files: true
           files: |
             build/dist/*.zip
             build/dist/*.sha256
