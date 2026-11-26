@@ -99,6 +99,7 @@ bool skipTarBytes(juce::InputStream &input, juce::int64 amount)
 /// exceeds ZIP32 limits, so the builder emits tar for large archives.
 bool extractTarPack(const juce::File &pack,
                     const juce::File &kitsDir,
+                    const juce::File &docsDir,
                     juce::String &packManifest,
                     int &extracted,
                     juce::String &error)
@@ -184,6 +185,12 @@ bool extractTarPack(const juce::File &pack,
             const auto base = juce::File(name).getFileName();
             const bool isManifest = base.equalsIgnoreCase("pack.txt");
             const bool isKit = base.endsWithIgnoreCase(".glorpkit");
+            const bool isDoc = name.startsWithIgnoreCase("README")
+                               || name.startsWithIgnoreCase("LICENSE")
+                               || name.startsWithIgnoreCase("LICENCE")
+                               || name.startsWithIgnoreCase("ATTRIBUTION")
+                               || name.startsWithIgnoreCase("COPYING")
+                               || name.startsWithIgnoreCase("LICENSES/");
 
             if (isManifest)
             {
@@ -203,9 +210,16 @@ bool extractTarPack(const juce::File &pack,
                 packManifest = juce::String::fromUTF8(static_cast<const char *>(data.getData()),
                                                       static_cast<int>(size));
             }
-            else if (isKit)
+            else if (isKit || isDoc)
             {
-                const auto target = kitsDir.getChildFile(base);
+                if (isDoc && !docsDir.createDirectory())
+                {
+                    error = "Could not create the pack documentation folder: "
+                            + docsDir.getFullPathName();
+                    return false;
+                }
+
+                const auto target = isDoc ? docsDir.getChildFile(base) : kitsDir.getChildFile(base);
                 target.deleteFile();
                 juce::FileOutputStream output(target);
                 if (!output.openedOk())
@@ -232,7 +246,8 @@ bool extractTarPack(const juce::File &pack,
                     }
                     remaining -= got;
                 }
-                ++extracted;
+                if (isKit)
+                    ++extracted;
             }
             else if (!skipTarBytes(input, size))
             {
@@ -2896,6 +2911,9 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
         return false;
     }
 
+    auto docsDir = processor.getSettings().getConfigDirectory().getChildFile("pack_docs")
+                       .getChildFile(pack.getFileNameWithoutExtension());
+
     int extracted = 0;
     juce::String packManifest;
     if (isZip)
@@ -2908,6 +2926,7 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
                 continue;
 
             const auto name = juce::File(entry->filename).getFileName();
+            const auto originalName = juce::String(entry->filename);
             if (name.equalsIgnoreCase("pack.txt"))
             {
                 std::unique_ptr<juce::InputStream> input(zip.createStreamForEntry(i));
@@ -2915,24 +2934,35 @@ bool Editor::installFactoryPack(const juce::File &pack, juce::String &message)
                     packManifest = input->readEntireStreamAsString();
                 continue;
             }
-            if (!name.endsWithIgnoreCase(".glorpkit"))
+
+            const bool isKit = name.endsWithIgnoreCase(".glorpkit");
+            const bool isDoc = originalName.startsWithIgnoreCase("README")
+                               || originalName.startsWithIgnoreCase("LICENSE")
+                               || originalName.startsWithIgnoreCase("LICENCE")
+                               || originalName.startsWithIgnoreCase("ATTRIBUTION")
+                               || originalName.startsWithIgnoreCase("COPYING")
+                               || originalName.startsWithIgnoreCase("LICENSES/");
+            if (!isKit && !isDoc)
                 continue;
 
-            const auto target = kitsDir.getChildFile(name);
+            if (isDoc && !docsDir.createDirectory())
+                continue;
+
+            const auto target = isDoc ? docsDir.getChildFile(name) : kitsDir.getChildFile(name);
             std::unique_ptr<juce::InputStream> input(zip.createStreamForEntry(i));
             if (input == nullptr)
                 continue;
 
             target.deleteFile();
             juce::FileOutputStream output(target);
-            if (output.openedOk() && output.writeFromInputStream(*input, -1))
+            if (output.openedOk() && output.writeFromInputStream(*input, -1) && isKit)
                 ++extracted;
         }
     }
     else
     {
         juce::String error;
-        if (!extractTarPack(pack, kitsDir, packManifest, extracted, error))
+        if (!extractTarPack(pack, kitsDir, docsDir, packManifest, extracted, error))
         {
             message = error;
             DebugLog::instance().logInfo("PACK", "Tar extraction failed: " + error);

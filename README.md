@@ -93,8 +93,8 @@ Drums Glorp.
 - **CONFIG** sits under the mixer button and **PIECES** under settings. About
   opens an in-app attribution card.
 - **Settings → Appearance** switches between the dark console theme and a light
-  paper theme, with separate highlight-colour pickers for each mode. The choice
-  and both colours persist in `settings.txt`.
+  paper theme, with separate highlight-colour pickers for each mode. Dark is
+  the default; the choice and both colours persist in `settings.txt`.
 - The plugin can be built and shipped without samples. Dragging a
   `.suitefactory` factory pack onto the window unpacks its `.glorpkit` files,
   installs the manifest and loads a factory configuration that the installed
@@ -158,9 +158,24 @@ factory presets are inherited from the Glorp engine.
 
 ## Licensing
 
-Naked Drums, CrocellKit and DRSKit are CC BY 4.0. Salamander Drumkit and Monster
-Drumkit are CC BY-SA 3.0. The sample derivatives keep their original licences;
-see `NOTICE.md` and the licence files shipped with each kit.
+The plugin code is AGPL-3.0. The factory samples are separate works:
+
+- **Naked Drums** — Wilkinson Audio / kinwie — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **CrocellKit** — DrumGizmo Team / Crocell — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **DRSKit** — DRSDrums / Jes Eiler and the DrumGizmo Team — [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **Salamander Drumkit** — Alexander Holm — [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)
+- **Monster Drumkit** — processed Salamander derivative; source samples by Alexander Holm — [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)
+
+The Monster kit is a processed Salamander derivative; the processing author is
+not identified in the source archive, so attribution keeps Alexander Holm and
+the archive source. Salamander was also dedicated to the public domain by its
+author in 2022, but this project retains CC BY-SA 3.0 for the Salamander and
+Monster derivatives.
+
+CC BY 4.0 and CC BY-SA 3.0 both permit commercial redistribution. Share-alike
+applies to modified sample libraries, not to music made with them or to the
+plugin code. See `NOTICE.md` for sources, licence links and the exact changes
+made during conversion.
 
 ## Upstream
 

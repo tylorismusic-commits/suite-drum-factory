@@ -122,12 +122,54 @@ EOF
 
     for kit in "${FILES[@]}"; do
         case "$(basename "$kit")" in
-            "Naked Drums.glorpkit")      echo "- Naked Drums - Wilkinson Audio - CC BY 4.0" >> "$README_OUT" ;;
-            "CrocellKit.glorpkit")       echo "- CrocellKit - DrumGizmo Team / Crocell - CC BY 4.0" >> "$README_OUT" ;;
-            "DRSKit.glorpkit")           echo "- DRSKit - DrumGizmo Team / Jes Eiler - CC BY 4.0" >> "$README_OUT" ;;
-            "Salamander Drumkit.glorpkit") echo "- Salamander Drumkit - Alexander Holm - CC BY-SA 3.0" >> "$README_OUT" ;;
-            "Monster Drumkit.glorpkit")  echo "- Monster Drumkit - Monster / DrumGizmo community - CC BY-SA 3.0" >> "$README_OUT" ;;
-            *) echo "- $(basename "$kit") - see the kit metadata and pack.txt for author and licence" >> "$README_OUT" ;;
+            "Naked Drums.glorpkit")
+                cat >> "$README_OUT" <<'EOF'
+- Naked Drums - Wilkinson Audio; SFZ conversion by kinwie
+  Source: https://github.com/sfzinstruments/WilkinsonAudio.NakedDrums
+  Licence: CC BY 4.0 - https://creativecommons.org/licenses/by/4.0/
+  Changes: 16 mic channels merged; FLAC transcoded to 24-bit WAV; repacked as .glorpkit.
+EOF
+                ;;
+            "CrocellKit.glorpkit")
+                cat >> "$README_OUT" <<'EOF'
+- CrocellKit - DrumGizmo Team / Crocell
+  Source: https://drumgizmo.org/wiki/doku.php?id=kits:crocellkit
+  Licence: CC BY 4.0 - https://creativecommons.org/licenses/by/4.0/
+  Changes: converted the 15-mic kit to .glorpkit; default articulations and 48 kHz rate preserved.
+EOF
+                ;;
+            "DRSKit.glorpkit")
+                cat >> "$README_OUT" <<'EOF'
+- DRSKit - DRSDrums / Jes Eiler and the DrumGizmo Team
+  Source: https://drumgizmo.org/wiki/doku.php?id=kits:drskit
+  Licence: CC BY 4.0 - https://creativecommons.org/licenses/by/4.0/
+  Changes: converted the 13-mic version 2.1 kit to .glorpkit; logical pieces grouped.
+EOF
+                ;;
+            "Salamander Drumkit.glorpkit")
+                cat >> "$README_OUT" <<'EOF'
+- Salamander Drumkit - Alexander Holm; SFZ reconstruction by kinwie
+  Source: https://archive.org/details/SalamanderDrumkit
+  Licence: CC BY-SA 3.0 - https://creativecommons.org/licenses/by-sa/3.0/
+  Changes: stereo overhead samples downmixed to mono 24-bit WAV; repacked as .glorpkit.
+EOF
+                ;;
+            "Monster Drumkit.glorpkit")
+                cat >> "$README_OUT" <<'EOF'
+- Monster Drumkit - processed Salamander samples by Alexander Holm
+  Source: https://archive.org/details/SalamanderDrumkit
+  Licence: CC BY-SA 3.0 - https://creativecommons.org/licenses/by-sa/3.0/
+  Changes: processed Salamander derivative; stereo overhead samples downmixed to
+  mono 24-bit WAV and repacked as .glorpkit. The processing author is not stated
+  in the source archive.
+EOF
+                ;;
+            *)
+                cat >> "$README_OUT" <<EOF
+- $(basename "$kit") - author, source and licence not supplied by this builder.
+  Add the full attribution, licence link and change notes before distributing.
+EOF
+                ;;
         esac
     done
 

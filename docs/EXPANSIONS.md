@@ -55,7 +55,10 @@ It reads `pack.txt`, writes a copy of the manifest to:
 ```
 
 and rescans the module registry immediately. No restart and no separate
-installer are required.
+installer are required. Any `README`, `LICENSE`, `LICENCE`, `ATTRIBUTION`,
+`COPYING` or `LICENSES/` entries are copied to
+`~/.config/SuiteDrumFactory/pack_docs/<pack-name>/` so the attribution stays
+with the installed samples.
 
 ## `pack.txt`
 
@@ -178,13 +181,15 @@ The built-in factory pack uses:
 
 | Kit | Author / source | Licence |
 | :--- | :--- | :--- |
-| Naked Drums | Wilkinson Audio / SFZ conversion by kinwie | CC BY 4.0 |
-| CrocellKit | DrumGizmo Team / Crocell | CC BY 4.0 |
-| DRSKit | DrumGizmo Team / Jes Eiler | CC BY 4.0 |
-| Salamander Drumkit | Alexander Holm | CC BY-SA 3.0 |
-| Monster Drumkit | Monster / DrumGizmo community | CC BY-SA 3.0 |
+| Naked Drums | Wilkinson Audio; SFZ conversion by kinwie — https://github.com/sfzinstruments/WilkinsonAudio.NakedDrums | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| CrocellKit | DrumGizmo Team / Crocell — https://drumgizmo.org/wiki/doku.php?id=kits:crocellkit | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| DRSKit | DRSDrums / Jes Eiler and the DrumGizmo Team — https://drumgizmo.org/wiki/doku.php?id=kits:drskit | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Salamander Drumkit | Alexander Holm; SFZ reconstruction by kinwie — https://archive.org/details/SalamanderDrumkit | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
+| Monster Drumkit | Processed Salamander samples by Alexander Holm; processing author not stated in the source archive | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) |
 
-See `NOTICE.md` and each kit's own metadata for the authoritative notices.
+See `NOTICE.md` and each kit's own metadata for the authoritative notices,
+sources and conversion notes. The Monster kit is a Salamander derivative, not a
+separate DrumGizmo recording.
 
 ## Versioning and compatibility
 

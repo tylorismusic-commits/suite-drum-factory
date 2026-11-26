@@ -61,7 +61,7 @@ class Settings
     juce::String midiSourceProfile {"General MIDI (extended)"}; ///< source-library note map
     double midiPreviewSpeed = 1.0; ///< 0.5x, 1.0x or 2.0x for preview and export
     bool fullWidthKitLayout = true; ///< new studio deck layout; false = classic sidebar
-    bool darkTheme = true;
+    bool darkTheme = true; ///< dark console is the default; light is opt-in
     juce::String accentDark {"#4cc2a8"};
     juce::String accentLight {"#1f9a82"};
 
