@@ -965,6 +965,67 @@ juce::String Sampler::micStripRole(int index) const
     return {};
 }
 
+int Sampler::micStripBus(int index) const noexcept
+{
+    if (index >= 0 && index < static_cast<int>(micChannels.size()))
+        return micChannels[static_cast<size_t>(index)]->factoryBus;
+    return -1;
+}
+
+int Sampler::micStripForInstrument(int instrument) const noexcept
+{
+    if (instrument >= 0 && instrument < static_cast<int>(instrumentPiece.size()))
+    {
+        const int piece = instrumentPiece[static_cast<size_t>(instrument)];
+        if (piece >= 0)
+            return piece;
+    }
+
+    // Normal kits keep one strip per microphone; prefer a close mic whose
+    // name matches the instrument over an overhead/room bleed channel.
+    if (!factoryPieceMode && instrument >= 0 && instrument < static_cast<int>(instruments_.size()))
+    {
+        const auto instrumentName = juce::String(instruments_[static_cast<size_t>(instrument)].name).toLowerCase();
+        const auto token = instrumentName.upToFirstOccurrenceOf(" ", false, false);
+
+        int best = -1;
+        int bestScore = -1;
+        int fallout = -1;
+
+        for (const auto &hit : instruments_[static_cast<size_t>(instrument)].hits)
+            for (const auto &channel : hit.channels)
+            {
+                if (channel.kitChannelIndex < 0
+                    || channel.kitChannelIndex >= static_cast<int>(micChannels.size()))
+                    continue;
+
+                if (fallout < 0)
+                    fallout = channel.kitChannelIndex;
+
+                int score = channel.isBleed ? 0 : 10;
+                if (channel.kitChannelIndex < static_cast<int>(kitChannels_.size()))
+                {
+                    const auto &mic = kitChannels_[static_cast<size_t>(channel.kitChannelIndex)];
+                    const auto micName = (juce::String(mic.name) + " " + juce::String(mic.title)).toLowerCase();
+                    if (micName.contains(instrumentName) || instrumentName.contains(micName))
+                        score += 8;
+                    else if (token.isNotEmpty() && micName.contains(token))
+                        score += 5;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = channel.kitChannelIndex;
+                }
+            }
+
+        return best >= 0 ? best : fallout;
+    }
+
+    return -1;
+}
+
 void Sampler::setMicStripParams(int index, const MicStripParams &params)
 {
     if (index >= 0 && index < static_cast<int>(micChannels.size()))

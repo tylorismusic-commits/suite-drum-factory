@@ -2415,6 +2415,7 @@ void Editor::setViewMode(EditorView mode)
             midiBrowser->refreshIfNeeded();
     }
 
+    refreshStudioDeckControls();
     resized();
     repaint();
 }
@@ -2446,6 +2447,17 @@ void Editor::mouseDown(const juce::MouseEvent &e)
     if (logoTarget.contains(e.position) && (e.mods.isAltDown() || e.getNumberOfClicks() >= 3))
     {
         kitView.setEditMode(!kitView.isEditMode());
+        return;
+    }
+
+    if (studioDeckActive() && studioFlowRect.contains(e.position))
+    {
+        const int piece = selectedPieceIndex();
+        if (piece >= 0 && mixerView != nullptr)
+        {
+            setViewMode(EditorView::mixerView);
+            mixerView->focusChannel(piece);
+        }
         return;
     }
 
@@ -2889,6 +2901,17 @@ juce::PopupMenu Editor::buildSettingsMenu()
         menu.addSeparator();
     }
 
+    {
+        const bool fullWidth = processor.getSettings().fullWidthKitLayout;
+        juce::PopupMenu layoutMenu;
+        layoutMenu.addItem("Full Width + Studio Deck", true, fullWidth,
+                           [this] { setFullWidthKitLayout(true); });
+        layoutMenu.addItem("Classic Sidebar", true, !fullWidth,
+                           [this] { setFullWidthKitLayout(false); });
+        menu.addSubMenu("Kit View Layout", layoutMenu);
+        menu.addSeparator();
+    }
+
     const bool glEnabled = isOpenGlEnabled();
     menu.addItem("GPU Hardware Acceleration (OpenGL)",
                  true,
@@ -3207,8 +3230,91 @@ void Editor::buildControls()
     }
     addAndMakeVisible(*masterVolumeKnob);
 
+    // Studio deck controls.
+    studioSoundTab = std::make_unique<ZoneButton>("SOUND", true);
+    studioSoundTab->setTheme(theme);
+    studioSoundTab->onClick = [this]
+    {
+        studioInspectorTab = 0;
+        studioSoundTab->setActive(true);
+        studioMixTab->setActive(false);
+        refreshStudioDeckControls();
+        resized();
+        repaint();
+    };
+    addChildComponent(*studioSoundTab);
+
+    studioMixTab = std::make_unique<ZoneButton>("MIX", false);
+    studioMixTab->setTheme(theme);
+    studioMixTab->onClick = [this]
+    {
+        studioInspectorTab = 1;
+        studioSoundTab->setActive(false);
+        studioMixTab->setActive(true);
+        refreshStudioDeckControls();
+        resized();
+        repaint();
+    };
+    addChildComponent(*studioMixTab);
+
+    instBleedKnob = std::make_unique<Knob>("BLEED", 0.0f, 1.0f, 0.15f, "");
+    instBleedKnob->setDoubleClickReturnValue(true, 0.15);
+    instBleedKnob->onValueChanged = [this](float v)
+    {
+        const int piece = selectedPieceIndex();
+        if (piece < 0)
+            return;
+        auto p = processor.getSampler().getMicStripParams(piece);
+        p.bleed = juce::jlimit(0.0f, 1.0f, v);
+        processor.getSampler().setMicStripParams(piece, p);
+        repaint();
+    };
+    addChildComponent(*instBleedKnob);
+
+    studioOutputButton.setLabel("SUMS");
+    studioOutputButton.setTheme(theme);
+    studioOutputButton.onClick = [this]
+    {
+        const int piece = selectedPieceIndex();
+        if (piece < 0)
+            return;
+
+        const int currentBus = processor.getSampler().getMicOutputBus(piece);
+        juce::PopupMenu menu;
+        menu.addSectionHeader("STRIP OUTPUT");
+        for (int b = 0; b < 16; ++b)
+        {
+            const auto label = b == 0
+                                   ? juce::String("Internal Sums")
+                                   : ("Direct Out " + juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2));
+            menu.addItem(label, true, b == currentBus, [this, piece, b]
+            {
+                processor.setMicOutputBus(piece, b);
+                updateInstrumentDisplay();
+                repaint();
+            });
+        }
+        juce::PopupMenu::Options opts;
+        opts = opts.withTargetComponent(&studioOutputButton).withParentComponent(this);
+        menu.showMenuAsync(opts);
+    };
+    addChildComponent(studioOutputButton);
+
+    studioOpenStripButton.setLabel("OPEN STRIP");
+    studioOpenStripButton.setTheme(theme);
+    studioOpenStripButton.onClick = [this]
+    {
+        const int piece = selectedPieceIndex();
+        if (piece < 0 || mixerView == nullptr)
+            return;
+        setViewMode(EditorView::mixerView);
+        mixerView->focusChannel(piece);
+    };
+    addChildComponent(studioOpenStripButton);
+
     bindInstrumentKnobs();
     updateInstrumentDisplay();
+    refreshStudioDeckControls();
 }
 
 void Editor::buildLogicalInstruments()
@@ -3642,6 +3748,157 @@ void Editor::updateInstrumentDisplay()
     instLearnButton.setLearning(isLearningThis);
     syncMinimalGridItems();
     updateLayerButton();
+
+    const int piece = selectedPieceIndex();
+    if (instBleedKnob != nullptr)
+    {
+        instBleedKnob->setEnabled(piece >= 0);
+        if (piece >= 0)
+            instBleedKnob->setValue(processor.getSampler().getMicStripParams(piece).bleed);
+    }
+
+    if (piece >= 0)
+    {
+        const int outBus = processor.getSampler().getMicOutputBus(piece);
+        studioOutputButton.setLabel(outBus == 0 ? "SUMS"
+                                                : ("OUT " + juce::String(outBus * 2 + 1) + "/"
+                                                   + juce::String(outBus * 2 + 2)));
+    }
+    else
+    {
+        studioOutputButton.setLabel("SUMS");
+    }
+}
+
+bool Editor::studioDeckActive() const
+{
+    return currentView == EditorView::kitView
+           && !theme.minimalStyle
+           && processor.getSettings().fullWidthKitLayout
+           && !logicalInstruments.empty()
+           && studioSoundTab != nullptr
+           && studioMixTab != nullptr;
+}
+
+void Editor::setFullWidthKitLayout(bool fullWidth)
+{
+    auto &settings = processor.getSettings();
+    if (settings.fullWidthKitLayout == fullWidth)
+        return;
+
+    settings.fullWidthKitLayout = fullWidth;
+    settings.markDirty();
+    settings.saveIfChanged();
+
+    refreshStudioDeckControls();
+    resized();
+    repaint();
+}
+
+void Editor::refreshStudioDeckControls()
+{
+    const bool isKit = currentView == EditorView::kitView;
+    const bool studio = studioDeckActive();
+
+    const auto setStudioOnlyVisible = [studio](juce::Component *c)
+    {
+        if (c != nullptr)
+            c->setVisible(studio);
+    };
+
+    setStudioOnlyVisible(studioSoundTab.get());
+    setStudioOnlyVisible(studioMixTab.get());
+
+    if (!studio)
+    {
+        setStudioOnlyVisible(instBleedKnob.get());
+        setStudioOnlyVisible(&studioOutputButton);
+        setStudioOnlyVisible(&studioOpenStripButton);
+    }
+
+    if (theme.minimalStyle)
+        return;
+
+    if (!studio)
+    {
+        if (!isKit)
+            return;
+
+        instSelectorButton.setVisible(true);
+        outBusButton.setVisible(true);
+        for (auto &z : zoneButtons)
+            z->setVisible(true);
+
+        for (auto *knob : {instVolumeKnob.get(), instPanKnob.get(), instPitchKnob.get(),
+                           instDynamicsKnob.get(), instAttackKnob.get(), instDampKnob.get()})
+            if (knob != nullptr)
+                knob->setVisible(true);
+
+        instCurveButton.setVisible(true);
+        instCurvePreview.setVisible(true);
+        instLearnButton.setVisible(true);
+        instLayerButton.setVisible(true);
+        scope.setVisible(true);
+        return;
+    }
+
+    const bool mixTab = studioInspectorTab == 1;
+
+    studioSoundTab->setActive(!mixTab);
+    studioMixTab->setActive(mixTab);
+
+    instSelectorButton.setVisible(true);
+    outBusButton.setVisible(false);
+
+    for (auto &z : zoneButtons)
+        z->setVisible(!mixTab);
+
+    for (auto *knob : {instPitchKnob.get(), instDynamicsKnob.get(), instAttackKnob.get(), instDampKnob.get()})
+        if (knob != nullptr)
+            knob->setVisible(!mixTab);
+
+    instCurveButton.setVisible(!mixTab);
+    instCurvePreview.setVisible(!mixTab);
+    instLearnButton.setVisible(!mixTab);
+    instLayerButton.setVisible(!mixTab);
+
+    if (instVolumeKnob != nullptr)
+        instVolumeKnob->setVisible(mixTab);
+    if (instPanKnob != nullptr)
+        instPanKnob->setVisible(mixTab);
+    if (instBleedKnob != nullptr)
+        instBleedKnob->setVisible(mixTab && processor.getSampler().isFactoryPieceMode());
+    studioOutputButton.setVisible(mixTab);
+    studioOpenStripButton.setVisible(mixTab);
+
+    scope.setVisible(false);
+    if (masterVolumeKnob != nullptr)
+        masterVolumeKnob->setVisible(true);
+}
+
+int Editor::selectedPieceIndex() const
+{
+    const int samplerIndex = getActiveSamplerIndex();
+    return samplerIndex >= 0 ? processor.getSampler().micStripForInstrument(samplerIndex) : -1;
+}
+
+int Editor::selectedSumIndex() const
+{
+    const int piece = selectedPieceIndex();
+    if (piece < 0)
+        return -1;
+
+    const int bus = processor.getSampler().micStripBus(piece);
+    return bus >= 0 && bus < 5 ? bus : -1;
+}
+
+int Editor::countInserts(bool bus, int channel) const
+{
+    int count = 0;
+    for (int slot = 0; slot < InsertChain::slotCount; ++slot)
+        if (processor.getSampler().getInsertState(bus, channel, slot).type != InsertType::none)
+            ++count;
+    return count;
 }
 
 void Editor::armLearn(int samplerIndex)
@@ -3851,7 +4108,8 @@ void Editor::timerCallback()
         }
     }
 
-    if (theme.minimalStyle)
+    const bool studioDeck = studioDeckActive();
+    if (theme.minimalStyle || studioDeck)
     {
         if (minimalGrid != nullptr)
             minimalGrid->tickAnimations();
@@ -3860,12 +4118,18 @@ void Editor::timerCallback()
         const float pkR = std::clamp(sampler.getMasterPeakR(), 0.0f, 1.0f);
         const float nextL = (pkL > minimalMasterLevelL) ? pkL : minimalMasterLevelL * 0.85f;
         const float nextR = (pkR > minimalMasterLevelR) ? pkR : minimalMasterLevelR * 0.85f;
-        const bool meterChanged =
-            (std::abs(nextL - minimalMasterLevelL) > 0.004f || std::abs(nextR - minimalMasterLevelR) > 0.004f);
         minimalMasterLevelL = (nextL < 0.004f) ? 0.0f : nextL;
         minimalMasterLevelR = (nextR < 0.004f) ? 0.0f : nextR;
-        if (meterChanged && currentView == EditorView::kitView && !minimalMasterCardRect.isEmpty())
+
+        if (studioDeck && currentView == EditorView::kitView)
+        {
+            repaint(studioMonitorRect.toNearestInt().expanded(2));
+            repaint(studioFlowRect.toNearestInt().expanded(2));
+        }
+        else if (!minimalMasterCardRect.isEmpty())
+        {
             repaint(minimalMasterCardRect.toNearestInt().expanded(2));
+        }
     }
     else
     {
@@ -4100,6 +4364,127 @@ void Editor::resized()
 
     if (currentView == EditorView::midiView || currentView == EditorView::loopsView)
         return;
+
+    if (studioDeckActive())
+    {
+        const bool compact = h < 680;
+        const int deckH = compact ? 190 : 218;
+        const int deckX = 20;
+        const int deckY = h - deckH - 14;
+        const int deckW = w - 40;
+        studioDeckRect = {static_cast<float>(deckX), static_cast<float>(deckY),
+                          static_cast<float>(deckW), static_cast<float>(deckH)};
+
+        const int gap = 10;
+        int inspectorW = juce::jlimit(360, 520, juce::roundToInt(static_cast<float>(deckW) * 0.42f));
+        int monitorW = juce::jlimit(210, 270, juce::roundToInt(static_cast<float>(deckW) * 0.23f));
+        int flowW = deckW - inspectorW - monitorW - gap * 2;
+        if (flowW < 240)
+        {
+            flowW = 240;
+            inspectorW = juce::jmax(320, deckW - flowW - monitorW - gap * 2);
+        }
+
+        studioInspectorRect = {static_cast<float>(deckX), static_cast<float>(deckY),
+                               static_cast<float>(inspectorW), static_cast<float>(deckH)};
+        studioFlowRect = {static_cast<float>(deckX + inspectorW + gap), static_cast<float>(deckY),
+                          static_cast<float>(flowW), static_cast<float>(deckH)};
+        studioMonitorRect = {static_cast<float>(deckX + inspectorW + flowW + gap * 2),
+                             static_cast<float>(deckY), static_cast<float>(monitorW),
+                             static_cast<float>(deckH)};
+
+        const int kitDropW = juce::jmin(340, w - 48);
+        kitSelectorButton.setBounds((w - kitDropW) / 2, 52, kitDropW, 28);
+        configButton.setBounds(24, 52, 104, 28);
+        factoryPiecesButton.setBounds(w - 24 - 104, 52, 104, 28);
+        configButton.toFront(false);
+        factoryPiecesButton.toFront(false);
+        updateShellSlotButtons();
+
+        const int kitY = 84;
+        kitView.setBounds(24, kitY, w - 48, juce::jmax(120, deckY - kitY - 8));
+
+        const int tabW = compact ? 58 : 64;
+        const int tabH = 22;
+        studioSoundTab->setBounds(static_cast<int>(studioInspectorRect.getRight()) - tabW * 2 - 16,
+                                  static_cast<int>(studioInspectorRect.getY()) + 8, tabW, tabH);
+        studioMixTab->setBounds(static_cast<int>(studioInspectorRect.getRight()) - tabW - 10,
+                                static_cast<int>(studioInspectorRect.getY()) + 8, tabW, tabH);
+
+        const int ix = static_cast<int>(studioInspectorRect.getX()) + 12;
+        const int iy = static_cast<int>(studioInspectorRect.getY());
+        const int iw = static_cast<int>(studioInspectorRect.getWidth()) - 24;
+        const int selectorY = iy + 36;
+        const int selectorW = juce::jmin(190, iw / 3);
+        instSelectorButton.setBounds(ix, selectorY, selectorW, 26);
+
+        const int learnW = 66;
+        instLearnButton.setBounds(static_cast<int>(studioInspectorRect.getRight()) - 12 - learnW,
+                                  selectorY, learnW, 24);
+
+        int zx = ix;
+        int zy = iy + 68;
+        const int zw = 68;
+        const int zh = 20;
+        for (auto &z : zoneButtons)
+        {
+            if (zx + zw > ix + iw)
+            {
+                zx = ix;
+                zy += 22;
+            }
+            z->setBounds(zx, zy, zw, zh);
+            zx += zw + 4;
+        }
+
+        const int knobW = compact ? 52 : 56;
+        const int knobH = compact ? 58 : 64;
+        const int soundY = iy + (compact ? 90 : 98);
+        int kx = ix;
+        for (auto *knob : {instPitchKnob.get(), instDynamicsKnob.get(), instAttackKnob.get(), instDampKnob.get()})
+        {
+            if (knob != nullptr)
+                knob->setBounds(kx, soundY, knobW, knobH);
+            kx += knobW + 4;
+        }
+
+        const int rightX = ix + 4 * (knobW + 4) + 8;
+        const int rightW = juce::jmax(110, static_cast<int>(studioInspectorRect.getRight()) - 12 - rightX);
+        instCurveButton.setBounds(rightX, soundY, rightW, 24);
+        instCurvePreview.setBounds(rightX, soundY + 28, rightW, compact ? 34 : 50);
+        instLayerButton.setBounds(rightX, soundY + (compact ? 66 : 82), rightW, 20);
+
+        const int mixY = iy + (compact ? 74 : 78);
+        instVolumeKnob->setBounds(ix, mixY, 60, 68);
+        instPanKnob->setBounds(ix + 64, mixY, 60, 68);
+        instBleedKnob->setBounds(ix + 128, mixY, 60, 68);
+        studioOutputButton.setBounds(ix, iy + (compact ? 146 : 152), 124, 24);
+        studioOpenStripButton.setBounds(ix + 132, iy + (compact ? 146 : 152), 112, 24);
+
+        const int knobSize = juce::jmin(86, deckH - 84);
+        masterVolumeKnob->setBounds(static_cast<int>(studioMonitorRect.getRight()) - knobSize - 12,
+                                    static_cast<int>(studioMonitorRect.getY()) + 64, knobSize, knobSize);
+
+        outBusButton.setBounds(0, 0, 0, 0);
+        scope.setBounds(0, 0, 0, 0);
+
+        if (edrumWizard != nullptr)
+            edrumWizard->setBounds(getLocalBounds());
+
+        if (layerDrawer != nullptr && layerDrawer->isVisible())
+        {
+            const int dx = static_cast<int>(studioInspectorRect.getX());
+            const int dw = juce::jmax(360, static_cast<int>(studioInspectorRect.getWidth()) + 120);
+            const int dh = 360;
+            layerDrawer->setBounds(dx, 84, dw, dh);
+        }
+
+        if (mixerView != nullptr)
+            mixerView->setBounds(16, 56, w - 32, h - 68);
+
+        refreshStudioDeckControls();
+        return;
+    }
 
     // 2. Bottom strip. Compact windows give the instrument panel more room.
     const bool compact = h < 680;
@@ -4367,6 +4752,12 @@ void Editor::paint(juce::Graphics &g)
 
     if (currentView == EditorView::kitView)
     {
+        if (studioDeckActive())
+        {
+            drawStudioDeck(g);
+            return;
+        }
+
         // 4. Left Panel Card ("INSTRUMENT SETTINGS")
         const auto panelRect = juce::Rectangle<float>(24.0f, 74.0f, 196.0f, leftPanelHeight);
         g.setColour(theme.panel);
@@ -4434,6 +4825,289 @@ void Editor::paint(juce::Graphics &g)
             g.drawText(
                 "MASTER", juce::Rectangle<float>(mx, my - 20.0f, mw, 18.0f), juce::Justification::centred, false);
         }
+    }
+}
+
+void Editor::drawStudioDeck(juce::Graphics &g)
+{
+    const auto drawCard = [&](juce::Rectangle<float> rect, const char *title)
+    {
+        g.setColour(theme.panel);
+        g.fillRoundedRectangle(rect, 6.0f);
+        drawSketchRect(g, rect, theme.panelEdge, 1.6f, 9);
+        g.setFont(displayFont(15.0f));
+        g.setColour(theme.ink);
+        g.drawText(title, juce::Rectangle<float>(rect.getX() + 12.0f, rect.getY() + 3.0f,
+                                                 rect.getWidth() - 150.0f, 22.0f),
+                   juce::Justification::centredLeft, false);
+    };
+
+    drawCard(studioInspectorRect, "PIECE INSPECTOR");
+    drawCard(studioFlowRect, "SIGNAL FLOW");
+    drawCard(studioMonitorRect, "MONITOR");
+
+    if (studioInspectorTab == 0 && instLearnButton.isVisible())
+    {
+        const auto selector = instSelectorButton.getBounds().toFloat();
+        const auto learn = instLearnButton.getBounds().toFloat();
+        const float x = selector.getRight() + 8.0f;
+        const float w = learn.getX() - x - 8.0f;
+        if (w > 24.0f)
+        {
+            const int samplerIndex = getActiveSamplerIndex();
+            const auto note = (learningInstrument == samplerIndex && samplerIndex >= 0)
+                                  ? juce::String("ARMED")
+                                  : noteLabelFor(samplerIndex);
+            g.setFont(uiFont(9.0f));
+            g.setColour(theme.inkSoft);
+            g.drawText("NOTE", juce::Rectangle<float>(x, learn.getY(), 32.0f, learn.getHeight()),
+                       juce::Justification::centredLeft, false);
+            g.setFont(displayFont(13.0f));
+            g.setColour(theme.accent);
+            g.drawText(note, juce::Rectangle<float>(x + 32.0f, learn.getY(), w - 34.0f, learn.getHeight()),
+                       juce::Justification::centredLeft, false);
+        }
+    }
+
+    if (studioInspectorTab == 1)
+    {
+        const int piece = selectedPieceIndex();
+        if (piece >= 0)
+        {
+            const auto role = processor.getSampler().micStripRole(piece);
+            const auto text = juce::String("STRIP  ")
+                              + (role.isNotEmpty() ? role.toUpperCase() : juce::String("MIC"))
+                              + "   ·   " + juce::String(countInserts(false, piece)) + " INSERTS";
+            g.setFont(uiFont(8.0f));
+            g.setColour(theme.inkSoft);
+            g.drawText(text,
+                       juce::Rectangle<float>(studioInspectorRect.getX() + 12.0f,
+                                              studioInspectorRect.getBottom() - 20.0f,
+                                              studioInspectorRect.getWidth() - 24.0f, 14.0f),
+                       juce::Justification::centredLeft, false);
+        }
+    }
+
+    drawStudioSignalFlow(g, studioFlowRect);
+    drawStudioMonitor(g, studioMonitorRect);
+}
+
+void Editor::drawStudioSignalFlow(juce::Graphics &g, juce::Rectangle<float> area)
+{
+    auto &sampler = processor.getSampler();
+    const int piece = selectedPieceIndex();
+    const int sum = selectedSumIndex();
+    const bool factory = sampler.isFactoryPieceMode();
+
+    g.setFont(uiFont(8.0f));
+    g.setColour(theme.inkSoft);
+    g.drawText("CLICK TO OPEN STRIP",
+               juce::Rectangle<float>(area.getRight() - 116.0f, area.getY() + 4.0f, 104.0f, 16.0f),
+               juce::Justification::centredRight, false);
+
+    const auto content = area.reduced(12.0f, 10.0f);
+    float top = content.getY() + 22.0f;
+
+    if (factory)
+    {
+        static const char *names[5] {"KICK", "SNARE", "TOMS", "CYMBALS", "ROOM"};
+        const float gap = 3.0f;
+        const float chipW = (content.getWidth() - gap * 4.0f) / 5.0f;
+
+        for (int i = 0; i < 5; ++i)
+        {
+            const auto chip = juce::Rectangle<float>(content.getX() + static_cast<float>(i) * (chipW + gap),
+                                                     top, chipW, 25.0f);
+            const bool selected = i == sum;
+            g.setColour(selected ? theme.accent.withAlpha(0.18f) : theme.trough);
+            g.fillRoundedRectangle(chip, 3.0f);
+            g.setColour(selected ? theme.accent : theme.panelEdge);
+            g.drawRoundedRectangle(chip, 3.0f, selected ? 1.4f : 1.0f);
+
+            g.setFont(uiFont(8.0f).boldened());
+            g.setColour(selected ? theme.accent : theme.inkSoft);
+            g.drawText(names[i], chip.withTrimmedBottom(4.0f).toNearestInt(), juce::Justification::centred, false);
+
+            const float level = std::max(sampler.getFactoryBusPeakL(i), sampler.getFactoryBusPeakR(i));
+            const float meterW = std::max(0.0f, (chip.getWidth() - 8.0f) * juce::jlimit(0.0f, 1.0f, level));
+            g.setColour((selected ? theme.accent : theme.panelEdge).withAlpha(0.9f));
+            g.fillRect(chip.getX() + 4.0f, chip.getBottom() - 4.0f, meterW, 2.0f);
+        }
+
+        top += 34.0f;
+    }
+
+    const bool direct = piece >= 0 && sampler.getMicOutputBus(piece) > 0;
+    const int boxCount = direct ? 2 : 3;
+    const float arrowW = 18.0f;
+    const float boxH = juce::jmax(38.0f, content.getBottom() - top - 2.0f);
+    const float boxW = (content.getWidth() - arrowW * static_cast<float>(boxCount - 1)) / static_cast<float>(boxCount);
+
+    const auto drawBox = [&](juce::Rectangle<float> box, const juce::String &title, const juce::String &subtitle,
+                             const juce::String &foot, float level, bool accent)
+    {
+        g.setColour(accent ? theme.accent.withAlpha(0.13f) : theme.trough);
+        g.fillRoundedRectangle(box, 4.0f);
+        g.setColour(accent ? theme.accent.withAlpha(0.75f) : theme.panelEdge);
+        g.drawRoundedRectangle(box, 4.0f, 1.1f);
+
+        g.setFont(uiFont(9.5f).boldened());
+        g.setColour(accent ? theme.accent : theme.ink);
+        g.drawFittedText(title, box.reduced(7.0f, 5.0f).withTrimmedBottom(box.getHeight() - 20.0f).toNearestInt(),
+                         juce::Justification::centredLeft, 1, 0.72f);
+
+        g.setFont(uiFont(7.5f));
+        g.setColour(theme.inkSoft);
+        g.drawFittedText(subtitle,
+                         juce::Rectangle<float>(box.getX() + 7.0f, box.getCentreY() - 13.0f,
+                                                box.getWidth() - 14.0f, 13.0f).toNearestInt(),
+                         juce::Justification::centredLeft, 1, 0.7f);
+
+        const auto meter = juce::Rectangle<float>(box.getX() + 7.0f, box.getCentreY() + 4.0f,
+                                                  box.getWidth() - 14.0f, 6.0f);
+        g.setColour(theme.background);
+        g.fillRoundedRectangle(meter, 2.0f);
+        const float meterW = std::max(0.0f, meter.getWidth() * juce::jlimit(0.0f, 1.0f, level));
+        g.setColour(accent ? theme.accent : theme.accentAlt);
+        g.fillRoundedRectangle(meter.withWidth(meterW), 2.0f);
+
+        g.setColour(theme.inkSoft);
+        g.setFont(uiFont(7.5f));
+        const float db = juce::Decibels::gainToDecibels(level, -60.0f);
+        g.drawText(foot + " · " + juce::String(db, 1) + " dB",
+                   juce::Rectangle<float>(box.getX() + 7.0f, box.getBottom() - 18.0f,
+                                          box.getWidth() - 14.0f, 12.0f),
+                   juce::Justification::centredLeft, false);
+    };
+
+    const auto drawArrow = [&](juce::Rectangle<float> from, juce::Rectangle<float> to)
+    {
+        const float y = from.getCentreY();
+        g.setColour(theme.panelEdge);
+        g.drawLine(from.getRight() + 2.0f, y, to.getX() - 4.0f, y, 1.2f);
+        juce::Path arrow;
+        arrow.startNewSubPath(to.getX() - 4.0f, y);
+        arrow.lineTo(to.getX() - 9.0f, y - 3.0f);
+        arrow.lineTo(to.getX() - 9.0f, y + 3.0f);
+        arrow.closeSubPath();
+        g.fillPath(arrow);
+    };
+
+    juce::Rectangle<float> box(content.getX(), top, boxW, boxH);
+    const auto sourceTitle = piece >= 0 ? sampler.micStripTitle(piece) : juce::String("NO PIECE");
+    const auto role = piece >= 0 ? sampler.micStripRole(piece) : juce::String();
+    const float sourceLevel = piece >= 0 ? std::max(sampler.getMicPeakL(piece), sampler.getMicPeakR(piece)) : 0.0f;
+    drawBox(box, sourceTitle, role.isNotEmpty() ? role : "MIC INPUT",
+            juce::String(countInserts(false, piece)) + " INS", sourceLevel, false);
+
+    if (direct)
+    {
+        auto dest = box.translated(boxW + arrowW, 0.0f);
+        drawArrow(box, dest);
+        const int out = sampler.getMicOutputBus(piece);
+        drawBox(dest, "DIRECT OUT " + juce::String(out * 2 + 1) + "/" + juce::String(out * 2 + 2),
+                "strip inserts", juce::String(countInserts(false, piece)) + " INS", sourceLevel, true);
+    }
+    else
+    {
+        auto dest = box.translated(boxW + arrowW, 0.0f);
+        juce::String destTitle = "MIX BUS";
+        juce::String destSub = "sum inserts";
+        float destLevel = std::max(sampler.getMasterPeakL(), sampler.getMasterPeakR());
+        int destInserts = countInserts(true, 5);
+
+        if (factory && sum >= 0)
+        {
+            destTitle = sampler.factoryBusTitle(sum).toUpperCase();
+            destSub = "sum inserts";
+            destLevel = std::max(sampler.getFactoryBusPeakL(sum), sampler.getFactoryBusPeakR(sum));
+            destInserts = countInserts(true, sum);
+        }
+
+        drawBox(dest, destTitle, destSub, juce::String(destInserts) + " INS", destLevel, true);
+
+        auto outBox = dest.translated(boxW + arrowW, 0.0f);
+        drawArrow(dest, outBox);
+        drawBox(outBox, "OUT 1/2", "master inserts", juce::String(countInserts(true, 5)) + " INS",
+                std::max(sampler.getMasterPeakL(), sampler.getMasterPeakR()), false);
+    }
+}
+
+void Editor::drawStudioMonitor(juce::Graphics &g, juce::Rectangle<float> area)
+{
+    auto &sampler = processor.getSampler();
+    const auto content = area.reduced(12.0f, 10.0f);
+    const auto master = sampler.getMasterStripParams();
+    const auto knob = masterVolumeKnob != nullptr ? masterVolumeKnob->getBounds().toFloat()
+                                                  : juce::Rectangle<float>();
+
+    const juce::String preset = mixerView != nullptr ? mixerView->getActivePresetName() : juce::String("Balanced");
+    g.setFont(uiFont(8.0f));
+    g.setColour(theme.inkSoft);
+    g.drawText("MIX", juce::Rectangle<float>(content.getX(), content.getY() + 24.0f, 26.0f, 14.0f),
+               juce::Justification::centredLeft, false);
+    g.setFont(uiFont(9.0f).boldened());
+    g.setColour(theme.accent);
+    g.drawFittedText(preset.toUpperCase(),
+                     juce::Rectangle<float>(content.getX() + 28.0f, content.getY() + 24.0f,
+                                            content.getWidth() - 32.0f, 14.0f).toNearestInt(),
+                     juce::Justification::centredLeft, 1, 0.7f);
+
+    const float meterX = content.getX();
+    const float meterW = juce::jmax(40.0f, knob.getX() - meterX - 10.0f);
+    const float meterY = content.getY() + 52.0f;
+    const float barH = 16.0f;
+
+    for (int side = 0; side < 2; ++side)
+    {
+        const float level = side == 0 ? minimalMasterLevelL : minimalMasterLevelR;
+        const auto bar = juce::Rectangle<float>(meterX + 12.0f, meterY + static_cast<float>(side) * (barH + 7.0f),
+                                                meterW - 12.0f, barH);
+        g.setColour(theme.trough);
+        g.fillRoundedRectangle(bar, 3.0f);
+        g.setColour(theme.panelEdge);
+        g.drawRoundedRectangle(bar, 3.0f, 1.0f);
+
+        const float fillW = bar.getWidth() * juce::jlimit(0.0f, 1.0f, level);
+        if (fillW > 0.5f)
+        {
+            g.setColour(side == 0 ? theme.accent : theme.accentAlt);
+            g.fillRoundedRectangle(bar.withWidth(fillW), 3.0f);
+        }
+
+        g.setFont(uiFont(8.0f).boldened());
+        g.setColour(theme.inkSoft);
+        g.drawText(side == 0 ? "L" : "R",
+                   juce::Rectangle<float>(meterX, bar.getY(), 12.0f, barH),
+                   juce::Justification::centredLeft, false);
+    }
+
+    const float peak = std::max(minimalMasterLevelL, minimalMasterLevelR);
+    const float peakDb = juce::Decibels::gainToDecibels(peak, -100.0f);
+    g.setFont(displayFont(12.0f));
+    g.setColour(theme.ink);
+    g.drawText(juce::String(peakDb, 1) + " dB",
+               juce::Rectangle<float>(meterX, meterY + 2.0f * (barH + 7.0f) + 2.0f, meterW, 16.0f),
+               juce::Justification::centredLeft, false);
+
+    g.setFont(uiFont(7.5f));
+    g.setColour(theme.inkSoft);
+    g.drawText(master.limiterEnabled ? "LIMITER ON" : "LIMITER OFF",
+               juce::Rectangle<float>(content.getX(), content.getBottom() - 32.0f,
+                                      content.getWidth() - 96.0f, 12.0f),
+               juce::Justification::centredLeft, false);
+    g.drawText("REVERB " + juce::String(juce::roundToInt(master.reverbReturn * 100.0f)) + "%",
+               juce::Rectangle<float>(content.getX(), content.getBottom() - 18.0f,
+                                      content.getWidth() - 96.0f, 12.0f),
+               juce::Justification::centredLeft, false);
+
+    if (masterVolumeKnob != nullptr)
+    {
+        g.setFont(displayFont(13.0f));
+        g.setColour(theme.ink);
+        g.drawText("MASTER",
+                   juce::Rectangle<float>(knob.getX(), knob.getY() - 18.0f, knob.getWidth(), 16.0f),
+                   juce::Justification::centred, false);
     }
 }
 

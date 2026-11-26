@@ -221,6 +221,8 @@ class Sampler
     juce::String micStripName(int index) const;
     juce::String micStripTitle(int index) const;
     juce::String micStripRole(int index) const;
+    int micStripBus(int index) const noexcept;
+    int micStripForInstrument(int instrument) const noexcept;
 
     void setMicStripParams(int index, const MicStripParams &params);
     MicStripParams getMicStripParams(int index) const;

@@ -41,6 +41,7 @@ class MixerView
     bool isBleedMatrixOpen() const noexcept { return bleedMatrixOpen; }
     void closePopups();
     void setTheme(const Theme &newTheme);
+    const juce::String &getActivePresetName() const noexcept { return activePresetName; }
 
   private:
     void timerCallback() override;

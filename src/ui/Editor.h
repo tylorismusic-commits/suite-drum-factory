@@ -115,6 +115,15 @@ class Editor
 
     void bindInstrumentKnobs();
     void updateInstrumentDisplay();
+    void setFullWidthKitLayout(bool fullWidth);
+    bool studioDeckActive() const;
+    void refreshStudioDeckControls();
+    int selectedPieceIndex() const;
+    int selectedSumIndex() const;
+    int countInserts(bool bus, int channel) const;
+    void drawStudioDeck(juce::Graphics &g);
+    void drawStudioSignalFlow(juce::Graphics &g, juce::Rectangle<float> area);
+    void drawStudioMonitor(juce::Graphics &g, juce::Rectangle<float> area);
     void syncMinimalGridItems();
     void refreshHeaderButtonLabels();
 
@@ -460,6 +469,18 @@ class Editor
     CurveButton instCurveButton;
     VelocityCurvePreview instCurvePreview;
     LearnButton instLearnButton;
+
+    // Studio deck (full-width kit view)
+    std::unique_ptr<ZoneButton> studioSoundTab;
+    std::unique_ptr<ZoneButton> studioMixTab;
+    std::unique_ptr<Knob> instBleedKnob;
+    FactoryPiecesButton studioOutputButton;
+    FactoryPiecesButton studioOpenStripButton;
+    int studioInspectorTab = 0; // 0 = SOUND, 1 = MIX
+    juce::Rectangle<float> studioDeckRect;
+    juce::Rectangle<float> studioInspectorRect;
+    juce::Rectangle<float> studioFlowRect;
+    juce::Rectangle<float> studioMonitorRect;
 
     // E-Drum Setup Wizard Overlay
     std::unique_ptr<EDrumWizard> edrumWizard;

@@ -59,6 +59,7 @@ class Settings
     juce::StringArray factoryDisabledPieces; ///< "module:piece" keys
     juce::String midiSourceProfile {"General MIDI (extended)"}; ///< source-library note map
     double midiPreviewSpeed = 1.0; ///< 0.5x, 1.0x or 2.0x for preview and export
+    bool fullWidthKitLayout = true; ///< new studio deck layout; false = classic sidebar
 
     // -- MIDI thru (no-kit mapper) ----------------------------------------
     bool midiThruEnabled = false;

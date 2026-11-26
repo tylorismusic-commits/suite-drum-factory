@@ -117,6 +117,7 @@ void Settings::writeState(juce::MemoryBlock &destination) const
         factoryPieces->createNewChildElement("piece")->setAttribute("key", key);
     root.setAttribute("midiSourceProfile", midiSourceProfile);
     root.setAttribute("midiPreviewSpeed", midiPreviewSpeed);
+    root.setAttribute("fullWidthKitLayout", fullWidthKitLayout);
     root.setAttribute("editorWidth", editorWidth);
     root.setAttribute("editorHeight", editorHeight);
     root.setAttribute("editorMaximised", editorMaximised);
@@ -170,6 +171,7 @@ void Settings::readState(const juce::MemoryBlock &source)
                 factoryDisabledPieces.add(key);
     midiSourceProfile = root->getStringAttribute("midiSourceProfile", midiSourceProfile);
     midiPreviewSpeed = juce::jlimit(0.25, 4.0, root->getDoubleAttribute("midiPreviewSpeed", midiPreviewSpeed));
+    fullWidthKitLayout = root->getBoolAttribute("fullWidthKitLayout", fullWidthKitLayout);
     editorWidth = root->getIntAttribute("editorWidth", editorWidth);
     editorHeight = root->getIntAttribute("editorHeight", editorHeight);
     editorMaximised = root->getBoolAttribute("editorMaximised", editorMaximised);
