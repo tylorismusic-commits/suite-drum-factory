@@ -1905,11 +1905,11 @@ void Editor::updateShellSlotButtons()
         }
         else if (fallback != KitPiece::count)
         {
-            const auto bounds = kitView.boundsForClassicPiece(fallback);
-            if (!bounds.isEmpty())
+            const auto anchor = kitView.shellAnchor(fallback);
+            if (anchor.x > 0.0f || anchor.y > 0.0f)
             {
-                holder->localBounds = { bounds.getRight() - 20.0f,
-                                        bounds.getY() + 4.0f + static_cast<float>(duplicateIndex) * 21.0f,
+                holder->localBounds = { anchor.x - 9.0f,
+                                        anchor.y - 9.0f + static_cast<float>(duplicateIndex) * 21.0f,
                                         18.0f,
                                         18.0f };
                 holder->hasBounds = true;

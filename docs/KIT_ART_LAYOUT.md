@@ -7,7 +7,7 @@ disabled pieces stay in place and are dimmed.
 
 ## Canvas
 
-- Source image: 1576 × 897 RGBA, cropped to 1300 × 700 for the plugin asset.
+- Source image: 1576 × 897 RGBA, cropped to 1420 × 750 for the plugin asset.
 - White outline baked around the alpha silhouette.
 - Coordinates below are normalised to the 1300 × 700 crop.
 - The UI draws labels, hit dots and dropdown chevrons; they are not in the art.
@@ -38,8 +38,8 @@ disabled pieces stay in place and are dimmed.
 
 - Each piece has a normalised click ellipse (head or cymbal surface).
 - Each shell has a larger body rectangle used only for the disabled dim.
-- Dimming clips a black copy of the whole kit silhouette to a tapered shell
-  outline or a cymbal ellipse, so only that drum/cymbal is dimmed.
+- Disabled pieces are currently left fully visible. Exact dimming needs
+  per-piece masks; the earlier approximate overlays were removed.
 - Whole drum bodies are clickable, not just the heads.
 - Hit dots sit at the centre of the playing surface.
 - Shell chevrons sit at the top-right of the piece region.

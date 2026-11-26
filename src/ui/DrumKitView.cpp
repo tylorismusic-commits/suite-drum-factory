@@ -62,26 +62,26 @@ juce::Image makeGlowImage(const juce::Image &src, juce::Colour glowColour = juce
 }
 const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &singleImageRegions()
 {
-    // Normalised clickable surfaces on the Drum Factory master image. The
-    // order matches KitPiece: kick, snare, tom1, tom2, floorTom, hihat, ride,
-    // crash1, crash2, tom3..5, splash1/2, china1/2.
+    // Normalised whole-drum clickable regions on the Drum Factory master image.
+    // Order: kick, snare, tom1, tom2, floorTom, hihat, ride, crash1, crash2,
+    // tom3..5, splash1/2, china1/2.
     static const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> regions {{
-        juce::Rectangle<float>(0.515f, 0.360f, 0.100f, 0.135f), // kick head
-        juce::Rectangle<float>(0.412f, 0.350f, 0.100f, 0.130f), // snare head
-        juce::Rectangle<float>(0.469f, 0.225f, 0.077f, 0.088f), // tom 1 head
-        juce::Rectangle<float>(0.573f, 0.205f, 0.096f, 0.100f), // tom 2 head
-        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.120f), // legacy floor tom = tom 4
-        juce::Rectangle<float>(0.262f, 0.207f, 0.119f, 0.079f), // hi-hat
-        juce::Rectangle<float>(0.685f, 0.236f, 0.146f, 0.107f), // ride (dark cymbal)
-        juce::Rectangle<float>(0.362f, 0.043f, 0.112f, 0.071f), // crash 1
-        juce::Rectangle<float>(0.619f, 0.050f, 0.119f, 0.071f), // crash 2
-        juce::Rectangle<float>(0.615f, 0.365f, 0.112f, 0.112f), // tom 3 head
-        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.120f), // tom 4 head
-        juce::Rectangle<float>(0.173f, 0.380f, 0.185f, 0.145f), // tom 5 head (left)
-        juce::Rectangle<float>(0.500f, 0.086f, 0.054f, 0.071f), // splash 1
-        juce::Rectangle<float>(0.573f, 0.086f, 0.042f, 0.071f), // splash 2
-        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 1 (left of tom 5)
-        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // china 2 (right of ride)
+        juce::Rectangle<float>(0.490f, 0.330f, 0.120f, 0.340f), // kick
+        juce::Rectangle<float>(0.394f, 0.333f, 0.110f, 0.240f), // snare
+        juce::Rectangle<float>(0.458f, 0.180f, 0.081f, 0.160f), // tom 1
+        juce::Rectangle<float>(0.563f, 0.173f, 0.099f, 0.180f), // tom 2
+        juce::Rectangle<float>(0.665f, 0.480f, 0.159f, 0.340f), // legacy floor tom = tom 4
+        juce::Rectangle<float>(0.243f, 0.200f, 0.123f, 0.100f), // hi-hat
+        juce::Rectangle<float>(0.683f, 0.307f, 0.127f, 0.120f), // ride
+        juce::Rectangle<float>(0.349f, 0.040f, 0.120f, 0.087f), // crash 1
+        juce::Rectangle<float>(0.634f, 0.047f, 0.120f, 0.093f), // crash 2
+        juce::Rectangle<float>(0.592f, 0.380f, 0.127f, 0.360f), // tom 3
+        juce::Rectangle<float>(0.665f, 0.480f, 0.159f, 0.340f), // tom 4
+        juce::Rectangle<float>(0.144f, 0.433f, 0.183f, 0.380f), // tom 5
+        juce::Rectangle<float>(0.493f, 0.073f, 0.046f, 0.060f), // splash 1
+        juce::Rectangle<float>(0.567f, 0.073f, 0.046f, 0.060f), // splash 2
+        juce::Rectangle<float>(0.028f, 0.273f, 0.194f, 0.153f), // china 1 (left)
+        juce::Rectangle<float>(0.782f, 0.400f, 0.204f, 0.167f), // china 2 (right)
     }};
 
     return regions;
@@ -89,24 +89,23 @@ const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &
 
 const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &singleImageBodies()
 {
-    // Full visible body used for the disabled-piece dim overlay.
     static const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> bodies {{
-        juce::Rectangle<float>(0.505f, 0.340f, 0.135f, 0.300f), // kick
-        juce::Rectangle<float>(0.410f, 0.345f, 0.105f, 0.220f), // snare
-        juce::Rectangle<float>(0.469f, 0.225f, 0.077f, 0.200f), // tom 1
-        juce::Rectangle<float>(0.573f, 0.205f, 0.096f, 0.200f), // tom 2
-        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.405f), // floor tom = tom 4
-        juce::Rectangle<float>(0.262f, 0.207f, 0.119f, 0.079f), // hi-hat
-        juce::Rectangle<float>(0.685f, 0.236f, 0.146f, 0.107f), // ride
-        juce::Rectangle<float>(0.362f, 0.043f, 0.112f, 0.071f), // crash 1
-        juce::Rectangle<float>(0.619f, 0.050f, 0.119f, 0.071f), // crash 2
-        juce::Rectangle<float>(0.615f, 0.365f, 0.112f, 0.355f), // tom 3
-        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.405f), // tom 4
-        juce::Rectangle<float>(0.173f, 0.380f, 0.185f, 0.470f), // tom 5
-        juce::Rectangle<float>(0.500f, 0.086f, 0.054f, 0.071f), // splash 1
-        juce::Rectangle<float>(0.573f, 0.086f, 0.042f, 0.071f), // splash 2
-        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 1
-        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // china 2
+        juce::Rectangle<float>(0.490f, 0.330f, 0.120f, 0.340f), // kick
+        juce::Rectangle<float>(0.394f, 0.333f, 0.110f, 0.240f), // snare
+        juce::Rectangle<float>(0.458f, 0.180f, 0.081f, 0.160f), // tom 1
+        juce::Rectangle<float>(0.563f, 0.173f, 0.099f, 0.180f), // tom 2
+        juce::Rectangle<float>(0.665f, 0.480f, 0.159f, 0.340f), // floor tom = tom 4
+        juce::Rectangle<float>(0.243f, 0.200f, 0.123f, 0.100f), // hi-hat
+        juce::Rectangle<float>(0.683f, 0.307f, 0.127f, 0.120f), // ride
+        juce::Rectangle<float>(0.349f, 0.040f, 0.120f, 0.087f), // crash 1
+        juce::Rectangle<float>(0.634f, 0.047f, 0.120f, 0.093f), // crash 2
+        juce::Rectangle<float>(0.592f, 0.380f, 0.127f, 0.360f), // tom 3
+        juce::Rectangle<float>(0.665f, 0.480f, 0.159f, 0.340f), // tom 4
+        juce::Rectangle<float>(0.144f, 0.433f, 0.183f, 0.380f), // tom 5
+        juce::Rectangle<float>(0.493f, 0.073f, 0.046f, 0.060f), // splash 1
+        juce::Rectangle<float>(0.567f, 0.073f, 0.046f, 0.060f), // splash 2
+        juce::Rectangle<float>(0.028f, 0.273f, 0.194f, 0.153f), // china 1
+        juce::Rectangle<float>(0.782f, 0.400f, 0.204f, 0.167f), // china 2
     }};
 
     return bodies;
@@ -114,23 +113,48 @@ const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &
 
 const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &singleImageHitPoints()
 {
+    // Natural striking points: stick/beater contact, not geometric centres.
     static const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> points {{
-        juce::Point<float>(0.565f, 0.445f), // kick
-        juce::Point<float>(0.462f, 0.430f), // snare
-        juce::Point<float>(0.508f, 0.285f), // tom 1
-        juce::Point<float>(0.621f, 0.270f), // tom 2
-        juce::Point<float>(0.781f, 0.480f), // floor tom = tom 4
-        juce::Point<float>(0.321f, 0.246f), // hi-hat
-        juce::Point<float>(0.758f, 0.289f), // ride
-        juce::Point<float>(0.417f, 0.079f), // crash 1
-        juce::Point<float>(0.678f, 0.086f), // crash 2
-        juce::Point<float>(0.671f, 0.435f), // tom 3
-        juce::Point<float>(0.781f, 0.480f), // tom 4
-        juce::Point<float>(0.265f, 0.465f), // tom 5
-        juce::Point<float>(0.527f, 0.121f), // splash 1
-        juce::Point<float>(0.594f, 0.121f), // splash 2
-        juce::Point<float>(0.162f, 0.250f), // china 1
-        juce::Point<float>(0.885f, 0.360f), // china 2
+        juce::Point<float>(0.546f, 0.427f), // kick beater
+        juce::Point<float>(0.451f, 0.407f), // snare centre
+        juce::Point<float>(0.496f, 0.240f), // tom 1
+        juce::Point<float>(0.611f, 0.240f), // tom 2
+        juce::Point<float>(0.743f, 0.573f), // floor tom = tom 4
+        juce::Point<float>(0.324f, 0.260f), // hi-hat bow
+        juce::Point<float>(0.761f, 0.387f), // ride bow
+        juce::Point<float>(0.430f, 0.093f), // crash 1 bow
+        juce::Point<float>(0.711f, 0.100f), // crash 2 bow
+        juce::Point<float>(0.655f, 0.440f), // tom 3
+        juce::Point<float>(0.743f, 0.573f), // tom 4
+        juce::Point<float>(0.236f, 0.513f), // tom 5
+        juce::Point<float>(0.523f, 0.109f), // splash 1 bow
+        juce::Point<float>(0.596f, 0.109f), // splash 2 bow
+        juce::Point<float>(0.148f, 0.373f), // china 1 bow
+        juce::Point<float>(0.880f, 0.500f), // china 2 bow
+    }};
+
+    return points;
+}
+
+const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &singleImageShellAnchors()
+{
+    static const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> points {{
+        juce::Point<float>(0.615f, 0.550f), // kick
+        juce::Point<float>(0.505f, 0.500f), // snare
+        juce::Point<float>(0.535f, 0.200f), // tom 1
+        juce::Point<float>(0.655f, 0.190f), // tom 2
+        juce::Point<float>(0.820f, 0.520f), // floor tom = tom 4
+        juce::Point<float>(0.324f, 0.260f), // hihat (unused)
+        juce::Point<float>(0.761f, 0.387f), // ride (unused)
+        juce::Point<float>(0.430f, 0.093f), // crash 1 (unused)
+        juce::Point<float>(0.711f, 0.100f), // crash 2 (unused)
+        juce::Point<float>(0.715f, 0.450f), // tom 3
+        juce::Point<float>(0.820f, 0.520f), // tom 4
+        juce::Point<float>(0.322f, 0.480f), // tom 5
+        juce::Point<float>(0.523f, 0.109f), // splash 1 (unused)
+        juce::Point<float>(0.596f, 0.109f), // splash 2 (unused)
+        juce::Point<float>(0.148f, 0.373f), // china 1 (unused)
+        juce::Point<float>(0.880f, 0.500f), // china 2 (unused)
     }};
 
     return points;
@@ -783,8 +807,10 @@ void DrumKitView::setAllPiecesEnabled(bool enabled)
 
 void DrumKitView::drawSingleImageDimming(juce::Graphics &g) const
 {
-    if (!useSingleKitImage || !singleKitScaled.isValid())
-        return;
+    // Disabled pieces stay fully visible until per-piece masks are available.
+    // A rectangular/polygon dim looked worse than no dim at all.
+    (void) g;
+    return;
 
     const auto &bodies = singleImageBodies();
     for (size_t i = 0; i < static_cast<size_t>(KitPiece::count); ++i)
@@ -852,6 +878,22 @@ juce::Rectangle<float> DrumKitView::boundsForClassicPiece(KitPiece piece) const 
     if (piece == KitPiece::count)
         return {};
     return pieces[static_cast<size_t>(piece)].bounds;
+}
+
+juce::Point<float> DrumKitView::shellAnchor(KitPiece piece) const noexcept
+{
+    if (piece == KitPiece::count)
+        return {};
+
+    if (useSingleKitImage && singleKitScaled.isValid())
+    {
+        const auto p = singleImageShellAnchors()[static_cast<size_t>(piece)];
+        return {singleKitBounds.getX() + p.x * singleKitBounds.getWidth(),
+                singleKitBounds.getY() + p.y * singleKitBounds.getHeight()};
+    }
+
+    const auto b = pieces[static_cast<size_t>(piece)].bounds;
+    return {b.getRight() - 12.0f, b.getY() + 12.0f};
 }
 
 juce::Rectangle<int> DrumKitView::dirtyBoundsForPiece(KitPiece piece) const noexcept
@@ -1736,7 +1778,8 @@ void DrumKitView::layoutSingleKit(float W, float H)
         return;
 
     const float margin = 8.0f;
-    const float scale = std::min((W - margin * 2.0f) / imageW, (H - margin * 2.0f) / imageH);
+    const float zoom = 1.05f;
+    const float scale = std::min((W - margin * 2.0f) / imageW, (H - margin * 2.0f) / imageH) * zoom;
     const float drawW = imageW * scale;
     const float drawH = imageH * scale;
     singleKitBounds = juce::Rectangle<float>((W - drawW) * 0.5f, (H - drawH) * 0.5f, drawW, drawH);

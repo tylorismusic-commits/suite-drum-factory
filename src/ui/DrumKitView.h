@@ -91,6 +91,9 @@ class DrumKitView
     /// kit is drawn as a single composite image.
     juce::Rectangle<float> boundsForClassicPiece(KitPiece piece) const noexcept;
 
+    /// Fixed shell chevron anchor in this view's coordinates.
+    juce::Point<float> shellAnchor(KitPiece piece) const noexcept;
+
     void paint(juce::Graphics &) override;
     void resized() override;
     void timerCallback() override;
