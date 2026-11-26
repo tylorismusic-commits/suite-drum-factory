@@ -165,6 +165,7 @@ void Sampler::setSampleRateAndBlock(double rate, int blockSize)
             bus->fx.prepare(currentSampleRate, currentBlockSize);
             bus->inserts.prepare(currentSampleRate, currentBlockSize);
         }
+    masterInserts.prepare(currentSampleRate, currentBlockSize);
 }
 
 //==============================================================================
@@ -178,6 +179,27 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
         error = kit.error.empty() ? juce::String("the kit has no playable instruments") : juce::String(kit.error);
         return false;
     }
+
+    std::map<std::string, std::array<InsertSlotState, InsertChain::slotCount>> previousPieceInserts;
+    for (const auto &ch : micChannels)
+    {
+        std::array<InsertSlotState, InsertChain::slotCount> states {};
+        for (int i = 0; i < InsertChain::slotCount; ++i)
+            states[static_cast<size_t>(i)] = ch->inserts.slot(i).state();
+        const auto key = ch->insertKey.empty() ? ch->title.toStdString() : ch->insertKey;
+        previousPieceInserts[key] = states;
+    }
+
+    std::array<std::array<InsertSlotState, InsertChain::slotCount>, 3> previousBusInserts {};
+    for (int b = 0; b < 3; ++b)
+        if (factoryBuses[static_cast<size_t>(b)] != nullptr)
+            for (int i = 0; i < InsertChain::slotCount; ++i)
+                previousBusInserts[static_cast<size_t>(b)][static_cast<size_t>(i)] =
+                    factoryBuses[static_cast<size_t>(b)]->inserts.slot(i).state();
+
+    std::array<InsertSlotState, InsertChain::slotCount> previousMasterInserts {};
+    for (int i = 0; i < InsertChain::slotCount; ++i)
+        previousMasterInserts[static_cast<size_t>(i)] = masterInserts.slot(i).state();
 
     if (static_cast<int>(kit.instruments.size()) > config::MAX_INSTRUMENT_BUSES)
     {
@@ -444,6 +466,8 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
                 if (zone.samplerIndex < 0 || zone.samplerIndex >= static_cast<int>(instruments_.size()))
                     continue;
                 const auto role = instruments_[static_cast<size_t>(zone.samplerIndex)].midiRole;
+                if (ch->insertKey.empty())
+                    ch->insertKey = role.toStdString();
                 if (role.startsWithIgnoreCase("kick."))
                 {
                     ch->factoryBus = 0;
@@ -557,6 +581,51 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
     }
 
     calibrateFactoryPieces();
+
+    for (auto &ch : micChannels)
+    {
+        const auto key = ch->insertKey.empty() ? ch->title.toStdString() : ch->insertKey;
+        const auto it = previousPieceInserts.find(key);
+        if (it == previousPieceInserts.end())
+            continue;
+        for (int i = 0; i < InsertChain::slotCount; ++i)
+        {
+            const auto &s = it->second[static_cast<size_t>(i)];
+            if (s.type == InsertType::none)
+                continue;
+            auto &slot = ch->inserts.slot(i);
+            slot.setType(s.type);
+            slot.bypass = s.bypass;
+            slot.values = s.values;
+        }
+    }
+
+    for (int b = 0; b < 3; ++b)
+    {
+        if (factoryBuses[static_cast<size_t>(b)] == nullptr)
+            continue;
+        for (int i = 0; i < InsertChain::slotCount; ++i)
+        {
+            const auto &s = previousBusInserts[static_cast<size_t>(b)][static_cast<size_t>(i)];
+            if (s.type == InsertType::none)
+                continue;
+            auto &slot = factoryBuses[static_cast<size_t>(b)]->inserts.slot(i);
+            slot.setType(s.type);
+            slot.bypass = s.bypass;
+            slot.values = s.values;
+        }
+    }
+
+    for (int i = 0; i < InsertChain::slotCount; ++i)
+    {
+        const auto &s = previousMasterInserts[static_cast<size_t>(i)];
+        if (s.type == InsertType::none)
+            continue;
+        auto &slot = masterInserts.slot(i);
+        slot.setType(s.type);
+        slot.bypass = s.bypass;
+        slot.values = s.values;
+    }
 
     recomputeSoloFlags();
     sampleCache.trim();
@@ -948,6 +1017,8 @@ InsertChain *Sampler::insertChain(bool bus, int channel) noexcept
 {
     if (bus)
     {
+        if (channel == 3)
+            return &masterInserts;
         if (channel >= 0 && channel < 3 && factoryBuses[static_cast<size_t>(channel)] != nullptr)
             return &factoryBuses[static_cast<size_t>(channel)]->inserts;
     }
@@ -3322,6 +3393,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             {
                 juce::FloatVectorOperations::add(output[0], busScratchL[3].data(), numSamples);
                 juce::FloatVectorOperations::add(output[1], busScratchR[3].data(), numSamples);
+                masterInserts.process(output[0], output[1], numSamples);
             }
         }
 

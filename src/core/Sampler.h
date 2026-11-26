@@ -535,6 +535,7 @@ class Sampler
         MicStripParams params;
         ChannelStripFX fx;
         InsertChain inserts;
+        std::string insertKey;       ///< stable key used to keep rack settings across swaps
         int factoryBus = 3;          ///< 0 kick, 1 snare, 2 room, 3 mix
         float autoGain = 1.0f;       ///< hidden calibration gain for factory pieces
         bool kitPhaseInvert = false; ///< polarity correction that belongs to the recording
@@ -560,6 +561,7 @@ class Sampler
     };
 
     std::array<std::unique_ptr<FactoryBusState>, 3> factoryBuses;
+    InsertChain masterInserts;
     std::array<std::vector<float>, 4> busScratchL;
     std::array<std::vector<float>, 4> busScratchR;
 

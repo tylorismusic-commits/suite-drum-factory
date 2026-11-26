@@ -30,6 +30,20 @@ juce::Colour getMicColor(const juce::String &name)
     return juce::Colour(0xff1abc9c);     // Teal default
 }
 
+juce::Colour insertColour(InsertType type)
+{
+    switch (type)
+    {
+        case InsertType::eq: return juce::Colour(0xff3fa7ff);
+        case InsertType::compressor: return juce::Colour(0xff52d273);
+        case InsertType::drive: return juce::Colour(0xffe67e22);
+        case InsertType::transient: return juce::Colour(0xffb07cff);
+        case InsertType::limiter: return juce::Colour(0xfff1c40f);
+        case InsertType::clipper: return juce::Colour(0xffe74c3c);
+        default: return juce::Colour(0xff6b6b72);
+    }
+}
+
 float linearToDb(float linear) noexcept
 {
     return linear > 1.0e-5f ? 20.0f * std::log10(linear) : -100.0f;
@@ -885,12 +899,19 @@ void MixerView::InsertRackPopup::drawSlot(juce::Graphics &g, int slot, juce::Rec
     const auto state = processor.getSampler().getInsertState(busTarget, channel, slot);
     const bool selected = slot == selectedSlot;
     const bool target = dragging && slot == dragTo;
-    const auto accent = state.type == InsertType::none ? theme.panelEdge : theme.accent;
+    const auto typeColour = insertColour(state.type);
+    const auto accent = state.type == InsertType::none ? theme.panelEdge : typeColour;
 
     g.setColour(theme.panel.withAlpha(state.type == InsertType::none ? 0.55f : 0.95f));
     g.fillRoundedRectangle(area, 6.0f);
     g.setColour(target ? theme.accentAlt : (selected ? theme.accent : theme.panelEdge));
     g.drawRoundedRectangle(area, 6.0f, selected || target ? 2.0f : 1.0f);
+
+    if (state.type != InsertType::none)
+    {
+        g.setColour(typeColour.withAlpha(0.9f));
+        g.fillRoundedRectangle(area.reduced(1.0f).removeFromTop(5.0f), 3.0f);
+    }
 
     g.setColour(theme.inkSoft);
     g.setFont(uiFont(9.0f).boldened());
@@ -906,7 +927,7 @@ void MixerView::InsertRackPopup::drawSlot(juce::Graphics &g, int slot, juce::Rec
 
     if (state.type != InsertType::none)
     {
-        g.setColour(state.bypass ? theme.warning : accent);
+        g.setColour(state.bypass ? theme.warning : typeColour);
         g.setFont(uiFont(8.5f).boldened());
         g.drawText(state.bypass ? "BYPASSED" : "BYPASS", bypassBounds[static_cast<size_t>(slot)].toNearestInt(),
                    juce::Justification::centred, false);
@@ -1013,7 +1034,8 @@ void MixerView::InsertRackPopup::paint(juce::Graphics &g)
 
     g.setColour(theme.ink);
     g.setFont(displayFont(16.0f));
-    const auto title = busTarget ? processor.getSampler().factoryBusTitle(channel)
+    const auto title = busTarget ? (channel == 3 ? juce::String("Mix Bus")
+                                                 : processor.getSampler().factoryBusTitle(channel))
                                  : processor.getSampler().micStripTitle(channel);
     g.drawText("INSERTS  |  " + title.toUpperCase(), 18, 10, getWidth() - 120, 26,
                juce::Justification::left, false);
@@ -1171,6 +1193,16 @@ MixerView::MasterStripComponent::MasterStripComponent(MixerView &o, PluginProces
     };
     addAndMakeVisible(fxBtn);
 
+    insBtn.setButtonText("INS");
+    insBtn.activeColour = juce::Colour(0xfff39c12);
+    insBtn.onClick = [this]
+    {
+        owner.closePopups();
+        if (owner.insertRackPopup != nullptr)
+            owner.insertRackPopup->open(true, 3);
+    };
+    addAndMakeVisible(insBtn);
+
     updateFromState();
     setTheme(owner.theme);
 }
@@ -1191,7 +1223,10 @@ void MixerView::MasterStripComponent::resized()
     limiterBtn.setBounds(r.getX() + 8.0f, isCompact ? 30.0f : 40.0f, r.getWidth() - 16.0f, btnH);
     panBarBounds = juce::Rectangle<float>(
         r.getX() + 8.0f, isCompact ? 52.0f : 68.0f, r.getWidth() - 16.0f, isCompact ? 15.0f : 18.0f);
-    fxBtn.setBounds(r.getX() + 8.0f, isCompact ? 70.0f : 92.0f, r.getWidth() - 16.0f, btnH);
+    const float insW = 42.0f;
+    insBtn.setBounds(r.getX() + 8.0f, isCompact ? 70.0f : 92.0f, insW, btnH);
+    fxBtn.setBounds(r.getX() + 8.0f + insW + 4.0f, isCompact ? 70.0f : 92.0f,
+                    r.getWidth() - 16.0f - insW - 4.0f, btnH);
 
     const float faderTop = isCompact ? 94.0f : 122.0f;
     const float faderBottom = isCompact ? (r.getBottom() - 28.0f) : (r.getBottom() - 32.0f);
@@ -1206,6 +1241,7 @@ void MixerView::MasterStripComponent::setTheme(const Theme &t)
 {
     theme = t;
     fxBtn.setTheme(t);
+    insBtn.setTheme(t);
     limiterBtn.setTheme(t);
     repaint();
 }

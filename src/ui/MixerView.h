@@ -442,6 +442,7 @@ class MixerView
         Theme theme = Theme::suite();
 
         HandButton fxBtn {"MASTER FX"};
+        HandButton insBtn {"INS"};
         HandButton limiterBtn {"LIMITER", true};
 
         juce::Rectangle<float> faderTrackBounds;
