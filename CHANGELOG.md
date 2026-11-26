@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 - 2026-11-26
+
+- Fix the optional Suite Kit Studio / converter link on source builds by
+  linking `InsertEQ.cpp` into those targets.
+- No plugin behaviour change from 0.1.0.
+
 ## 0.1.0 - 2026-11-26
 
 First public release of Suite Drum Factory.

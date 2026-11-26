@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(SuiteDrumFactory VERSION 0.1.0 LANGUAGES C CXX)
+project(SuiteDrumFactory VERSION 0.1.1 LANGUAGES C CXX)
 
 #==================================================================================
 # Options
@@ -258,6 +258,7 @@ if(GLORP_BUILD_KIT_EDITOR)
         src/core/AcousticCrosstalk.cpp
         src/core/ChannelFX.cpp
     src/core/InsertRack.cpp
+    src/core/InsertEQ.cpp
     )
 
     target_include_directories(GlorpKitEditor PRIVATE
@@ -306,6 +307,7 @@ if(GLORP_BUILD_KIT_EDITOR)
         src/core/AcousticCrosstalk.cpp
         src/core/ChannelFX.cpp
     src/core/InsertRack.cpp
+    src/core/InsertEQ.cpp
     )
     set_target_properties(glorp_kit_converter PROPERTIES OUTPUT_NAME SuiteKitConverter)
     target_include_directories(glorp_kit_converter PRIVATE

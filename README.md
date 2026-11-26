@@ -6,7 +6,7 @@ swap the shell pieces (kick, snare, toms) from Crocell, DRS, Salamander or
 Monster. Cymbals default to Naked and can be replaced as one group by an
 installed expansion pack.
 
-**Current release: 0.1.0.** This repository is the Suite Drum Factory product
+**Current release: 0.1.1.** This repository is the Suite Drum Factory product
 fork, separate from Suite Drums Glorp.
 
 The plugin is sample-free by default. Factory samples are distributed separately
