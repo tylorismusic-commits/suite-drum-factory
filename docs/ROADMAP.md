@@ -20,7 +20,7 @@
 - [x] CONFIG and PIECES moved into the old kit-dropdown position.
 - [x] Grooves folder persisted in a dedicated file; file pickers float over the DAW.
 - [x] Fixed Kick / Snare / Room / Mix bus mixer with scrollable bus strips.
-- [ ] Serial insert slots (graphical EQ, compressor, drive, transient, limiter, clipper).
+- [x] Four-slot serial insert racks on pieces and buses (EQ, compressor, drive, transient, limiter, clipper).
 - [ ] Configuration-aware mix-ready presets.
 - [ ] Mix presets tied to the active configuration instead of generic presets.
 

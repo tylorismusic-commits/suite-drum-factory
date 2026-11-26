@@ -187,6 +187,7 @@ target_sources(GlorpDrums PRIVATE
     src/core/GlorpKit.cpp
     src/core/GlorpKitWriter.cpp
     src/core/ChannelFX.cpp
+    src/core/InsertRack.cpp
     src/core/BleedMatrix.cpp
     src/core/AcousticCrosstalk.cpp
     src/ui/Editor.cpp
@@ -254,6 +255,7 @@ if(GLORP_BUILD_KIT_EDITOR)
         src/core/BleedMatrix.cpp
         src/core/AcousticCrosstalk.cpp
         src/core/ChannelFX.cpp
+    src/core/InsertRack.cpp
     )
 
     target_include_directories(GlorpKitEditor PRIVATE
@@ -301,6 +303,7 @@ if(GLORP_BUILD_KIT_EDITOR)
         src/core/BleedMatrix.cpp
         src/core/AcousticCrosstalk.cpp
         src/core/ChannelFX.cpp
+    src/core/InsertRack.cpp
     )
     set_target_properties(glorp_kit_converter PROPERTIES OUTPUT_NAME SuiteKitConverter)
     target_include_directories(glorp_kit_converter PRIVATE

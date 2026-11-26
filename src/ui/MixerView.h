@@ -168,6 +168,52 @@ class MixerView
     };
 
     //==========================================================================
+    // Insert Rack Popup
+    //==========================================================================
+    class InsertRackPopup : public juce::Component
+    {
+      public:
+        InsertRackPopup(MixerView &owner, PluginProcessor &processor);
+        void open(bool bus, int channel);
+        void close();
+        bool isOpen() const noexcept { return isVisible(); }
+        void setTheme(const Theme &t);
+        void paint(juce::Graphics &g) override;
+        void resized() override;
+        void mouseDown(const juce::MouseEvent &e) override;
+        void mouseDrag(const juce::MouseEvent &e) override;
+        void mouseUp(const juce::MouseEvent &e) override;
+
+      private:
+        MixerView &owner;
+        PluginProcessor &processor;
+        Theme theme = Theme::suite();
+        bool busTarget = false;
+        int channel = 0;
+        int selectedSlot = 0;
+        int dragFrom = -1;
+        int dragTo = -1;
+        bool dragging = false;
+        juce::Point<float> dragStart;
+
+        juce::TextButton closeBtn {"CLOSE"};
+        std::array<juce::Rectangle<float>, InsertChain::slotCount> slotBounds;
+        std::array<juce::Rectangle<float>, InsertChain::slotCount> bypassBounds;
+        std::array<juce::Rectangle<float>, InsertChain::slotCount> removeBounds;
+        std::vector<std::unique_ptr<Knob>> knobs;
+        juce::Rectangle<float> graphBounds;
+
+        void rebuildKnobs();
+        void chooseType(int slot);
+        void drawSlot(juce::Graphics &g, int slot, juce::Rectangle<float> area);
+        void drawEqGraph(juce::Graphics &g, juce::Rectangle<float> area);
+        int slotAt(juce::Point<float> pos) const;
+        juce::String slotTypeLabel(int slot) const;
+    };
+
+    //==========================================================================
+    // Preset Browser (factory + user presets, A/B compare, favourites)
+    //==========================================================================
     // Preset Browser (factory + user presets, A/B compare, favourites)
     //==========================================================================
     class PresetBrowserPopup : public juce::Component
@@ -369,6 +415,7 @@ class MixerView
         bool draggingPan = false;
         HandButton soloBtn {"S", true};
         HandButton muteBtn {"M", true};
+        HandButton fxBtn {"FX"};
     };
 
     //==========================================================================
@@ -434,6 +481,7 @@ class MixerView
 
     // FX Drawers & Popups
     std::unique_ptr<ChannelFXPopup> channelFXPopup;
+    std::unique_ptr<InsertRackPopup> insertRackPopup;
     std::unique_ptr<MasterFXPopup> masterFXPopup;
     std::unique_ptr<PresetBrowserPopup> presetBrowser;
     std::unique_ptr<BleedMatrixPopup> bleedMatrixPopup;

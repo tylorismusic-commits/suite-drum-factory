@@ -154,11 +154,17 @@ void Sampler::setSampleRateAndBlock(double rate, int blockSize)
     masterFX.prepare(currentSampleRate, currentBlockSize);
     crosstalk.prepare(currentSampleRate, currentBlockSize);
     for (auto &ch : micChannels)
+    {
         ch->fx.prepare(currentSampleRate, currentBlockSize);
+        ch->inserts.prepare(currentSampleRate, currentBlockSize);
+    }
 
     for (auto &bus : factoryBuses)
         if (bus != nullptr)
+        {
             bus->fx.prepare(currentSampleRate, currentBlockSize);
+            bus->inserts.prepare(currentSampleRate, currentBlockSize);
+        }
 }
 
 //==============================================================================
@@ -431,6 +437,7 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
             ch->title = juce::String(lp.name);
             ch->params = MicStripParams {};
             ch->fx.prepare(currentSampleRate, currentBlockSize);
+            ch->inserts.prepare(currentSampleRate, currentBlockSize);
 
             for (const auto &zone : lp.zones)
             {
@@ -510,6 +517,7 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
             if (!hadBusParams)
                 bus->params.level = b == 2 ? 0.85f : 1.0f;
             bus->fx.prepare(currentSampleRate, currentBlockSize);
+            bus->inserts.prepare(currentSampleRate, currentBlockSize);
             factoryBuses[static_cast<size_t>(b)] = std::move(bus);
         }
     }
@@ -934,6 +942,66 @@ float Sampler::getFactoryBusRmsR(int index) const noexcept
     if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->rmsR.load(std::memory_order_relaxed);
     return 0.0f;
+}
+
+InsertChain *Sampler::insertChain(bool bus, int channel) noexcept
+{
+    if (bus)
+    {
+        if (channel >= 0 && channel < 3 && factoryBuses[static_cast<size_t>(channel)] != nullptr)
+            return &factoryBuses[static_cast<size_t>(channel)]->inserts;
+    }
+    else if (channel >= 0 && channel < static_cast<int>(micChannels.size()))
+        return &micChannels[static_cast<size_t>(channel)]->inserts;
+    return nullptr;
+}
+
+const InsertChain *Sampler::insertChain(bool bus, int channel) const noexcept
+{
+    return const_cast<Sampler *>(this)->insertChain(bus, channel);
+}
+
+InsertSlotState Sampler::getInsertState(bool bus, int channel, int slot) const
+{
+    const auto *chain = insertChain(bus, channel);
+    if (chain == nullptr)
+        return {};
+    return chain->slot(slot).state();
+}
+
+void Sampler::setInsertType(bool bus, int channel, int slot, InsertType type)
+{
+    const juce::ScopedLock lock(kitLock);
+    if (auto *chain = insertChain(bus, channel))
+        chain->slot(slot).setType(type);
+}
+
+void Sampler::setInsertBypass(bool bus, int channel, int slot, bool bypass)
+{
+    const juce::ScopedLock lock(kitLock);
+    if (auto *chain = insertChain(bus, channel))
+        chain->slot(slot).bypass = bypass;
+}
+
+void Sampler::setInsertValue(bool bus, int channel, int slot, int param, float value)
+{
+    const juce::ScopedLock lock(kitLock);
+    if (auto *chain = insertChain(bus, channel))
+    {
+        auto &s = chain->slot(slot);
+        if (param >= 0 && param < 6)
+        {
+            const auto &info = insertParamInfo(s.type, param);
+            s.values[static_cast<size_t>(param)] = juce::jlimit(info.minimum, info.maximum, value);
+        }
+    }
+}
+
+void Sampler::moveInsert(bool bus, int channel, int from, int to)
+{
+    const juce::ScopedLock lock(kitLock);
+    if (auto *chain = insertChain(bus, channel))
+        chain->moveSlot(from, to);
 }
 
 void Sampler::applyMixerPreset(const MixerPreset &preset)
@@ -3108,6 +3176,9 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                              p,
                              reverbAccumL.data(),
                              reverbAccumR.data());
+            state.inserts.process(micScratchL[static_cast<size_t>(m)].data(),
+                                  micScratchR[static_cast<size_t>(m)].data(),
+                                  numSamples);
 
             float micPanL = 1.0f, micPanR = 1.0f;
             if (p.pan < 0.0f)
@@ -3211,6 +3282,9 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                                bus.params,
                                reverbAccumL.data(),
                                reverbAccumR.data());
+                bus.inserts.process(busScratchL[static_cast<size_t>(b)].data(),
+                                    busScratchR[static_cast<size_t>(b)].data(),
+                                    numSamples);
 
                 float panL = 1.0f, panR = 1.0f;
                 if (bus.params.pan < 0.0f)

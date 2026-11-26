@@ -34,6 +34,9 @@ Drums Glorp.
 - Kick, snare and room sums now sit in the same scrolling strip browser as the
   piece channels, with their own fader, pan, mute, solo and meters. They feed
   the Mix bus, which remains the fixed master strip.
+- Every piece and sum has a four-slot serial insert rack: EQ, compressor,
+  drive, transient shaper, limiter and clipper. Slots can be added, bypassed,
+  removed and dragged to reorder. The EQ has an interactive-style curve view.
 - Source-mic polarity is applied automatically while the piece is summed, so
   modules that mark a mic out of phase (for example DRS Kdrum_back) need no
   manual setup.

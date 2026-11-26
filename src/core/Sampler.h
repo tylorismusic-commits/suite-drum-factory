@@ -27,6 +27,7 @@
 #include "ChannelFX.h"
 #include "Config.h"
 #include "DrumKit.h"
+#include "InsertRack.h"
 #include "SampleCache.h"
 
 #include <algorithm>
@@ -241,6 +242,14 @@ class Sampler
     float getFactoryBusRmsL(int index) const noexcept;
     float getFactoryBusRmsR(int index) const noexcept;
 
+    // -- Serial inserts -----------------------------------------------------
+    static constexpr int insertSlots = InsertChain::slotCount;
+    InsertSlotState getInsertState(bool bus, int channel, int slot) const;
+    void setInsertType(bool bus, int channel, int slot, InsertType type);
+    void setInsertBypass(bool bus, int channel, int slot, bool bypass);
+    void setInsertValue(bool bus, int channel, int slot, int param, float value);
+    void moveInsert(bool bus, int channel, int from, int to);
+
     void applyMixerPreset(const MixerPreset &preset);
     MixerPreset getCurrentMixerPreset(const juce::String &name) const;
 
@@ -424,6 +433,8 @@ class Sampler
 
     void resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out);
     void calibrateFactoryPieces();
+    InsertChain *insertChain(bool bus, int channel) noexcept;
+    const InsertChain *insertChain(bool bus, int channel) const noexcept;
     void recomputeSoloFlags();
     float nextRandom();
     void pushHitEvent(const HitEvent &event) noexcept;
@@ -523,6 +534,7 @@ class Sampler
         juce::String title;
         MicStripParams params;
         ChannelStripFX fx;
+        InsertChain inserts;
         int factoryBus = 3;          ///< 0 kick, 1 snare, 2 room, 3 mix
         float autoGain = 1.0f;       ///< hidden calibration gain for factory pieces
         bool kitPhaseInvert = false; ///< polarity correction that belongs to the recording
@@ -540,6 +552,7 @@ class Sampler
         juce::String title;
         MicStripParams params;
         ChannelStripFX fx;
+        InsertChain inserts;
         std::atomic<float> peakL {0.0f};
         std::atomic<float> peakR {0.0f};
         std::atomic<float> rmsL {0.0f};
