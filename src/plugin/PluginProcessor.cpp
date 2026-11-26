@@ -1181,7 +1181,7 @@ void PluginProcessor::getStateInformation(juce::MemoryBlock &destination)
 
         for (int b = 0; b < audioEngine.getSampler().numFactoryBuses(); ++b)
             addRack(true, b);
-        addRack(true, 3); // Mix bus
+        addRack(true, 5); // Mix bus
         for (int ch = 0; ch < audioEngine.getSampler().numMicStrips(); ++ch)
             addRack(false, ch);
     }

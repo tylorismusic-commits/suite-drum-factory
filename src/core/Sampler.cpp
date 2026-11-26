@@ -150,6 +150,13 @@ void Sampler::setSampleRateAndBlock(double rate, int blockSize)
         b.resize(static_cast<size_t>(currentBlockSize), 0.0f);
     for (auto &b : busScratchR)
         b.resize(static_cast<size_t>(currentBlockSize), 0.0f);
+    pieceRoomL.resize(micChannels.size());
+    pieceRoomR.resize(micChannels.size());
+    for (size_t i = 0; i < micChannels.size(); ++i)
+    {
+        pieceRoomL[i].resize(static_cast<size_t>(currentBlockSize), 0.0f);
+        pieceRoomR[i].resize(static_cast<size_t>(currentBlockSize), 0.0f);
+    }
 
     masterFX.prepare(currentSampleRate, currentBlockSize);
     crosstalk.prepare(currentSampleRate, currentBlockSize);
@@ -190,8 +197,8 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
         previousPieceInserts[key] = states;
     }
 
-    std::array<std::array<InsertSlotState, InsertChain::slotCount>, 3> previousBusInserts {};
-    for (int b = 0; b < 3; ++b)
+    std::array<std::array<InsertSlotState, InsertChain::slotCount>, factorySumCount> previousBusInserts {};
+    for (int b = 0; b < factorySumCount; ++b)
         if (factoryBuses[static_cast<size_t>(b)] != nullptr)
             for (int i = 0; i < InsertChain::slotCount; ++i)
                 previousBusInserts[static_cast<size_t>(b)][static_cast<size_t>(i)] =
@@ -478,6 +485,16 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
                     ch->factoryBus = 1;
                     break;
                 }
+                if (role.startsWithIgnoreCase("tom."))
+                {
+                    ch->factoryBus = 2;
+                    break;
+                }
+                if (role.startsWithIgnoreCase("base."))
+                {
+                    ch->factoryBus = 3;
+                    break;
+                }
             }
 
             micChannels.push_back(std::move(ch));
@@ -518,28 +535,36 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
         }
     }
 
-    std::array<MicStripParams, 3> previousBusParams {};
+    std::array<MicStripParams, factorySumCount> previousBusParams {};
     bool hadBusParams = factoryBuses[0] != nullptr;
     if (hadBusParams)
-        for (int b = 0; b < 3; ++b)
+        for (int b = 0; b < factorySumCount; ++b)
             if (factoryBuses[static_cast<size_t>(b)] != nullptr)
                 previousBusParams[static_cast<size_t>(b)] = factoryBuses[static_cast<size_t>(b)]->params;
+
+    pieceRoomL.resize(micChannels.size());
+    pieceRoomR.resize(micChannels.size());
+    for (size_t i = 0; i < micChannels.size(); ++i)
+    {
+        pieceRoomL[i].resize(static_cast<size_t>(currentBlockSize), 0.0f);
+        pieceRoomR[i].resize(static_cast<size_t>(currentBlockSize), 0.0f);
+    }
 
     for (auto &bus : factoryBuses)
         bus.reset();
 
     if (factoryPieceMode)
     {
-        static const char *busNames[3] {"kick", "snare", "room"};
-        static const char *busTitles[3] {"Kick Sum", "Snare Sum", "Room Sum"};
-        for (int b = 0; b < 3; ++b)
+        static const char *busNames[factorySumCount] {"kick", "snare", "toms", "cymbals", "room"};
+        static const char *busTitles[factorySumCount] {"Kick Sum", "Snare Sum", "Toms Sum", "Cymbals Sum", "Room Sum"};
+        for (int b = 0; b < factorySumCount; ++b)
         {
             auto bus = std::make_unique<FactoryBusState>();
             bus->name = busNames[b];
             bus->title = busTitles[b];
             bus->params = hadBusParams ? previousBusParams[static_cast<size_t>(b)] : MicStripParams {};
             if (!hadBusParams)
-                bus->params.level = b == 2 ? 0.85f : 1.0f;
+                bus->params.level = b == 4 ? 0.85f : 1.0f;
             bus->fx.prepare(currentSampleRate, currentBlockSize);
             bus->inserts.prepare(currentSampleRate, currentBlockSize);
             factoryBuses[static_cast<size_t>(b)] = std::move(bus);
@@ -600,7 +625,7 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
         }
     }
 
-    for (int b = 0; b < 3; ++b)
+    for (int b = 0; b < factorySumCount; ++b)
     {
         if (factoryBuses[static_cast<size_t>(b)] == nullptr)
             continue;
@@ -762,10 +787,10 @@ void Sampler::calibrateFactoryPieces()
     masterFX.reset();
 
     bool roomBusWasMuted = false;
-    if (factoryBuses[2] != nullptr)
+    if (factoryBuses[4] != nullptr)
     {
-        roomBusWasMuted = factoryBuses[2]->params.mute;
-        factoryBuses[2]->params.mute = true;
+        roomBusWasMuted = factoryBuses[4]->params.mute;
+        factoryBuses[4]->params.mute = true;
     }
 
     auto measurePiece = [&](size_t piece) -> float
@@ -836,8 +861,8 @@ void Sampler::calibrateFactoryPieces()
     for (size_t i = 0; i < micChannels.size(); ++i)
         micChannels[i]->params.mute = oldMute[i];
 
-    if (factoryBuses[2] != nullptr)
-        factoryBuses[2]->params.mute = roomBusWasMuted;
+    if (factoryBuses[4] != nullptr)
+        factoryBuses[4]->params.mute = roomBusWasMuted;
 
     recomputeSoloFlags();
     allNotesOff();
@@ -958,57 +983,57 @@ MasterStripParams Sampler::getMasterStripParams() const
 
 int Sampler::numFactoryBuses() const noexcept
 {
-    return factoryPieceMode ? 3 : 0;
+    return factoryPieceMode ? factorySumCount : 0;
 }
 
 juce::String Sampler::factoryBusName(int index) const
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->name;
     return {};
 }
 
 juce::String Sampler::factoryBusTitle(int index) const
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->title;
     return {};
 }
 
 void Sampler::setFactoryBusParams(int index, const MicStripParams &params)
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         factoryBuses[static_cast<size_t>(index)]->params = params;
 }
 
 MicStripParams Sampler::getFactoryBusParams(int index) const
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->params;
     return {};
 }
 
 float Sampler::getFactoryBusPeakL(int index) const noexcept
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->peakL.load(std::memory_order_relaxed);
     return 0.0f;
 }
 float Sampler::getFactoryBusPeakR(int index) const noexcept
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->peakR.load(std::memory_order_relaxed);
     return 0.0f;
 }
 float Sampler::getFactoryBusRmsL(int index) const noexcept
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->rmsL.load(std::memory_order_relaxed);
     return 0.0f;
 }
 float Sampler::getFactoryBusRmsR(int index) const noexcept
 {
-    if (index >= 0 && index < 3 && factoryBuses[static_cast<size_t>(index)] != nullptr)
+    if (index >= 0 && index < factorySumCount && factoryBuses[static_cast<size_t>(index)] != nullptr)
         return factoryBuses[static_cast<size_t>(index)]->rmsR.load(std::memory_order_relaxed);
     return 0.0f;
 }
@@ -1017,9 +1042,9 @@ InsertChain *Sampler::insertChain(bool bus, int channel) noexcept
 {
     if (bus)
     {
-        if (channel == 3)
+        if (channel == factoryMixBus)
             return &masterInserts;
-        if (channel >= 0 && channel < 3 && factoryBuses[static_cast<size_t>(channel)] != nullptr)
+        if (channel >= 0 && channel < factorySumCount && factoryBuses[static_cast<size_t>(channel)] != nullptr)
             return &factoryBuses[static_cast<size_t>(channel)]->inserts;
     }
     else if (channel >= 0 && channel < static_cast<int>(micChannels.size()))
@@ -2746,6 +2771,12 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                 b.resize(static_cast<size_t>(numSamples), 0.0f);
             for (auto &b : busScratchR)
                 b.resize(static_cast<size_t>(numSamples), 0.0f);
+
+            for (size_t i = 0; i < pieceRoomL.size(); ++i)
+            {
+                pieceRoomL[i].resize(static_cast<size_t>(numSamples), 0.0f);
+                pieceRoomR[i].resize(static_cast<size_t>(numSamples), 0.0f);
+            }
         }
 
         if (factoryPieceMode)
@@ -2754,6 +2785,14 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             {
                 std::fill(busScratchL[b].begin(), busScratchL[b].begin() + numSamples, 0.0f);
                 std::fill(busScratchR[b].begin(), busScratchR[b].begin() + numSamples, 0.0f);
+            }
+            for (size_t i = 0; i < pieceRoomL.size(); ++i)
+            {
+                if (static_cast<size_t>(numSamples) <= pieceRoomL[i].size())
+                {
+                    std::fill(pieceRoomL[i].begin(), pieceRoomL[i].begin() + numSamples, 0.0f);
+                    std::fill(pieceRoomR[i].begin(), pieceRoomR[i].begin() + numSamples, 0.0f);
+                }
             }
         }
 
@@ -2903,9 +2942,9 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     const auto &plan = plans[pIndex];
                     plan.handle->read(resamplePos, sourceFrames, plan.channel, v.mixL.data());
 
-                    auto *dstL = plan.room ? busScratchL[2].data()
+                    auto *dstL = plan.room ? busScratchL[4].data()
                                            : micScratchL[static_cast<size_t>(plan.mic)].data();
-                    auto *dstR = plan.room ? busScratchR[2].data()
+                    auto *dstR = plan.room ? busScratchR[4].data()
                                            : micScratchR[static_cast<size_t>(plan.mic)].data();
                     const double startOffset = v.position - static_cast<double>(resamplePos);
 
@@ -2987,9 +3026,9 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         const auto &plan = plans[pIndex];
                         plan.handle->read(blockPos, blockCount, plan.channel, v.mixL.data());
 
-                        auto *dstL = plan.room ? busScratchL[2].data()
+                        auto *dstL = plan.room ? busScratchL[4].data()
                                                : micScratchL[static_cast<size_t>(plan.mic)].data();
-                        auto *dstR = plan.room ? busScratchR[2].data()
+                        auto *dstR = plan.room ? busScratchR[4].data()
                                                : micScratchR[static_cast<size_t>(plan.mic)].data();
 
                         juce::FloatVectorOperations::addWithMultiply(dstL, v.mixL.data(), plan.gainL, blockCount);
@@ -3119,10 +3158,18 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         }
                         else if (factoryPieceMode && channelRef.roomMic)
                         {
-                            busScratchL[2][static_cast<size_t>(i)] +=
-                                sample * channelRef.gainL * instGainL * effGain;
-                            busScratchR[2][static_cast<size_t>(i)] +=
-                                sample * channelRef.gainR * instGainR * effGain;
+                            const float bleed = juce::jlimit(0.0f, 1.0f,
+                                micChannels[static_cast<size_t>(micIdx)]->params.bleed);
+                            const float l = sample * channelRef.gainL * instGainL * effGain;
+                            const float r = sample * channelRef.gainR * instGainR * effGain;
+                            busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
+                            busScratchR[4][static_cast<size_t>(i)] += r * (1.0f - bleed);
+                            if (static_cast<size_t>(micIdx) < pieceRoomL.size()
+                                && static_cast<size_t>(i) < pieceRoomL[static_cast<size_t>(micIdx)].size())
+                            {
+                                pieceRoomL[static_cast<size_t>(micIdx)][static_cast<size_t>(i)] += l * bleed;
+                                pieceRoomR[static_cast<size_t>(micIdx)][static_cast<size_t>(i)] += r * bleed;
+                            }
                         }
                         else
                         {
@@ -3177,10 +3224,18 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         }
                         else if (factoryPieceMode && channelRef.roomMic)
                         {
-                            busScratchL[2][static_cast<size_t>(i)] +=
-                                sample * channelRef.gainL * instGainL * effGain;
-                            busScratchR[2][static_cast<size_t>(i)] +=
-                                sample * channelRef.gainR * instGainR * effGain;
+                            const float bleed = juce::jlimit(0.0f, 1.0f,
+                                micChannels[static_cast<size_t>(micIdx)]->params.bleed);
+                            const float l = sample * channelRef.gainL * instGainL * effGain;
+                            const float r = sample * channelRef.gainR * instGainR * effGain;
+                            busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
+                            busScratchR[4][static_cast<size_t>(i)] += r * (1.0f - bleed);
+                            if (static_cast<size_t>(micIdx) < pieceRoomL.size()
+                                && static_cast<size_t>(i) < pieceRoomL[static_cast<size_t>(micIdx)].size())
+                            {
+                                pieceRoomL[static_cast<size_t>(micIdx)][static_cast<size_t>(i)] += l * bleed;
+                                pieceRoomR[static_cast<size_t>(micIdx)][static_cast<size_t>(i)] += r * bleed;
+                            }
                         }
                         else
                         {
@@ -3239,6 +3294,15 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                 state.rmsL.store(0.0f, std::memory_order_relaxed);
                 state.rmsR.store(0.0f, std::memory_order_relaxed);
                 continue;
+            }
+
+            if (factoryPieceMode && static_cast<size_t>(m) < pieceRoomL.size()
+                && static_cast<size_t>(numSamples) <= pieceRoomL[static_cast<size_t>(m)].size())
+            {
+                juce::FloatVectorOperations::add(micScratchL[static_cast<size_t>(m)].data(),
+                                                 pieceRoomL[static_cast<size_t>(m)].data(), numSamples);
+                juce::FloatVectorOperations::add(micScratchR[static_cast<size_t>(m)].data(),
+                                                 pieceRoomR[static_cast<size_t>(m)].data(), numSamples);
             }
 
             state.fx.process(micScratchL[static_cast<size_t>(m)].data(),
@@ -3309,7 +3373,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             // Output bus routing
             if (factoryPieceMode)
             {
-                const int bus = juce::jlimit(0, 3, state.factoryBus);
+                const int bus = juce::jlimit(0, factoryMixBus, state.factoryBus);
                 if (!(anyBusSolo && bus == 3)
                     && numSamples <= static_cast<int>(busScratchL[static_cast<size_t>(bus)].size()))
                 {
@@ -3341,7 +3405,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
         // 3b. Factory buses: Kick sum, Snare sum, Room sum -> Mix bus.
         if (factoryPieceMode)
         {
-            for (int b = 0; b < 3; ++b)
+            for (int b = 0; b < factorySumCount; ++b)
             {
                 auto &bus = *factoryBuses[static_cast<size_t>(b)];
                 if (bus.params.mute || (anyBusSolo && !bus.params.solo))
@@ -3385,14 +3449,14 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                 bus.rmsL.store(static_cast<float>(std::sqrt(rmsL / std::max(1, numSamples))), std::memory_order_relaxed);
                 bus.rmsR.store(static_cast<float>(std::sqrt(rmsR / std::max(1, numSamples))), std::memory_order_relaxed);
 
-                juce::FloatVectorOperations::add(busScratchL[3].data(), bl, numSamples);
-                juce::FloatVectorOperations::add(busScratchR[3].data(), br, numSamples);
+                juce::FloatVectorOperations::add(busScratchL[5].data(), bl, numSamples);
+                juce::FloatVectorOperations::add(busScratchR[5].data(), br, numSamples);
             }
 
             if (output[0] != nullptr && output[1] != nullptr)
             {
-                juce::FloatVectorOperations::add(output[0], busScratchL[3].data(), numSamples);
-                juce::FloatVectorOperations::add(output[1], busScratchR[3].data(), numSamples);
+                juce::FloatVectorOperations::add(output[0], busScratchL[5].data(), numSamples);
+                juce::FloatVectorOperations::add(output[1], busScratchR[5].data(), numSamples);
                 masterInserts.process(output[0], output[1], numSamples);
             }
         }

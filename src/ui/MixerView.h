@@ -174,7 +174,7 @@ class MixerView
     {
       public:
         InsertRackPopup(MixerView &owner, PluginProcessor &processor);
-        void open(bool bus, int channel);
+        void open(bool bus, int channel, int slot = 0);
         void close();
         bool isOpen() const noexcept { return isVisible(); }
         void setTheme(const Theme &t);
@@ -373,6 +373,8 @@ class MixerView
         HandButton muteBtn {"M", true};
         HandButton monoBtn {"MONO", true};
         HandButton busBtn {"M 1/2"};
+        std::array<juce::Rectangle<float>, InsertChain::slotCount> insertBounds;
+        std::unique_ptr<Knob> bleedKnob;
 
         // Fader & Meter bounds
         juce::Rectangle<float> faderTrackBounds;
@@ -416,6 +418,7 @@ class MixerView
         HandButton soloBtn {"S", true};
         HandButton muteBtn {"M", true};
         HandButton fxBtn {"FX"};
+        std::array<juce::Rectangle<float>, InsertChain::slotCount> insertBounds;
     };
 
     //==========================================================================
@@ -488,6 +491,7 @@ class MixerView
     std::unique_ptr<BleedMatrixPopup> bleedMatrixPopup;
 
     void applyPreset(int presetIndex);
+    void showInsertMenu(bool bus, int channel, int slot);
     void promptSavePreset();
 
     juce::String activePresetName {"Default Clean"};

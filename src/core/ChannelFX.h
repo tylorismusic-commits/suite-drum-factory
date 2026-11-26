@@ -70,6 +70,10 @@ struct MicStripParams
 
     // Reverb send
     float reverbSend = 0.0f; ///< 0.0 .. 1.0
+
+    /// How much room/overhead content stays in this channel instead of the
+    /// shared Room sum. Factory pieces only.
+    float bleed = 0.15f; ///< 0.0 .. 1.0
 };
 
 /// Parameters for the Master mixer channel.

@@ -19,7 +19,8 @@
 - [x] Piece swaps keep MIDI loops running without a stop/restart.
 - [x] CONFIG and PIECES moved into the old kit-dropdown position.
 - [x] Grooves folder persisted in a dedicated file; file pickers float over the DAW.
-- [x] Fixed Kick / Snare / Room / Mix bus mixer with scrollable bus strips.
+- [x] Fixed Kick / Snare / Toms / Cymbals / Room / Mix bus mixer with scrollable bus strips.
+- [x] GGD-style inline insert rows and per-channel bleed knobs.
 - [x] Four-slot serial insert racks on pieces and buses (EQ, compressor, drive, transient, limiter, clipper).
 - [ ] Configuration-aware mix-ready presets.
 - [ ] Mix presets tied to the active configuration instead of generic presets.

@@ -237,6 +237,22 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
     };
     addAndMakeVisible(busBtn);
 
+    phaseBtn.setVisible(false);
+    fxBtn.setVisible(false);
+    bleedBtn.setVisible(false);
+    monoBtn.setVisible(false);
+    busBtn.setVisible(false);
+
+    bleedKnob = std::make_unique<Knob>("BLEED", 0.0f, 1.0f, 0.15f);
+    bleedKnob->setTheme(theme);
+    bleedKnob->onValueChanged = [this](float v)
+    {
+        auto params = processor.getSampler().getMicStripParams(channelIndex_);
+        params.bleed = juce::jlimit(0.0f, 1.0f, v);
+        processor.getSampler().setMicStripParams(channelIndex_, params);
+    };
+    addAndMakeVisible(*bleedKnob);
+
     updateFromState();
     setTheme(owner.theme);
 }
@@ -252,6 +268,9 @@ void MixerView::ChannelStripComponent::updateFromState()
                           || std::abs(params.transientAttack) > 0.05f || std::abs(params.eqLowGainDb) > 0.5f
                           || std::abs(params.eqMidGainDb) > 0.5f || std::abs(params.eqHighGainDb) > 0.5f;
     fxBtn.setActive(fxActive);
+
+    if (bleedKnob != nullptr)
+        bleedKnob->setValue(params.bleed);
 
     const auto &bm = processor.getSampler().getBleedMatrix();
     bool hasBleed = false;
@@ -276,36 +295,28 @@ void MixerView::ChannelStripComponent::updateFromState()
 void MixerView::ChannelStripComponent::resized()
 {
     const auto r = getLocalBounds().toFloat();
-    const bool isCompact = (r.getHeight() < 300.0f);
+    const bool isCompact = (r.getHeight() < 340.0f);
 
-    const float btnGap = 2.0f;
-    const float topBtnW = (r.getWidth() - 12.0f - btnGap * 2.0f) / 3.0f;
-    const float topBtnY = isCompact ? 30.0f : 38.0f;
-    const float topBtnH = isCompact ? 19.0f : 22.0f;
+    const float rowH = isCompact ? 17.0f : 18.0f;
+    for (int i = 0; i < InsertChain::slotCount; ++i)
+        insertBounds[static_cast<size_t>(i)] = {r.getX() + 5.0f, 32.0f + i * (rowH + 2.0f),
+                                                r.getWidth() - 10.0f, rowH};
 
-    phaseBtn.setBounds(r.getX() + 6.0f, topBtnY, topBtnW, topBtnH);
-    fxBtn.setBounds(r.getX() + 6.0f + topBtnW + btnGap, topBtnY, topBtnW, topBtnH);
-    bleedBtn.setBounds(r.getX() + 6.0f + (topBtnW + btnGap) * 2.0f, topBtnY, topBtnW, topBtnH);
+    const float insertBottom = 32.0f + InsertChain::slotCount * (rowH + 2.0f);
+    const float panY = insertBottom + 4.0f;
+    panBarBounds = juce::Rectangle<float>(r.getX() + 8.0f, panY, r.getWidth() - 54.0f, isCompact ? 14.0f : 16.0f);
 
-    fxBtn.setBounds(static_cast<int>(r.getCentreX() - 24.0f), 30, 48, 18);
+    if (bleedKnob != nullptr)
+        bleedKnob->setBounds(static_cast<int>(r.getRight() - 46.0f), static_cast<int>(panY - 8.0f), 40, 54);
 
-    const float panY = isCompact ? 52.0f : 64.0f;
-    const float panH = isCompact ? 15.0f : 18.0f;
-    panBarBounds = juce::Rectangle<float>(r.getX() + 8.0f, panY, r.getWidth() - 16.0f, panH);
-
-    const float soloMuteY = isCompact ? 70.0f : 86.0f;
-    const float soloMuteH = isCompact ? 19.0f : 22.0f;
+    const float soloMuteY = panY + 46.0f;
+    const float soloMuteH = isCompact ? 18.0f : 20.0f;
     soloBtn.setBounds(r.getX() + 6.0f, soloMuteY, (r.getWidth() - 16.0f) * 0.48f, soloMuteH);
-    muteBtn.setBounds(
-        r.getX() + 8.0f + (r.getWidth() - 16.0f) * 0.48f, soloMuteY, (r.getWidth() - 16.0f) * 0.48f, soloMuteH);
+    muteBtn.setBounds(r.getX() + 8.0f + (r.getWidth() - 16.0f) * 0.48f, soloMuteY,
+                      (r.getWidth() - 16.0f) * 0.48f, soloMuteH);
 
-    const float monoY = soloMuteY + soloMuteH + 4.0f;
-    const float monoH = isCompact ? 17.0f : 19.0f;
-    monoBtn.setBounds(r.getX() + 6.0f, monoY, r.getWidth() - 12.0f, monoH);
-
-    // Fader & Meter area
-    const float faderTop = monoY + monoH + 5.0f;
-    const float faderBottom = isCompact ? (r.getBottom() - 44.0f) : (r.getBottom() - 56.0f);
+    const float faderTop = soloMuteY + soloMuteH + 8.0f;
+    const float faderBottom = isCompact ? (r.getBottom() - 44.0f) : (r.getBottom() - 54.0f);
     const float faderH = std::max(30.0f, faderBottom - faderTop);
 
     faderTrackBounds = juce::Rectangle<float>(r.getX() + 14.0f, faderTop, 24.0f, faderH);
@@ -313,13 +324,16 @@ void MixerView::ChannelStripComponent::resized()
 
     const auto params = processor.getSampler().getMicStripParams(channelIndex_);
     const float norm = gainToNormalized(params.level);
-    const float thumbY =
-        faderTrackBounds.getBottom() - norm * faderTrackBounds.getHeight() - (isCompact ? 8.0f : 10.0f);
-    faderThumbBounds = juce::Rectangle<float>(
-        faderTrackBounds.getX() - 4.0f, thumbY, faderTrackBounds.getWidth() + 8.0f, isCompact ? 16.0f : 20.0f);
+    const float thumbY = faderTrackBounds.getBottom() - norm * faderTrackBounds.getHeight()
+                         - (isCompact ? 8.0f : 10.0f);
+    faderThumbBounds = juce::Rectangle<float>(faderTrackBounds.getX() - 4.0f, thumbY,
+                                              faderTrackBounds.getWidth() + 8.0f, isCompact ? 16.0f : 20.0f);
 
-    const float busH = isCompact ? 18.0f : 22.0f;
-    busBtn.setBounds(r.getX() + 6.0f, r.getBottom() - (busH + 3.0f), r.getWidth() - 12.0f, busH);
+    phaseBtn.setBounds(0, 0, 0, 0);
+    fxBtn.setBounds(0, 0, 0, 0);
+    bleedBtn.setBounds(0, 0, 0, 0);
+    monoBtn.setBounds(0, 0, 0, 0);
+    busBtn.setBounds(0, 0, 0, 0);
 }
 
 void MixerView::ChannelStripComponent::setTheme(const Theme &t)
@@ -332,7 +346,8 @@ void MixerView::ChannelStripComponent::setTheme(const Theme &t)
     muteBtn.setTheme(t);
     monoBtn.setTheme(t);
     busBtn.setTheme(t);
-    repaint();
+    if (bleedKnob != nullptr)
+        bleedKnob->setTheme(t);
     repaint();
 }
 
@@ -390,6 +405,44 @@ void MixerView::ChannelStripComponent::paint(juce::Graphics &g)
     }
 
     g.drawFittedText(displayName, badgeText, juce::Justification::centred, 1);
+
+    // Insert rows
+    for (int slot = 0; slot < InsertChain::slotCount; ++slot)
+    {
+        auto area = insertBounds[static_cast<size_t>(slot)];
+        if (area.isEmpty())
+            continue;
+        const auto state = processor.getSampler().getInsertState(false, channelIndex_, slot);
+        g.setColour(theme.trough);
+        g.fillRoundedRectangle(area, 3.0f);
+        g.setColour(theme.panelEdge);
+        g.drawRoundedRectangle(area, 3.0f, 1.0f);
+
+        if (state.type == InsertType::none)
+        {
+            g.setColour(theme.inkSoft);
+            g.setFont(uiFont(8.0f));
+            g.drawText("+ ADD INSERT", area.reduced(5.0f, 0.0f), juce::Justification::centredLeft, false);
+        }
+        else
+        {
+            const auto colour = insertColour(state.type);
+            g.setColour(colour.withAlpha(state.bypass ? 0.25f : 0.85f));
+            g.fillRoundedRectangle(area.withWidth(3.0f).reduced(0.0f, 1.0f), 2.0f);
+
+            g.setColour(state.bypass ? theme.inkSoft.withAlpha(0.5f) : theme.ink);
+            g.setFont(uiFont(8.0f));
+            g.drawFittedText(juce::String(insertTypeName(state.type)),
+                             area.withTrimmedLeft(18.0f).withTrimmedRight(16.0f).toNearestInt(),
+                             juce::Justification::centredLeft, 1, 0.7f);
+
+            g.setColour(state.bypass ? theme.inkSoft.withAlpha(0.5f) : colour);
+            g.fillEllipse(area.getX() + 6.0f, area.getCentreY() - 3.0f, 6.0f, 6.0f);
+            g.setColour(theme.inkSoft);
+            g.drawText("x", area.getRight() - 14.0f, area.getY(), 12.0f, area.getHeight(),
+                       juce::Justification::centred, false);
+        }
+    }
 
     // Pan Bar: trough slot with border
     g.setColour(theme.trough);
@@ -524,6 +577,36 @@ void MixerView::ChannelStripComponent::paint(juce::Graphics &g)
 void MixerView::ChannelStripComponent::mouseDown(const juce::MouseEvent &e)
 {
     const auto p = e.position;
+    for (int slot = 0; slot < InsertChain::slotCount; ++slot)
+    {
+        const auto area = insertBounds[static_cast<size_t>(slot)];
+        if (!area.contains(p))
+            continue;
+
+        const auto state = processor.getSampler().getInsertState(false, channelIndex_, slot);
+        if (state.type == InsertType::none)
+        {
+            owner.showInsertMenu(false, channelIndex_, slot);
+            return;
+        }
+        if (p.x <= area.getX() + 15.0f)
+        {
+            processor.getSampler().setInsertBypass(false, channelIndex_, slot, !state.bypass);
+            repaint();
+            return;
+        }
+        if (p.x >= area.getRight() - 16.0f)
+        {
+            processor.getSampler().setInsertType(false, channelIndex_, slot, InsertType::none);
+            repaint();
+            return;
+        }
+        owner.closePopups();
+        if (owner.insertRackPopup != nullptr)
+            owner.insertRackPopup->open(false, channelIndex_, slot);
+        return;
+    }
+
     if (panBarBounds.contains(p))
     {
         draggingPan = true;
@@ -612,7 +695,7 @@ MixerView::BusStripComponent::BusStripComponent(MixerView &o, PluginProcessor &p
     };
     addAndMakeVisible(soloBtn);
     addAndMakeVisible(muteBtn);
-    addAndMakeVisible(fxBtn);
+    fxBtn.setVisible(false);
 }
 
 void MixerView::BusStripComponent::setTheme(const Theme &t)
@@ -627,13 +710,17 @@ void MixerView::BusStripComponent::setTheme(const Theme &t)
 void MixerView::BusStripComponent::resized()
 {
     const auto r = getLocalBounds().toFloat();
-    const bool isCompact = (r.getHeight() < 300.0f);
+    const bool isCompact = (r.getHeight() < 340.0f);
 
-    const float panY = isCompact ? 52.0f : 64.0f;
-    const float panH = isCompact ? 15.0f : 18.0f;
-    panBarBounds = juce::Rectangle<float>(r.getX() + 8.0f, panY, r.getWidth() - 16.0f, panH);
+    const float rowH = isCompact ? 18.0f : 19.0f;
+    for (int i = 0; i < InsertChain::slotCount; ++i)
+        insertBounds[static_cast<size_t>(i)] = {r.getX() + 5.0f, 30.0f + i * (rowH + 2.0f),
+                                                r.getWidth() - 10.0f, rowH};
 
-    const float soloMuteY = isCompact ? 70.0f : 86.0f;
+    const float panY = 30.0f + InsertChain::slotCount * (rowH + 2.0f) + 4.0f;
+    panBarBounds = juce::Rectangle<float>(r.getX() + 8.0f, panY, r.getWidth() - 16.0f, isCompact ? 15.0f : 18.0f);
+
+    const float soloMuteY = panY + 28.0f;
     const float soloMuteH = isCompact ? 19.0f : 22.0f;
     soloBtn.setBounds(r.getX() + 6.0f, soloMuteY, (r.getWidth() - 16.0f) * 0.48f, soloMuteH);
     muteBtn.setBounds(r.getX() + 8.0f + (r.getWidth() - 16.0f) * 0.48f, soloMuteY,
@@ -652,6 +739,7 @@ void MixerView::BusStripComponent::resized()
                          - (isCompact ? 8.0f : 10.0f);
     faderThumbBounds = juce::Rectangle<float>(faderTrackBounds.getX() - 4.0f, thumbY,
                                               faderTrackBounds.getWidth() + 8.0f, isCompact ? 16.0f : 20.0f);
+    fxBtn.setBounds(0, 0, 0, 0);
 }
 
 void MixerView::BusStripComponent::paint(juce::Graphics &g)
@@ -666,8 +754,15 @@ void MixerView::BusStripComponent::paint(juce::Graphics &g)
     soloBtn.setActive(params.solo);
     muteBtn.setActive(params.mute);
     const auto title = sampler.factoryBusTitle(busIndex_);
-    const auto colour = busIndex_ == 0 ? juce::Colour(0xffe67e22)
-                                      : (busIndex_ == 1 ? juce::Colour(0xff2ecc71) : juce::Colour(0xff9b59b6));
+    juce::Colour colour = juce::Colour(0xff9b59b6);
+    switch (busIndex_)
+    {
+        case 0: colour = juce::Colour(0xffe67e22); break;
+        case 1: colour = juce::Colour(0xff2ecc71); break;
+        case 2: colour = juce::Colour(0xff00d2d3); break;
+        case 3: colour = juce::Colour(0xffff4757); break;
+        default: colour = juce::Colour(0xff9b59b6); break;
+    }
 
     auto header = b.removeFromTop(26.0f).reduced(5.0f, 3.0f);
     g.setColour(colour.withAlpha(0.22f));
@@ -675,6 +770,41 @@ void MixerView::BusStripComponent::paint(juce::Graphics &g)
     g.setColour(colour);
     g.setFont(displayFont(10.0f));
     g.drawFittedText(title.toUpperCase(), header.toNearestInt(), juce::Justification::centred, 1, 0.7f);
+
+    for (int slot = 0; slot < InsertChain::slotCount; ++slot)
+    {
+        auto area = insertBounds[static_cast<size_t>(slot)];
+        if (area.isEmpty())
+            continue;
+        const auto state = processor.getSampler().getInsertState(true, busIndex_, slot);
+        g.setColour(theme.trough);
+        g.fillRoundedRectangle(area, 3.0f);
+        g.setColour(theme.panelEdge);
+        g.drawRoundedRectangle(area, 3.0f, 1.0f);
+
+        if (state.type == InsertType::none)
+        {
+            g.setColour(theme.inkSoft);
+            g.setFont(uiFont(8.0f));
+            g.drawText("+ ADD INSERT", area.reduced(5.0f, 0.0f), juce::Justification::centredLeft, false);
+        }
+        else
+        {
+            const auto typeColour = insertColour(state.type);
+            g.setColour(typeColour.withAlpha(state.bypass ? 0.25f : 0.85f));
+            g.fillRoundedRectangle(area.withWidth(3.0f).reduced(0.0f, 1.0f), 2.0f);
+            g.setColour(state.bypass ? theme.inkSoft.withAlpha(0.5f) : theme.ink);
+            g.setFont(uiFont(8.0f));
+            g.drawFittedText(juce::String(insertTypeName(state.type)),
+                             area.withTrimmedLeft(18.0f).withTrimmedRight(16.0f).toNearestInt(),
+                             juce::Justification::centredLeft, 1, 0.7f);
+            g.setColour(state.bypass ? theme.inkSoft.withAlpha(0.5f) : typeColour);
+            g.fillEllipse(area.getX() + 6.0f, area.getCentreY() - 3.0f, 6.0f, 6.0f);
+            g.setColour(theme.inkSoft);
+            g.drawText("x", area.getRight() - 14.0f, area.getY(), 12.0f, area.getHeight(),
+                       juce::Justification::centred, false);
+        }
+    }
 
     g.setColour(theme.trough);
     g.fillRoundedRectangle(panBarBounds, 3.0f);
@@ -732,6 +862,36 @@ void MixerView::BusStripComponent::paint(juce::Graphics &g)
 void MixerView::BusStripComponent::mouseDown(const juce::MouseEvent &e)
 {
     const auto pos = e.position;
+    for (int slot = 0; slot < InsertChain::slotCount; ++slot)
+    {
+        const auto area = insertBounds[static_cast<size_t>(slot)];
+        if (!area.contains(pos))
+            continue;
+
+        const auto state = processor.getSampler().getInsertState(true, busIndex_, slot);
+        if (state.type == InsertType::none)
+        {
+            owner.showInsertMenu(true, busIndex_, slot);
+            return;
+        }
+        if (pos.x <= area.getX() + 15.0f)
+        {
+            processor.getSampler().setInsertBypass(true, busIndex_, slot, !state.bypass);
+            repaint();
+            return;
+        }
+        if (pos.x >= area.getRight() - 16.0f)
+        {
+            processor.getSampler().setInsertType(true, busIndex_, slot, InsertType::none);
+            repaint();
+            return;
+        }
+        owner.closePopups();
+        if (owner.insertRackPopup != nullptr)
+            owner.insertRackPopup->open(true, busIndex_, slot);
+        return;
+    }
+
     if (panBarBounds.contains(pos))
     {
         draggingPan = true;
@@ -783,11 +943,11 @@ MixerView::InsertRackPopup::InsertRackPopup(MixerView &o, PluginProcessor &p)
     setInterceptsMouseClicks(true, true);
 }
 
-void MixerView::InsertRackPopup::open(bool bus, int channelIndex)
+void MixerView::InsertRackPopup::open(bool bus, int channelIndex, int slot)
 {
     busTarget = bus;
     channel = channelIndex;
-    selectedSlot = 0;
+    selectedSlot = juce::jlimit(0, InsertChain::slotCount - 1, slot);
     dragging = false;
     dragFrom = -1;
     dragTo = -1;
@@ -1034,7 +1194,7 @@ void MixerView::InsertRackPopup::paint(juce::Graphics &g)
 
     g.setColour(theme.ink);
     g.setFont(displayFont(16.0f));
-    const auto title = busTarget ? (channel == 3 ? juce::String("Mix Bus")
+    const auto title = busTarget ? (channel == 5 ? juce::String("Mix Bus")
                                                  : processor.getSampler().factoryBusTitle(channel))
                                  : processor.getSampler().micStripTitle(channel);
     g.drawText("INSERTS  |  " + title.toUpperCase(), 18, 10, getWidth() - 120, 26,
@@ -1199,7 +1359,7 @@ MixerView::MasterStripComponent::MasterStripComponent(MixerView &o, PluginProces
     {
         owner.closePopups();
         if (owner.insertRackPopup != nullptr)
-            owner.insertRackPopup->open(true, 3);
+            owner.insertRackPopup->open(true, 5);
     };
     addAndMakeVisible(insBtn);
 
@@ -3270,9 +3430,8 @@ void MixerView::refreshChannels()
 
     // Factory kits mix pieces, not microphones, so the mic bleed matrix does
     // not apply. Polarity/pan are already baked into each piece during assembly.
-    const bool factoryPieces = processor.getSampler().isFactoryPieceMode();
-    bleedMatrixBtn.setVisible(!factoryPieces);
-    if (factoryPieces && bleedMatrixOpen)
+    bleedMatrixBtn.setVisible(false);
+    if (bleedMatrixOpen)
         setBleedMatrixOpen(false);
 
     resized();
@@ -3361,6 +3520,41 @@ void MixerView::closePopups()
 
     if (presetBrowser != nullptr && presetBrowser->isOpen())
         presetBrowser->close();
+}
+
+void MixerView::showInsertMenu(bool bus, int channelIndex, int slot)
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader("ADD INSERT");
+    menu.addItem(1, "Graphical EQ");
+    menu.addItem(2, "Compressor");
+    menu.addItem(3, "Drive");
+    menu.addItem(4, "Transient Shaper");
+    menu.addItem(5, "Limiter");
+    menu.addItem(6, "Clipper");
+    menu.addSeparator();
+    menu.addItem(7, "Off");
+
+    juce::Component::SafePointer<MixerView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+                       [safe, bus, channelIndex, slot](int result)
+                       {
+                           if (safe == nullptr || result <= 0)
+                               return;
+                           auto type = InsertType::none;
+                           switch (result)
+                           {
+                               case 1: type = InsertType::eq; break;
+                               case 2: type = InsertType::compressor; break;
+                               case 3: type = InsertType::drive; break;
+                               case 4: type = InsertType::transient; break;
+                               case 5: type = InsertType::limiter; break;
+                               case 6: type = InsertType::clipper; break;
+                               default: break;
+                           }
+                           safe->processor.getSampler().setInsertType(bus, channelIndex, slot, type);
+                           safe->refreshChannels();
+                       });
 }
 
 void MixerView::applyPreset(int presetIndex)
@@ -3493,7 +3687,7 @@ void MixerView::resized()
 
     channelViewport.setBounds(12, static_cast<int>(contentY), static_cast<int>(viewW), static_cast<int>(contentH));
 
-    const float stripW = 92.0f;
+    const float stripW = 100.0f;
     const float busStripW = 112.0f;
     const float gap = 6.0f;
     const float busGap = 10.0f;

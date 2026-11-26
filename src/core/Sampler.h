@@ -536,7 +536,7 @@ class Sampler
         ChannelStripFX fx;
         InsertChain inserts;
         std::string insertKey;       ///< stable key used to keep rack settings across swaps
-        int factoryBus = 3;          ///< 0 kick, 1 snare, 2 room, 3 mix
+        int factoryBus = 5;          ///< 0 kick, 1 snare, 2 toms, 3 cymbals, 4 room, 5 mix
         float autoGain = 1.0f;       ///< hidden calibration gain for factory pieces
         bool kitPhaseInvert = false; ///< polarity correction that belongs to the recording
         std::atomic<float> peakL {0.0f};
@@ -560,10 +560,14 @@ class Sampler
         std::atomic<float> rmsR {0.0f};
     };
 
-    std::array<std::unique_ptr<FactoryBusState>, 3> factoryBuses;
+    static constexpr int factorySumCount = 5; ///< kick, snare, toms, cymbals, room
+    static constexpr int factoryMixBus = 5;
+    std::array<std::unique_ptr<FactoryBusState>, factorySumCount> factoryBuses;
     InsertChain masterInserts;
-    std::array<std::vector<float>, 4> busScratchL;
-    std::array<std::vector<float>, 4> busScratchR;
+    std::array<std::vector<float>, factorySumCount + 1> busScratchL;
+    std::array<std::vector<float>, factorySumCount + 1> busScratchR;
+    std::vector<std::vector<float>> pieceRoomL;
+    std::vector<std::vector<float>> pieceRoomR;
 
     MasterStripParams masterStripParams;
     MasterFX masterFX;

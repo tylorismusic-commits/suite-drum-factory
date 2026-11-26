@@ -31,12 +31,15 @@ Drums Glorp.
 - The mixer exposes **one strip per active kit piece**, not one strip per
   microphone. A Naked-only kit shows 16 strips; the Monster-kick/Crocell-snare/
   DRS-tom example shows 14.
-- Kick, snare and room sums now sit in the same scrolling strip browser as the
-  piece channels, with their own fader, pan, mute, solo and meters. They feed
-  the Mix bus, which remains the fixed master strip.
-- Every piece and sum has a four-slot serial insert rack: EQ, compressor,
-  drive, transient shaper, limiter and clipper. Slots can be added, bypassed,
-  removed and dragged to reorder. The EQ has an interactive-style curve view.
+- Kick, snare, toms, cymbals and room sums sit in the same scrolling strip
+  browser as the piece channels, with their own fader, pan, mute, solo and
+  meters. They feed the Mix bus, which remains the fixed master strip.
+- Every piece and sum has four insert rows directly in the strip. Click an
+  empty row to add an EQ, compressor, drive, transient shaper, limiter or
+  clipper; click a loaded row to edit it. The left dot bypasses and the `x`
+  removes it.
+- Each piece strip has a **BLEED** knob that blends that piece’s room/overhead
+  content into the channel instead of the shared Room sum.
 - Insert racks and bus levels are saved in the plugin state, so reopening a
   project restores the mixer.
 - Source-mic polarity is applied automatically while the piece is summed, so

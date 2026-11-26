@@ -1565,6 +1565,7 @@ juce::String MixerPreset::toXmlString() const
         chXml->setAttribute("transientAttack", static_cast<double>(s.transientAttack));
         chXml->setAttribute("transientSustain", static_cast<double>(s.transientSustain));
         chXml->setAttribute("reverbSend", static_cast<double>(s.reverbSend));
+        chXml->setAttribute("bleed", static_cast<double>(s.bleed));
     }
 
     return xml.toString();
@@ -1638,6 +1639,7 @@ bool MixerPreset::fromXmlString(const juce::String &xmlText, MixerPreset &outPre
         s.transientAttack = static_cast<float>(chXml->getDoubleAttribute("transientAttack", 0.0));
         s.transientSustain = static_cast<float>(chXml->getDoubleAttribute("transientSustain", 0.0));
         s.reverbSend = static_cast<float>(chXml->getDoubleAttribute("reverbSend", 0.0));
+        s.bleed = static_cast<float>(chXml->getDoubleAttribute("bleed", 0.15));
 
         outPreset.micStrips.push_back(s);
         outPreset.micNames.push_back(chXml->getStringAttribute("name"));
