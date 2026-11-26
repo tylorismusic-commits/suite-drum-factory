@@ -1174,7 +1174,9 @@ void PluginProcessor::getStateInformation(juce::MemoryBlock &destination)
                 node->setAttribute("index", slot);
                 node->setAttribute("type", static_cast<int>(s.type));
                 node->setAttribute("bypass", s.bypass ? 1 : 0);
-                for (int v = 0; v < 6; ++v)
+                const int valueCount = insertParamCount(s.type);
+                node->setAttribute("count", valueCount);
+                for (int v = 0; v < valueCount; ++v)
                     node->setAttribute("v" + juce::String(v), static_cast<double>(s.values[static_cast<size_t>(v)]));
             }
         };
@@ -1285,7 +1287,9 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
         int slot = 0;
         InsertType type = InsertType::none;
         bool bypass = false;
-        std::array<float, 6> values {};
+        int count = 0;
+        bool legacyEq = false;
+        std::array<float, maxInsertParams> values {};
     };
     struct StoredRack
     {
@@ -1308,9 +1312,13 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
                 s.slot = slotNode->getIntAttribute("index", 0);
                 s.type = static_cast<InsertType>(slotNode->getIntAttribute("type", 0));
                 s.bypass = slotNode->getIntAttribute("bypass", 0) != 0;
-                for (int v = 0; v < 6; ++v)
+                s.legacyEq = s.type == InsertType::eq && !slotNode->hasAttribute("count");
+                s.count = juce::jlimit(0, maxInsertParams,
+                                       slotNode->getIntAttribute("count", s.legacyEq ? 6 : insertParamCount(s.type)));
+                for (int v = 0; v < s.count; ++v)
                     s.values[static_cast<size_t>(v)] = static_cast<float>(
-                        slotNode->getDoubleAttribute("v" + juce::String(v), 0.0));
+                        slotNode->getDoubleAttribute("v" + juce::String(v),
+                                                     static_cast<double>(insertParamInfo(s.type, v).defaultValue)));
                 rack.slots.push_back(s);
             }
             storedRacks.push_back(std::move(rack));
@@ -1423,9 +1431,35 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
                 continue;
             audioEngine.getSampler().setInsertType(rack.bus, rack.channel, s.slot, s.type);
             audioEngine.getSampler().setInsertBypass(rack.bus, rack.channel, s.slot, s.bypass);
-            for (int v = 0; v < 6; ++v)
-                audioEngine.getSampler().setInsertValue(rack.bus, rack.channel, s.slot, v,
-                                                        s.values[static_cast<size_t>(v)]);
+
+            if (s.legacyEq)
+            {
+                // Old three-band EQ state: LOW, MID, MID FREQ, HIGH, HPF, LPF.
+                const float low = s.values[0];
+                const float mid = s.values[1];
+                const float midFreq = s.values[2];
+                const float high = s.values[3];
+                const float hpf = s.values[4];
+                const float lpf = s.values[5];
+
+                auto setValue = [&](int param, float value)
+                {
+                    audioEngine.getSampler().setInsertValue(rack.bus, rack.channel, s.slot, param, value);
+                };
+
+                setValue(eqParamFreq(0), juce::jlimit(20.0f, 300.0f, hpf));
+                setValue(eqParamGain(1), juce::jlimit(-18.0f, 18.0f, low));
+                setValue(eqParamFreq(3), juce::jlimit(20.0f, 20000.0f, midFreq));
+                setValue(eqParamGain(3), juce::jlimit(-18.0f, 18.0f, mid));
+                setValue(eqParamGain(6), juce::jlimit(-18.0f, 18.0f, high));
+                setValue(eqParamFreq(7), juce::jlimit(1000.0f, 20000.0f, lpf));
+            }
+            else
+            {
+                for (int v = 0; v < s.count; ++v)
+                    audioEngine.getSampler().setInsertValue(rack.bus, rack.channel, s.slot, v,
+                                                            s.values[static_cast<size_t>(v)]);
+            }
         }
     }
 

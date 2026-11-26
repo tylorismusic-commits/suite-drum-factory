@@ -9,6 +9,7 @@
 #pragma once
 
 #include "ChannelFX.h"
+#include "InsertEQ.h"
 
 #include <array>
 #include <cstddef>
@@ -28,6 +29,20 @@ enum class InsertType
     clipper,
     count
 };
+
+/// Every insert uses one flat float array. The EQ needs 41 slots (eight bands
+/// of on/freq/gain/Q, output gain and per-band cut slopes); the other effect
+/// types only fill the first few.
+constexpr int maxInsertParams = 48;
+
+constexpr int eqParamOn(int band) noexcept { return band * 4; }
+constexpr int eqParamFreq(int band) noexcept { return band * 4 + 1; }
+constexpr int eqParamGain(int band) noexcept { return band * 4 + 2; }
+constexpr int eqParamQ(int band) noexcept { return band * 4 + 3; }
+constexpr int eqParamOutputGain = eqBandCount * 4;
+constexpr int eqParamSlope(int band) noexcept { return eqParamOutputGain + 1 + band; }
+
+InsertEqSettings insertEqSettingsFromValues(const std::array<float, maxInsertParams> &values) noexcept;
 
 struct InsertParamInfo
 {
@@ -70,7 +85,7 @@ struct InsertSlotState
     InsertType type = InsertType::none;
     bool bypass = false;
     float gainReductionDb = 0.0f;
-    std::array<float, 6> values {};
+    std::array<float, maxInsertParams> values {};
 };
 
 struct InsertSlot
@@ -78,7 +93,7 @@ struct InsertSlot
     InsertType type = InsertType::none;
     bool bypass = false;
     float gainReductionDb = 0.0f;
-    std::array<float, 6> values {};
+    std::array<float, maxInsertParams> values {};
 
     void prepare(double sampleRate, int maxBlockSize);
     void reset();
@@ -88,6 +103,7 @@ struct InsertSlot
 
   private:
     ChannelStripFX fx;
+    InsertEq eq;
     LimiterProcessor limiter;
     ClipperProcessor clipper;
     bool prepared = false;

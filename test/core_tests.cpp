@@ -10,6 +10,7 @@
 #include "DrumKit.h"
 #include "FactoryKit.h"
 #include "GlorpKit.h"
+#include "InsertEQ.h"
 #include "KitScanner.h"
 // PitchShifter tests removed: varispeed resampling replaces WSOLA for drum tuning.
 #include "XmlLite.h"
@@ -127,6 +128,93 @@ namespace
         addFactoryPiece (kit, "ftom1", "FTom1", "SnareTop", 43);
         addFactoryPiece (kit, "crashl", "CrashL", "SnareTop", 49);
         return kit;
+    }
+
+    void testInsertEq()
+    {
+        section ("Insert EQ DSP");
+
+        constexpr double sr = 48000.0;
+        constexpr int blockSize = 512;
+        constexpr int totalSamples = 48000;
+
+        auto renderGainDb = [] (glorp::InsertEq& eq, double frequency, double sampleRate, int samples,
+                                int block)
+        {
+            eq.reset();
+            float phase = 0.0f;
+            const float increment = static_cast<float> (2.0 * 3.14159265358979323846 * frequency / sampleRate);
+            double inputSum = 0.0;
+            double outputSum = 0.0;
+            int counted = 0;
+            std::vector<float> left (static_cast<size_t> (block));
+            std::vector<float> right (static_cast<size_t> (block));
+
+            for (int start = 0; start < samples; start += block)
+            {
+                for (int i = 0; i < block; ++i)
+                {
+                    const float sample = 0.5f * std::sin (phase);
+                    phase += increment;
+                    if (phase > 2.0f * 3.14159265358979323846f)
+                        phase -= 2.0f * 3.14159265358979323846f;
+                    left[static_cast<size_t> (i)] = sample;
+                    right[static_cast<size_t> (i)] = sample;
+                }
+
+                eq.process (left.data(), right.data(), block);
+
+                if (start >= 9600)
+                {
+                    for (int i = 0; i < block; ++i)
+                    {
+                        inputSum += 0.125;
+                        outputSum += static_cast<double> (left[static_cast<size_t> (i)])
+                                     * left[static_cast<size_t> (i)];
+                        ++counted;
+                    }
+                }
+            }
+
+            const double inputRms = std::sqrt (inputSum / std::max (1, counted));
+            const double outputRms = std::sqrt (outputSum / std::max (1, counted));
+            return 20.0 * std::log10 (std::max (1.0e-9, outputRms) / std::max (1.0e-9, inputRms));
+        };
+
+        glorp::InsertEq eq;
+        eq.prepare (sr, blockSize);
+
+        auto settings = glorp::defaultInsertEqSettings();
+        settings.bands[3].freq = 1000.0f;
+        settings.bands[3].gainDb = 12.0f;
+        settings.bands[3].q = 1.0f;
+        eq.setSettings (settings);
+
+        const double bellGain = renderGainDb (eq, 1000.0, sr, totalSamples, blockSize);
+        checkNear (static_cast<float> (bellGain), 12.0f, 1.0f, "bell band boosts 1 kHz by 12 dB");
+        checkNear (glorp::eqTotalMagnitudeDb (settings, 1000.0f, sr), 12.0f, 0.5f,
+                   "curve matches the bell response");
+
+        const double flatGain = renderGainDb (eq, 80.0, sr, totalSamples, blockSize);
+        check (std::abs (flatGain) < 1.0f, "bell leaves 80 Hz flat");
+
+        settings.bands[3].gainDb = 0.0f;
+        settings.bands[0].freq = 100.0f;
+        settings.bands[0].slope = 24;
+        settings.bands[0].on = true;
+        eq.setSettings (settings);
+
+        const double lowCutGain = renderGainDb (eq, 50.0, sr, totalSamples, blockSize);
+        check (lowCutGain < -10.0, "24 dB/oct low cut attenuates 50 Hz");
+
+        const double passGain = renderGainDb (eq, 1000.0, sr, totalSamples, blockSize);
+        check (std::abs (passGain) < 1.0, "low cut leaves 1 kHz flat");
+
+        settings.bands[0].on = false;
+        settings.bands[7].on = false;
+        eq.setSettings (settings);
+        const double disabledGain = renderGainDb (eq, 50.0, sr, totalSamples, blockSize);
+        check (std::abs (disabledGain) < 1.0, "disabled cuts are bypassed");
     }
 
     void testFactoryAssembly()
@@ -1081,6 +1169,7 @@ int main (int argc, char** argv)
     testGlorpKitPackage (work);
     testBleedMatrixAndCrosstalk();
     testFactoryAssembly();
+    testInsertEq();
 
     std::cout << "\n" << (checks - failures) << "/" << checks << " checks passed\n";
 

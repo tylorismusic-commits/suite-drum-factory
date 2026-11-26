@@ -187,6 +187,7 @@ target_sources(GlorpDrums PRIVATE
     src/core/GlorpKit.cpp
     src/core/GlorpKitWriter.cpp
     src/core/ChannelFX.cpp
+    src/core/InsertEQ.cpp
     src/core/InsertRack.cpp
     src/core/BleedMatrix.cpp
     src/core/AcousticCrosstalk.cpp
@@ -345,6 +346,7 @@ if(GLORP_BUILD_TESTS)
         src/core/PitchShifter.cpp
         src/core/BleedMatrix.cpp
         src/core/AcousticCrosstalk.cpp
+        src/core/InsertEQ.cpp
     )
     target_include_directories(glorp_core_tests PRIVATE src/core)
     target_compile_definitions(glorp_core_tests PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)

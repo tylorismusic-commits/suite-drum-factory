@@ -11,6 +11,18 @@ GlorpDrums and remain under AGPL-3.0. Suite Drums Glorp removes the practice,
 recording, streaming and standalone-host features, adds the Suite theme and
 rebrands the product.
 
+## Insert EQ topology
+
+The eight-band insert EQ adapts the band layout and filter topologies from
+**Common Sense EQ**:
+
+- Upstream: https://github.com/tylorismusic-commits/common-sense-eq
+- License: GNU General Public License v3.0 or later
+- Used for: low-cut, low-shelf, four bell, high-shelf and high-cut bands with
+  selectable cut slopes.
+
+Combined with this AGPL-3.0 project under the GPL/AGPL compatibility terms.
+
 ## Fonts
 
 The following fonts are bundled for the UI and are distributed under the SIL

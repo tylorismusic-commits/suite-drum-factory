@@ -44,6 +44,28 @@ juce::Colour insertColour(InsertType type)
     }
 }
 
+juce::Colour eqBandColour(int band)
+{
+    static const juce::Colour colours[eqBandCount] {
+        juce::Colour(0xff7fb3ff), juce::Colour(0xff52d273), juce::Colour(0xfff1c40f),
+        juce::Colour(0xffe67e22), juce::Colour(0xffff6b81), juce::Colour(0xffb07cff),
+        juce::Colour(0xff00d2d3), juce::Colour(0xffe74c3c)};
+    return colours[static_cast<size_t>(juce::jlimit(0, eqBandCount - 1, band))];
+}
+
+const char *eqBandShortName(int band)
+{
+    static const char *names[eqBandCount] {"LC", "LS", "1", "2", "3", "4", "HS", "HC"};
+    return names[static_cast<size_t>(juce::jlimit(0, eqBandCount - 1, band))];
+}
+
+const char *eqBandLongName(int band)
+{
+    static const char *names[eqBandCount] {"LOW CUT", "LOW SHELF", "BELL 1", "BELL 2",
+                                           "BELL 3", "BELL 4", "HIGH SHELF", "HIGH CUT"};
+    return names[static_cast<size_t>(juce::jlimit(0, eqBandCount - 1, band))];
+}
+
 class InsertTypePicker : public juce::Component
 {
   public:
@@ -1117,7 +1139,44 @@ juce::String MixerView::InsertRackPopup::slotTypeLabel(int slot) const
 void MixerView::InsertRackPopup::rebuildKnobs()
 {
     knobs.clear();
+    knobParams.clear();
     const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
+
+    if (state.type == InsertType::eq)
+    {
+        const int band = juce::jlimit(0, eqBandCount - 1, selectedEqBand);
+        const bool cut = eqBandIsCut(band);
+
+        auto addEqKnob = [&](int param)
+        {
+            const auto &info = insertParamInfo(InsertType::eq, param);
+            auto knob = std::make_unique<Knob>(juce::String(info.name), info.minimum, info.maximum,
+                                               info.defaultValue, juce::String(info.unit));
+            knob->setValue(state.values[static_cast<size_t>(param)]);
+            knob->setTheme(theme);
+            knob->onValueChanged = [this, param](float v)
+            {
+                processor.getSampler().setInsertValue(busTarget, channel, selectedSlot, param, v);
+                repaint();
+            };
+            addAndMakeVisible(*knob);
+            knobs.push_back(std::move(knob));
+            knobParams.push_back(param);
+        };
+
+        addEqKnob(eqParamFreq(band));
+        if (!cut)
+        {
+            addEqKnob(eqParamGain(band));
+            addEqKnob(eqParamQ(band));
+        }
+        addEqKnob(eqParamOutputGain);
+
+        resized();
+        repaint();
+        return;
+    }
+
     const int count = insertParamCount(state.type);
     if (count <= 0)
     {
@@ -1140,10 +1199,40 @@ void MixerView::InsertRackPopup::rebuildKnobs()
         };
         addAndMakeVisible(*knob);
         knobs.push_back(std::move(knob));
+        knobParams.push_back(i);
     }
 
     resized();
     repaint();
+}
+
+void MixerView::InsertRackPopup::selectEqBand(int band)
+{
+    band = juce::jlimit(0, eqBandCount - 1, band);
+    if (band == selectedEqBand)
+        return;
+    selectedEqBand = band;
+    rebuildKnobs();
+    repaint();
+}
+
+void MixerView::InsertRackPopup::setEqValue(int param, float value)
+{
+    processor.getSampler().setInsertValue(busTarget, channel, selectedSlot, param, value);
+}
+
+void MixerView::InsertRackPopup::syncEqKnobs()
+{
+    const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
+    if (state.type != InsertType::eq)
+        return;
+
+    for (size_t i = 0; i < knobs.size() && i < knobParams.size(); ++i)
+    {
+        const int param = knobParams[i];
+        if (param >= 0 && param < maxInsertParams)
+            knobs[i]->setValue(state.values[static_cast<size_t>(param)]);
+    }
 }
 
 int MixerView::InsertRackPopup::slotAt(juce::Point<float> pos) const
@@ -1209,6 +1298,9 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
     if (state.type != InsertType::eq)
         return;
 
+    const auto settings = insertEqSettingsFromValues(state.values);
+    const auto sampleRate = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 48000.0;
+
     g.setColour(theme.trough);
     g.fillRoundedRectangle(area, 5.0f);
     g.setColour(theme.panelEdge);
@@ -1237,23 +1329,11 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
         return plot.getCentreY() - juce::jlimit(-18.0f, 18.0f, db) / 18.0f * plot.getHeight() * 0.5f;
     };
 
-    const float low = state.values[0];
-    const float mid = state.values[1];
-    const float midF = state.values[2];
-    const float high = state.values[3];
-    const float hpf = std::max(20.0f, state.values[4]);
-    const float lpf = std::max(hpf + 10.0f, state.values[5]);
-
     juce::Path curve;
-    for (int i = 0; i <= 200; ++i)
+    for (int i = 0; i <= 220; ++i)
     {
-        const float f = 20.0f * std::pow(1000.0f, static_cast<float>(i) / 200.0f);
-        const float lowResp = low / (1.0f + std::pow(f / 90.0f, 2.0f));
-        const float midResp = mid * std::exp(-std::pow(std::log2(std::max(1.0f, f / std::max(1.0f, midF))) / 1.4f, 2.0f));
-        const float highResp = high / (1.0f + std::pow(8000.0f / f, 2.0f));
-        const float hpDb = 20.0f * std::log10(f / std::sqrt(f * f + hpf * hpf));
-        const float lpDb = 20.0f * std::log10(1.0f / std::sqrt(1.0f + (f * f) / (lpf * lpf)));
-        const float db = lowResp + midResp + highResp + hpDb + lpDb;
+        const float f = 20.0f * std::pow(1000.0f, static_cast<float>(i) / 220.0f);
+        const float db = eqTotalMagnitudeDb(settings, f, sampleRate);
         const float x = freqToX(f);
         const float y = gainToY(db);
         if (i == 0)
@@ -1271,26 +1351,49 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
     g.setColour(theme.accent);
     g.strokePath(curve, juce::PathStrokeType(2.0f));
 
-    for (const auto &[freq, db] : {std::pair<float, float> {80.0f, low}, {midF, mid}, {10000.0f, high}})
+    // Every band gets a node; cuts sit on the top or bottom edge.
+    for (int band = 0; band < eqBandCount; ++band)
     {
-        g.setColour(theme.ink);
-        g.fillEllipse(freqToX(freq) - 3.5f, gainToY(db) - 3.5f, 7.0f, 7.0f);
-        g.setColour(theme.accent);
-        g.drawEllipse(freqToX(freq) - 5.0f, gainToY(db) - 5.0f, 10.0f, 10.0f, 1.2f);
-    }
+        const auto &b = settings.bands[static_cast<size_t>(band)];
+        const bool cut = eqBandIsCut(band);
+        const float x = freqToX(b.freq);
+        const float y = cut ? (eqBandShape(band) == EqBandShape::lowCut ? plot.getBottom() - 7.0f
+                                                                        : plot.getY() + 7.0f)
+                            : gainToY(b.gainDb);
 
-    // Cut filter nodes sit on the bottom edge and drag horizontally.
-    for (const auto &[freq, label] : {std::pair<float, const char *> {hpf, "H"}, {lpf, "L"}})
-    {
-        const float x = freqToX(freq);
-        const float y = plot.getBottom() - 4.0f;
-        g.setColour(juce::Colour(0xff3fa7ff));
-        g.fillEllipse(x - 5.0f, y - 5.0f, 10.0f, 10.0f);
-        g.setColour(theme.ink);
+        const bool selected = band == selectedEqBand;
+        const auto colour = eqBandColour(band);
+        const float alpha = b.on ? 1.0f : 0.35f;
+        const float radius = selected ? 5.5f : 4.0f;
+
+        g.setColour(colour.withAlpha(alpha * (selected ? 0.9f : 0.65f)));
+        g.fillEllipse(x - radius, y - radius, radius * 2.0f, radius * 2.0f);
+
+        if (selected)
+        {
+            g.setColour(theme.ink.withAlpha(0.9f));
+            g.drawEllipse(x - radius - 2.5f, y - radius - 2.5f, radius * 2.0f + 5.0f, radius * 2.0f + 5.0f, 1.2f);
+        }
+
+        g.setColour(colour.withAlpha(alpha * 0.9f));
         g.setFont(uiFont(7.0f).boldened());
-        g.drawText(label, juce::Rectangle<float>(x - 5.0f, y - 5.0f, 10.0f, 10.0f),
+        g.drawText(eqBandShortName(band), juce::Rectangle<float>(x - 10.0f, y - 16.0f, 20.0f, 10.0f),
                    juce::Justification::centred, false);
     }
+
+    // Numeric readout for the band that is being edited.
+    const auto &selectedBand = settings.bands[static_cast<size_t>(selectedEqBand)];
+    juce::String readout(eqBandLongName(selectedEqBand));
+    readout << "   " << juce::String(selectedBand.freq, selectedBand.freq >= 1000.0f ? 0 : 1) << " Hz";
+    if (eqBandHasGain(selectedEqBand))
+        readout << "   " << juce::String(selectedBand.gainDb, 1) << " dB   Q "
+                << juce::String(selectedBand.q, 2);
+    else
+        readout << "   " << selectedBand.slope << " dB/oct";
+    g.setColour(theme.inkSoft);
+    g.setFont(uiFont(9.0f));
+    g.drawText(readout, plot.getX() + 4.0f, plot.getY() + 3.0f, plot.getWidth() - 8.0f, 14.0f,
+               juce::Justification::left, false);
 
     g.setColour(theme.inkSoft);
     g.setFont(uiFont(9.0f));
@@ -1299,6 +1402,69 @@ void MixerView::InsertRackPopup::drawEqGraph(juce::Graphics &g, juce::Rectangle<
                juce::Justification::centred, false);
     g.drawText("20k", plot.getRight() - 30.0f, plot.getBottom() + 2.0f, 30.0f, 12.0f,
                juce::Justification::right, false);
+}
+
+void MixerView::InsertRackPopup::drawEqControls(juce::Graphics &g)
+{
+    const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
+    if (state.type != InsertType::eq)
+        return;
+
+    for (int band = 0; band < eqBandCount; ++band)
+    {
+        const auto r = eqChipBounds[static_cast<size_t>(band)];
+        if (r.isEmpty())
+            continue;
+
+        const bool selected = band == selectedEqBand;
+        const bool on = state.values[static_cast<size_t>(eqParamOn(band))] >= 0.5f;
+        const auto colour = eqBandColour(band);
+
+        g.setColour(selected ? colour.withAlpha(0.28f) : theme.trough);
+        g.fillRoundedRectangle(r, 3.0f);
+        g.setColour(selected ? colour : theme.panelEdge);
+        g.drawRoundedRectangle(r, 3.0f, selected ? 1.6f : 1.0f);
+
+        g.setColour(colour.withAlpha(on ? 1.0f : 0.35f));
+        g.setFont(uiFont(9.0f).boldened());
+        g.drawText(eqBandShortName(band), r, juce::Justification::centred, false);
+
+        if (!on)
+        {
+            g.setColour(theme.inkSoft.withAlpha(0.5f));
+            g.drawLine(r.getX() + 3.0f, r.getCentreY(), r.getRight() - 3.0f, r.getCentreY(), 1.0f);
+        }
+    }
+
+    const bool on = state.values[static_cast<size_t>(eqParamOn(selectedEqBand))] >= 0.5f;
+    g.setColour(on ? theme.accent.withAlpha(0.25f) : theme.trough);
+    g.fillRoundedRectangle(eqOnBounds, 3.0f);
+    g.setColour(on ? theme.accent : theme.panelEdge);
+    g.drawRoundedRectangle(eqOnBounds, 3.0f, 1.2f);
+    g.setColour(on ? theme.ink : theme.inkSoft);
+    g.setFont(uiFont(9.0f).boldened());
+    g.drawText(on ? "BAND ON" : "BAND OFF", eqOnBounds, juce::Justification::centred, false);
+
+    if (eqBandIsCut(selectedEqBand))
+    {
+        g.setColour(theme.trough);
+        g.fillRoundedRectangle(eqSlopeBounds, 3.0f);
+        g.setColour(theme.panelEdge);
+        g.drawRoundedRectangle(eqSlopeBounds, 3.0f, 1.0f);
+        g.setColour(theme.ink);
+        g.setFont(uiFont(9.0f));
+        g.drawText("SLOPE  " + juce::String(static_cast<int>(std::lround(
+                               state.values[static_cast<size_t>(eqParamSlope(selectedEqBand))])))
+                       + " dB/OCT",
+                   eqSlopeBounds.reduced(6.0f, 0.0f), juce::Justification::centredLeft, false);
+    }
+    else
+    {
+        g.setColour(theme.inkSoft);
+        g.setFont(uiFont(9.0f));
+        g.drawText(juce::String(eqBandLongName(selectedEqBand)), eqSlopeBounds,
+                   juce::Justification::centredLeft, false);
+    }
 }
 
 void MixerView::InsertRackPopup::drawCompressorMeter(juce::Graphics &g, juce::Rectangle<float> area)
@@ -1366,8 +1532,7 @@ void MixerView::InsertRackPopup::drawClipperCurve(juce::Graphics &g, juce::Recta
                juce::Justification::right, false);
 }
 
-int MixerView::InsertRackPopup::eqNodeAt(juce::Point<float> pos, juce::Rectangle<float> area,
-                                         const InsertSlotState &state) const
+int MixerView::InsertRackPopup::eqNodeAt(juce::Point<float> pos, juce::Rectangle<float> area) const
 {
     auto plot = area.reduced(10.0f, 12.0f);
     const auto freqToX = [&](float f)
@@ -1380,57 +1545,54 @@ int MixerView::InsertRackPopup::eqNodeAt(juce::Point<float> pos, juce::Rectangle
         return plot.getCentreY() - juce::jlimit(-18.0f, 18.0f, db) / 18.0f * plot.getHeight() * 0.5f;
     };
 
-    const std::array<juce::Point<float>, 5> nodes {{
-        {freqToX(80.0f), gainToY(state.values[0])},
-        {freqToX(state.values[2]), gainToY(state.values[1])},
-        {freqToX(10000.0f), gainToY(state.values[3])},
-        {freqToX(state.values[4]), plot.getBottom() - 4.0f},
-        {freqToX(state.values[5]), plot.getBottom() - 4.0f},
-    }};
-
+    const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
     int best = -1;
-    float bestDistance = 18.0f;
-    for (int i = 0; i < static_cast<int>(nodes.size()); ++i)
+    float bestDistance = 17.0f;
+
+    for (int band = 0; band < eqBandCount; ++band)
     {
-        const float d = nodes[static_cast<size_t>(i)].getDistanceFrom(pos);
-        if (d < bestDistance)
+        const float freq = state.values[static_cast<size_t>(eqParamFreq(band))];
+        const float gain = state.values[static_cast<size_t>(eqParamGain(band))];
+        const float x = freqToX(freq);
+        const float y = eqBandIsCut(band)
+                            ? (eqBandShape(band) == EqBandShape::lowCut ? plot.getBottom() - 7.0f
+                                                                        : plot.getY() + 7.0f)
+                            : gainToY(gain);
+        const float distance = pos.getDistanceFrom({x, y});
+        if (distance < bestDistance)
         {
-            best = i;
-            bestDistance = d;
+            best = band;
+            bestDistance = distance;
         }
     }
+
     return best;
 }
 
-void MixerView::InsertRackPopup::moveEqNode(int node, juce::Point<float> pos, juce::Rectangle<float> area,
-                                            const InsertSlotState &state)
+void MixerView::InsertRackPopup::moveEqNode(int band, juce::Point<float> pos, juce::Rectangle<float> area)
 {
+    if (band < 0 || band >= eqBandCount)
+        return;
+
     auto plot = area.reduced(10.0f, 12.0f);
     const float xNorm = juce::jlimit(0.0f, 1.0f, (pos.x - plot.getX()) / plot.getWidth());
-    const float freq = 20.0f * std::pow(1000.0f, xNorm);
-    const float db = juce::jlimit(-12.0f, 12.0f,
-                                 (plot.getCentreY() - pos.y) / (plot.getHeight() * 0.5f) * 18.0f);
+    float freq = 20.0f * std::pow(1000.0f, xNorm);
 
-    auto set = [&](int index, float value)
-    {
-        processor.getSampler().setInsertValue(busTarget, channel, selectedSlot, index, value);
-        if (index >= 0 && index < static_cast<int>(knobs.size()))
-            knobs[static_cast<size_t>(index)]->setValue(value);
-    };
+    if (eqBandIsCut(band))
+        freq = band == 0 ? juce::jlimit(20.0f, 1000.0f, freq) : juce::jlimit(1000.0f, 20000.0f, freq);
+    else
+        freq = juce::jlimit(20.0f, 20000.0f, freq);
 
-    switch (node)
+    setEqValue(eqParamFreq(band), freq);
+
+    if (eqBandHasGain(band))
     {
-        case 0: set(0, db); break;
-        case 1:
-            set(2, freq);
-            set(1, db);
-            break;
-        case 2: set(3, db); break;
-        case 3: set(4, juce::jlimit(20.0f, 300.0f, freq)); break;
-        case 4: set(5, juce::jlimit(3000.0f, 20000.0f, freq)); break;
-        default: break;
+        const float db = juce::jlimit(-18.0f, 18.0f,
+                                      (plot.getCentreY() - pos.y) / (plot.getHeight() * 0.5f) * 18.0f);
+        setEqValue(eqParamGain(band), db);
     }
-    juce::ignoreUnused(state);
+
+    syncEqKnobs();
     repaint();
 }
 
@@ -1455,7 +1617,10 @@ void MixerView::InsertRackPopup::paint(juce::Graphics &g)
 
     const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
     if (state.type == InsertType::eq)
+    {
         drawEqGraph(g, graphBounds);
+        drawEqControls(g);
+    }
     else if (state.type == InsertType::compressor)
         drawCompressorMeter(g, graphBounds);
     else if (state.type == InsertType::clipper)
@@ -1498,18 +1663,39 @@ void MixerView::InsertRackPopup::resized()
     const float graphW = juce::jmin(400.0f, b.getWidth() * 0.47f);
     graphBounds = {margin, 150.0f, graphW, 190.0f};
 
-    if (!knobs.empty())
+    const float areaX = graphBounds.getRight() + 14.0f;
+    const float areaW = juce::jmax(120.0f, b.getWidth() - areaX - 14.0f);
+
+    if (state.type == InsertType::eq)
     {
-        const bool hasGraph = state.type == InsertType::eq || state.type == InsertType::compressor
-                              || state.type == InsertType::clipper;
+        const float chipW = juce::jmin(30.0f, (areaW - 78.0f) / static_cast<float>(eqBandCount));
+        for (int band = 0; band < eqBandCount; ++band)
+            eqChipBounds[static_cast<size_t>(band)] = {areaX + static_cast<float>(band) * chipW, 150.0f,
+                                                       juce::jmax(14.0f, chipW - 3.0f), 20.0f};
+
+        eqOnBounds = {areaX + static_cast<float>(eqBandCount) * chipW + 6.0f, 150.0f, 66.0f, 20.0f};
+        eqSlopeBounds = {areaX, 176.0f, 136.0f, 18.0f};
+
+        if (!knobs.empty())
+        {
+            const int count = static_cast<int>(knobs.size());
+            const float kw = 88.0f;
+            const float totalW = static_cast<float>(count) * kw;
+            const float start = areaX + juce::jmax(0.0f, (areaW - totalW) * 0.5f);
+            for (int i = 0; i < count; ++i)
+                knobs[static_cast<size_t>(i)]->setBounds(static_cast<int>(start + static_cast<float>(i) * kw),
+                                                         204, 88, 88);
+        }
+    }
+    else if (!knobs.empty())
+    {
+        const bool hasGraph = state.type == InsertType::compressor || state.type == InsertType::clipper;
         const int count = static_cast<int>(knobs.size());
 
         if (hasGraph)
         {
             const int cols = juce::jmin(3, count);
             const int rows = (count + cols - 1) / cols;
-            const float areaX = graphBounds.getRight() + 14.0f;
-            const float areaW = juce::jmax(120.0f, b.getWidth() - areaX - 10.0f);
             const float cellW = areaW / static_cast<float>(cols);
             const float cellH = juce::jmin(92.0f, 190.0f / static_cast<float>(rows));
             const float startY = 150.0f + (190.0f - cellH * static_cast<float>(rows)) * 0.5f;
@@ -1540,14 +1726,58 @@ void MixerView::InsertRackPopup::resized()
 void MixerView::InsertRackPopup::mouseDown(const juce::MouseEvent &e)
 {
     const auto selected = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
-    if (selected.type == InsertType::eq && graphBounds.contains(e.position))
+
+    if (selected.type == InsertType::eq)
     {
-        const int node = eqNodeAt(e.position, graphBounds, selected);
-        if (node >= 0)
+        for (int band = 0; band < eqBandCount; ++band)
         {
-            draggingEqNode = node;
-            moveEqNode(node, e.position, graphBounds, selected);
+            if (eqChipBounds[static_cast<size_t>(band)].contains(e.position))
+            {
+                selectEqBand(band);
+                return;
+            }
+        }
+
+        if (eqOnBounds.contains(e.position))
+        {
+            const int param = eqParamOn(selectedEqBand);
+            const float currentOn = selected.values[static_cast<size_t>(param)] >= 0.5f ? 0.0f : 1.0f;
+            setEqValue(param, currentOn);
+            repaint();
             return;
+        }
+
+        if (eqBandIsCut(selectedEqBand) && eqSlopeBounds.contains(e.position))
+        {
+            static constexpr int slopes[] {6, 12, 18, 24, 30};
+            const int param = eqParamSlope(selectedEqBand);
+            const int current = static_cast<int>(std::lround(selected.values[static_cast<size_t>(param)]));
+            int next = slopes[0];
+            for (size_t i = 0; i < std::size(slopes); ++i)
+            {
+                if (slopes[i] == current)
+                {
+                    next = slopes[(i + 1) % std::size(slopes)];
+                    break;
+                }
+            }
+            setEqValue(param, static_cast<float>(next));
+            syncEqKnobs();
+            repaint();
+            return;
+        }
+
+        if (graphBounds.contains(e.position))
+        {
+            const int node = eqNodeAt(e.position, graphBounds);
+            if (node >= 0)
+            {
+                if (node != selectedEqBand)
+                    selectEqBand(node);
+                draggingEqNode = node;
+                moveEqNode(node, e.position, graphBounds);
+                return;
+            }
         }
     }
 
@@ -1590,8 +1820,7 @@ void MixerView::InsertRackPopup::mouseDrag(const juce::MouseEvent &e)
 {
     if (draggingEqNode >= 0)
     {
-        const auto selected = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
-        moveEqNode(draggingEqNode, e.position, graphBounds, selected);
+        moveEqNode(draggingEqNode, e.position, graphBounds);
         return;
     }
 

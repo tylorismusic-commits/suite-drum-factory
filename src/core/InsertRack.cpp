@@ -10,51 +10,71 @@ namespace
 {
 float dbToGain(float db) noexcept { return std::pow(10.0f, db / 20.0f); }
 
-const std::array<InsertParamInfo, 6> &paramArrayFor(InsertType type)
+const std::array<InsertParamInfo, maxInsertParams> &paramArrayFor(InsertType type)
 {
-    static const std::array<InsertParamInfo, 6> eq {{
-        {"LOW", -12.0f, 12.0f, 0.0f, "dB"},
-        {"MID", -12.0f, 12.0f, 0.0f, "dB"},
-        {"FREQ", 200.0f, 6000.0f, 1000.0f, "Hz"},
-        {"HIGH", -12.0f, 12.0f, 0.0f, "dB"},
-        {"HPF", 20.0f, 300.0f, 20.0f, "Hz"},
-        {"LPF", 3000.0f, 20000.0f, 20000.0f, "Hz"},
-    }};
+    static const auto eq = []
+    {
+        std::array<InsertParamInfo, maxInsertParams> params {};
 
-    static const std::array<InsertParamInfo, 6> comp {{
+        static const char *onNames[eqBandCount] {"LC ON", "LS ON", "B1 ON", "B2 ON",
+                                                 "B3 ON", "B4 ON", "HS ON", "HC ON"};
+        static const char *freqNames[eqBandCount] {"LC FREQ", "LS FREQ", "B1 FREQ", "B2 FREQ",
+                                                   "B3 FREQ", "B4 FREQ", "HS FREQ", "HC FREQ"};
+        static const char *gainNames[eqBandCount] {"LC GAIN", "LS GAIN", "B1 GAIN", "B2 GAIN",
+                                                   "B3 GAIN", "B4 GAIN", "HS GAIN", "HC GAIN"};
+        static const char *qNames[eqBandCount] {"LC Q", "LS Q", "B1 Q", "B2 Q",
+                                                "B3 Q", "B4 Q", "HS Q", "HC Q"};
+        static const char *slopeNames[eqBandCount] {"LC SLOPE", "LS SLOPE", "B1 SLOPE", "B2 SLOPE",
+                                                    "B3 SLOPE", "B4 SLOPE", "HS SLOPE", "HC SLOPE"};
+
+        for (int band = 0; band < eqBandCount; ++band)
+        {
+            const auto i = static_cast<size_t>(band);
+            const bool cut = eqBandIsCut(band);
+            params[static_cast<size_t>(eqParamOn(band))] = {onNames[i], 0.0f, 1.0f, 1.0f, ""};
+            params[static_cast<size_t>(eqParamFreq(band))] = {freqNames[i], 20.0f, 20000.0f,
+                                                              eqDefaultFreq(band), "Hz"};
+            params[static_cast<size_t>(eqParamGain(band))] = {gainNames[i], -18.0f, 18.0f, 0.0f, "dB"};
+            params[static_cast<size_t>(eqParamQ(band))] = {qNames[i], 0.1f, 18.0f, 1.0f, "Q"};
+            params[static_cast<size_t>(eqParamSlope(band))] = {slopeNames[i], 6.0f, 30.0f,
+                                                               static_cast<float>(eqDefaultSlope(band)),
+                                                               "dB/oct"};
+            juce::ignoreUnused(cut);
+        }
+
+        params[static_cast<size_t>(eqParamOutputGain)] = {"OUT", -18.0f, 18.0f, 0.0f, "dB"};
+        return params;
+    }();
+
+    static const std::array<InsertParamInfo, maxInsertParams> comp {{
         {"THRESH", -40.0f, 0.0f, -14.0f, "dB"},
         {"RATIO", 1.0f, 20.0f, 3.0f, ":1"},
         {"ATTACK", 0.5f, 50.0f, 15.0f, "ms"},
         {"RELEASE", 20.0f, 500.0f, 100.0f, "ms"},
         {"MAKEUP", 0.0f, 24.0f, 0.0f, "dB"},
-        {},
     }};
 
-    static const std::array<InsertParamInfo, 6> drive {{
+    static const std::array<InsertParamInfo, maxInsertParams> drive {{
         {"DRIVE", 0.0f, 1.0f, 0.25f, ""},
         {"OUTPUT", -12.0f, 12.0f, 0.0f, "dB"},
-        {}, {}, {}, {},
     }};
 
-    static const std::array<InsertParamInfo, 6> transient {{
+    static const std::array<InsertParamInfo, maxInsertParams> transient {{
         {"ATTACK", -1.0f, 1.0f, 0.0f, ""},
         {"SUSTAIN", -1.0f, 1.0f, 0.0f, ""},
-        {}, {}, {}, {},
     }};
 
-    static const std::array<InsertParamInfo, 6> limiter {{
+    static const std::array<InsertParamInfo, maxInsertParams> limiter {{
         {"CEILING", -12.0f, 0.0f, -0.3f, "dB"},
         {"RELEASE", 20.0f, 500.0f, 100.0f, "ms"},
-        {}, {}, {}, {},
     }};
 
-    static const std::array<InsertParamInfo, 6> clipper {{
+    static const std::array<InsertParamInfo, maxInsertParams> clipper {{
         {"DRIVE", 0.0f, 1.0f, 0.35f, ""},
         {"CEILING", -12.0f, 0.0f, -0.5f, "dB"},
-        {}, {}, {}, {},
     }};
 
-    static const std::array<InsertParamInfo, 6> none {};
+    static const std::array<InsertParamInfo, maxInsertParams> none {};
 
     switch (type)
     {
@@ -72,7 +92,7 @@ int paramCountFor(InsertType type) noexcept
 {
     switch (type)
     {
-        case InsertType::eq: return 6;
+        case InsertType::eq: return eqParamSlope(eqBandCount - 1) + 1;
         case InsertType::compressor: return 5;
         case InsertType::drive: return 2;
         case InsertType::transient: return 2;
@@ -108,6 +128,22 @@ const InsertParamInfo &insertParamInfo(InsertType type, int index) noexcept
     if (index < 0 || index >= paramCountFor(type))
         return fallback;
     return paramArrayFor(type)[static_cast<size_t>(index)];
+}
+
+InsertEqSettings insertEqSettingsFromValues(const std::array<float, maxInsertParams> &values) noexcept
+{
+    InsertEqSettings settings;
+    for (int band = 0; band < eqBandCount; ++band)
+    {
+        auto &b = settings.bands[static_cast<size_t>(band)];
+        b.on = values[static_cast<size_t>(eqParamOn(band))] >= 0.5f;
+        b.freq = values[static_cast<size_t>(eqParamFreq(band))];
+        b.gainDb = values[static_cast<size_t>(eqParamGain(band))];
+        b.q = values[static_cast<size_t>(eqParamQ(band))];
+        b.slope = static_cast<int>(std::lround(values[static_cast<size_t>(eqParamSlope(band))]));
+    }
+    settings.outputGainDb = values[static_cast<size_t>(eqParamOutputGain)];
+    return settings;
 }
 
 void LimiterProcessor::prepare(double sampleRate, int)
@@ -160,6 +196,7 @@ void ClipperProcessor::process(float *left, float *right, int numSamples, float 
 void InsertSlot::prepare(double sampleRate, int maxBlockSize)
 {
     fx.prepare(sampleRate, maxBlockSize);
+    eq.prepare(sampleRate, maxBlockSize);
     limiter.prepare(sampleRate, maxBlockSize);
     clipper.prepare(sampleRate, maxBlockSize);
     prepared = true;
@@ -168,6 +205,7 @@ void InsertSlot::prepare(double sampleRate, int maxBlockSize)
 void InsertSlot::reset()
 {
     fx.reset();
+    eq.reset();
     limiter.reset();
 }
 
@@ -181,10 +219,30 @@ void InsertSlot::setType(InsertType newType)
     type = newType;
     bypass = false;
     values.fill(0.0f);
-    const auto count = insertParamCount(type);
-    for (int i = 0; i < count; ++i)
-        values[static_cast<size_t>(i)] = insertParamInfo(type, i).defaultValue;
+
+    if (type == InsertType::eq)
+    {
+        const auto defaults = defaultInsertEqSettings();
+        for (int band = 0; band < eqBandCount; ++band)
+        {
+            const auto &b = defaults.bands[static_cast<size_t>(band)];
+            values[static_cast<size_t>(eqParamOn(band))] = b.on ? 1.0f : 0.0f;
+            values[static_cast<size_t>(eqParamFreq(band))] = b.freq;
+            values[static_cast<size_t>(eqParamGain(band))] = b.gainDb;
+            values[static_cast<size_t>(eqParamQ(band))] = b.q;
+            values[static_cast<size_t>(eqParamSlope(band))] = static_cast<float>(b.slope);
+        }
+        values[static_cast<size_t>(eqParamOutputGain)] = defaults.outputGainDb;
+    }
+    else
+    {
+        const auto count = insertParamCount(type);
+        for (int i = 0; i < count; ++i)
+            values[static_cast<size_t>(i)] = insertParamInfo(type, i).defaultValue;
+    }
+
     fx.reset();
+    eq.reset();
     limiter.reset();
 }
 
@@ -200,19 +258,8 @@ void InsertSlot::process(float *left, float *right, int numSamples)
     {
         case InsertType::eq:
         {
-            MicStripParams p;
-            p.eqEnabled = true;
-            p.eqLowGainDb = values[0];
-            p.eqMidGainDb = values[1];
-            p.eqMidFreq = values[2];
-            p.eqHighGainDb = values[3];
-            p.hpfHz = values[4];
-            p.lpfHz = values[5];
-            p.compEnabled = false;
-            p.saturationDrive = 0.0f;
-            p.transientAttack = 0.0f;
-            p.transientSustain = 0.0f;
-            fx.process(left, right, numSamples, p, nullptr, nullptr);
+            eq.setSettings(insertEqSettingsFromValues(values));
+            eq.process(left, right, numSamples);
             break;
         }
         case InsertType::compressor:

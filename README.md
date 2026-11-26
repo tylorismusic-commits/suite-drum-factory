@@ -38,6 +38,10 @@ Drums Glorp.
   empty row to add an EQ, compressor, drive, transient shaper, limiter or
   clipper; click a loaded row to edit it. The left dot bypasses and the `x`
   removes it.
+- The EQ is an eight-band console-style curve: low cut, low shelf, four bells,
+  high shelf and high cut. Click or drag the coloured nodes, pick a band from
+  the chip row, toggle it, cycle the cut slope, and edit frequency, gain, Q and
+  output gain with the knobs.
 - Each piece strip has a **BLEED** knob that blends that piece’s room/overhead
   content into the channel instead of the shared Room sum.
 - The bottom of each piece strip routes either into the internal sums or direct

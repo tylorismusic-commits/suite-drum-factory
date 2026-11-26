@@ -1089,7 +1089,7 @@ void Sampler::setInsertValue(bool bus, int channel, int slot, int param, float v
     if (auto *chain = insertChain(bus, channel))
     {
         auto &s = chain->slot(slot);
-        if (param >= 0 && param < 6)
+        if (param >= 0 && param < maxInsertParams)
         {
             const auto &info = insertParamInfo(s.type, param);
             s.values[static_cast<size_t>(param)] = juce::jlimit(info.minimum, info.maximum, value);

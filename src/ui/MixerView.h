@@ -189,10 +189,8 @@ class MixerView
         void timerCallback() override;
         void drawCompressorMeter(juce::Graphics &g, juce::Rectangle<float> area);
         void drawClipperCurve(juce::Graphics &g, juce::Rectangle<float> area);
-        int eqNodeAt(juce::Point<float> pos, juce::Rectangle<float> plot,
-                     const InsertSlotState &state) const;
-        void moveEqNode(int node, juce::Point<float> pos, juce::Rectangle<float> plot,
-                        const InsertSlotState &state);
+        int eqNodeAt(juce::Point<float> pos, juce::Rectangle<float> plot) const;
+        void moveEqNode(int band, juce::Point<float> pos, juce::Rectangle<float> plot);
 
         MixerView &owner;
         PluginProcessor &processor;
@@ -211,11 +209,20 @@ class MixerView
         std::array<juce::Rectangle<float>, InsertChain::slotCount> bypassBounds;
         std::array<juce::Rectangle<float>, InsertChain::slotCount> removeBounds;
         std::vector<std::unique_ptr<Knob>> knobs;
+        std::vector<int> knobParams;
         juce::Rectangle<float> graphBounds;
+        int selectedEqBand = 3;
+        std::array<juce::Rectangle<float>, eqBandCount> eqChipBounds;
+        juce::Rectangle<float> eqOnBounds;
+        juce::Rectangle<float> eqSlopeBounds;
 
         void rebuildKnobs();
         void drawSlot(juce::Graphics &g, int slot, juce::Rectangle<float> area);
         void drawEqGraph(juce::Graphics &g, juce::Rectangle<float> area);
+        void drawEqControls(juce::Graphics &g);
+        void selectEqBand(int band);
+        void setEqValue(int param, float value);
+        void syncEqKnobs();
         int slotAt(juce::Point<float> pos) const;
         juce::String slotTypeLabel(int slot) const;
     };
