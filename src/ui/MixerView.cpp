@@ -1426,6 +1426,8 @@ void MixerView::InsertRackPopup::moveEqNode(int node, juce::Point<float> pos, ju
     auto set = [&](int index, float value)
     {
         processor.getSampler().setInsertValue(busTarget, channel, selectedSlot, index, value);
+        if (index >= 0 && index < static_cast<int>(knobs.size()))
+            knobs[static_cast<size_t>(index)]->setValue(value);
     };
 
     switch (node)
