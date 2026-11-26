@@ -1585,6 +1585,10 @@ juce::String MixerPreset::configurationMixName(int flavour)
         case 1: return "Punch";
         case 2: return "Room";
         case 3: return "Tight";
+        case 4: return "Studio Glue";
+        case 5: return "Punch Bus";
+        case 6: return "Tape Room";
+        case 7: return "Modern Tight";
         default: return "Balanced";
     }
 }

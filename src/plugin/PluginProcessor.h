@@ -133,6 +133,7 @@ class PluginProcessor : public juce::AudioProcessor
     void applyFactoryConfiguration(const FactoryConfiguration &configuration);
     juce::String saveFactoryConfiguration(const juce::String &name);
     const factory::Selection &getFactorySelection() const noexcept { return factorySelection; }
+    std::vector<MixPieceInfo> getMixPieces() const;
 
     /// Routes a mixer mic strip and its matching drum instruments together.
     void setMicOutputBus(int micStripIndex, int bus);

@@ -53,9 +53,14 @@ Drums Glorp.
 - Insert racks and bus levels are saved in the plugin state, so reopening a
   project restores the mixer.
 - **MIXES** opens the preset browser. Factory mixes are rebuilt for the active
-  configuration — Balanced, Punch, Room and Tight — and adapt their levels,
-  pans, EQ, compression, reverb sends and sum faders to the loaded kick, snare
-  and tom source modules.
+  configuration. **Balanced, Punch, Room and Tight** re-level and pan the kit;
+  **Studio Glue, Punch Bus, Tape Room and Modern Tight** additionally build
+  insert chains on the pieces, sums and Mix bus. They adapt to the loaded kick,
+  snare and tom source modules.
+- A new session opens on the **Studio Mix** configuration with the lightly
+  processed **Studio Glue** preset.
+- The **KIT** dropdown in the kit view loads any installed external kit, browses
+  for a `.glorpkit`/XML file, or rescans the kit folders.
 - Source-mic polarity is applied automatically while the piece is summed, so
   modules that mark a mic out of phase (for example DRS Kdrum_back) need no
   manual setup.

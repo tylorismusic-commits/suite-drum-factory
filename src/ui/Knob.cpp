@@ -72,13 +72,25 @@ void Knob::setRange(float minVal, float maxVal, float defVal, const juce::String
 
 void Knob::setValue(float realValue)
 {
-    const float norm = (maxVal_ > minVal_) ? (realValue - minVal_) / (maxVal_ - minVal_) : 0.0f;
+    const float clamped = juce::jlimit(minVal_, maxVal_, realValue);
+    float norm = 0.0f;
+
+    if (logarithmic && minVal_ > 0.0f && maxVal_ > minVal_)
+        norm = std::log(clamped / minVal_) / std::log(maxVal_ / minVal_);
+    else if (maxVal_ > minVal_)
+        norm = (clamped - minVal_) / (maxVal_ - minVal_);
+
     setNormalized(norm);
 }
 
 float Knob::getValue() const noexcept
 {
-    return minVal_ + getDisplayValue() * (maxVal_ - minVal_);
+    const float t = getDisplayValue();
+
+    if (logarithmic && minVal_ > 0.0f && maxVal_ > minVal_)
+        return minVal_ * std::pow(maxVal_ / minVal_, t);
+
+    return minVal_ + t * (maxVal_ - minVal_);
 }
 
 void Knob::parameterValueChanged(int, float newValue)
@@ -101,7 +113,9 @@ void Knob::paint(juce::Graphics &g)
     {
         const float v = getValue();
         int decimals = 1;
-        if (unitString == "Hz" || std::abs(v) >= 100.0f)
+        if (unitString == "Hz")
+            decimals = v >= 100.0f ? 0 : 1;
+        else if (std::abs(v) >= 100.0f)
             decimals = 0;
         else if (std::abs(v) < 1.0f)
             decimals = 2;
@@ -293,7 +307,8 @@ void Knob::mouseDrag(const juce::MouseEvent &e)
     if (!isDragging)
         return;
 
-    float delta = (dragStartY - static_cast<float>(e.getPosition().y)) / 150.0f;
+    const float dragRange = logarithmic ? 240.0f : 150.0f;
+    float delta = (dragStartY - static_cast<float>(e.getPosition().y)) / dragRange;
 
     if (e.mods.isShiftDown())
         delta *= 0.2f;

@@ -25,6 +25,7 @@
 - [x] Eight-band console-style EQ with draggable nodes, band on/off, cut slopes and legacy 3-band state migration.
 - [x] Configuration-aware factory mixes (Balanced, Punch, Room, Tight) with sum faders and source-module tweaks.
 - [x] Headless QA matrix across every factory configuration and external kit, plus an all-DSP stress render.
+- [x] Kit dropdown for external kits, logarithmic EQ frequency knobs, and four insert-driven factory mix presets.
 - [x] Direct out fully bypasses sums, Mix bus and shared reverb; routing persists in the project state.
 - [x] Four-slot serial insert racks on pieces and buses (EQ, compressor, drive, transient, limiter, clipper).
 - [ ] Configuration-aware mix-ready presets.

@@ -52,9 +52,10 @@ class Settings
     juce::String midiLibraryPath; ///< empty means <config>/midi_library
 
     // -- Suite Drum Factory -------------------------------------------------
-    juce::String factoryKickModule {"naked"};
-    juce::String factorySnareModule {"naked"};
-    juce::StringArray factoryTomModules {"naked", "naked", "naked", "naked", "naked"};
+    juce::String factoryKickModule {"monster"};
+    juce::String factorySnareModule {"crocell"};
+    juce::StringArray factoryTomModules {"drs", "drs", "drs", "", ""};
+    bool factoryStudioDefaultApplied = false;
     juce::StringArray factoryDisabledPieces; ///< "module:piece" keys
     juce::String midiSourceProfile {"General MIDI (extended)"}; ///< source-library note map
     double midiPreviewSpeed = 1.0; ///< 0.5x, 1.0x or 2.0x for preview and export

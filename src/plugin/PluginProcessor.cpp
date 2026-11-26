@@ -115,6 +115,27 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
     for (const auto &key : settings.factoryDisabledPieces)
         factorySelection.disabled.insert(key.toStdString());
 
+    // New installs open on the Studio Mix. Upgrade untouched Naked defaults
+    // once, while leaving any custom selection alone.
+    if (!settings.factoryStudioDefaultApplied)
+    {
+        bool nakedDefaults = factorySelection.kickModule == "naked"
+                             && factorySelection.snareModule == "naked"
+                             && factorySelection.disabled.empty();
+        for (const auto &id : factorySelection.tomModules)
+            nakedDefaults = nakedDefaults && id == "naked";
+
+        if (nakedDefaults)
+        {
+            factorySelection.kickModule = "monster";
+            factorySelection.snareModule = "crocell";
+            factorySelection.tomModules = {"drs", "drs", "drs", "", ""};
+        }
+
+        settings.factoryStudioDefaultApplied = true;
+        saveFactorySelection();
+    }
+
     // Older settings could put a Salamander/Monster low tom in visual Tom 2.
     // Those kits have no Tom 2; move that choice to Tom 3.
     for (int slot = 0; slot < factory::tomSlots; ++slot)
@@ -225,10 +246,17 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
         }
     }
 
-    // The factory is the product: start on Naked plus whichever shell module
-    // the user last chose, even if the generic startup above found another kit.
+    // The factory is the product: start on the chosen shell modules, even if
+    // the generic startup above found another kit.
     if (!settings.midiThruEnabled && !factory::baseKitPath().empty())
+    {
         loadFactoryKit();
+
+        // A light console mix gives a new session something musical to jam to.
+        // Host project state, when present, replaces this during restore.
+        if (audioEngine.getSampler().isFactoryPieceMode())
+            audioEngine.getSampler().applyFactoryMix(4, getMixPieces());
+    }
 }
 
 PluginProcessor::~PluginProcessor()
@@ -644,6 +672,36 @@ std::vector<PluginProcessor::FactoryConfiguration> PluginProcessor::getFactoryCo
     });
 
     return list;
+}
+
+std::vector<MixPieceInfo> PluginProcessor::getMixPieces() const
+{
+    const auto moduleForRole = [this](const juce::String &role) -> juce::String
+    {
+        if (role.startsWithIgnoreCase("kick."))
+            return juce::String(factorySelection.kickModule);
+        if (role.startsWithIgnoreCase("snare."))
+            return juce::String(factorySelection.snareModule);
+        if (role.startsWithIgnoreCase("tom."))
+        {
+            const int number = juce::jlimit(1, factory::tomSlots,
+                                            role.fromFirstOccurrenceOf(".", false, false).getIntValue());
+            return juce::String(factorySelection.tomModules[static_cast<size_t>(number - 1)]);
+        }
+        return "naked";
+    };
+
+    std::vector<MixPieceInfo> pieces;
+    const int count = audioEngine.getSampler().numMicStrips();
+    pieces.reserve(static_cast<size_t>(count));
+
+    for (int i = 0; i < count; ++i)
+    {
+        const auto role = audioEngine.getSampler().micStripRole(i);
+        pieces.push_back({audioEngine.getSampler().micStripTitle(i), role, moduleForRole(role)});
+    }
+
+    return pieces;
 }
 
 void PluginProcessor::applyFactoryConfiguration(const FactoryConfiguration &configuration)

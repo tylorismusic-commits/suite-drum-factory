@@ -443,13 +443,27 @@ int main (int argc, char** argv)
 
     if (std::getenv ("GLORP_PROBE_BUSES") != nullptr)
     {
+        if (std::getenv ("GLORP_PROBE_BUSES_RELOAD") != nullptr)
+            proc.loadFactoryKit();
         for (int i = 0; i < proc.getSampler().numInstruments(); ++i)
             std::cout << "instrument " << i << " \"" << proc.getSampler().instrumentName (i).toStdString()
                       << "\" role=" << proc.getSampler().instrumentRole (i).toStdString()
                       << " bus=" << proc.getSampler().getInstrumentBus (i) << std::endl;
         for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)
+        {
             std::cout << "strip " << i << " \"" << proc.getSampler().micStripName (i).toStdString()
-                      << "\" title=\"" << proc.getSampler().micStripTitle (i).toStdString() << "\"" << std::endl;
+                      << "\" title=\"" << proc.getSampler().micStripTitle (i).toStdString() << "\" inserts=";
+            for (int slot = 0; slot < 4; ++slot)
+                std::cout << static_cast<int> (proc.getSampler().getInsertState (false, i, slot).type) << ",";
+            std::cout << std::endl;
+        }
+        for (int b = 0; b <= 5; ++b)
+        {
+            std::cout << "businsert " << b << " inserts=";
+            for (int slot = 0; slot < 4; ++slot)
+                std::cout << static_cast<int> (proc.getSampler().getInsertState (true, b, slot).type) << ",";
+            std::cout << std::endl;
+        }
         return 0;
     }
 
@@ -1493,52 +1507,36 @@ int main (int argc, char** argv)
                 break;
             }
 
-        for (int flavour = 0; flavour < 4; ++flavour)
+        int kickStrip = 0;
+        for (int i = 0; i < sampler.numMicStrips(); ++i)
+            if (sampler.micStripTitle (i).containsIgnoreCase ("kick"))
+            {
+                kickStrip = i;
+                break;
+            }
+
+        auto countInserts = [&] (bool bus, int channel)
         {
-            const auto preset = glorp::MixerPreset::createConfigurationMix (flavour, pieces);
-            sampler.applyMixerPreset (preset);
+            int count = 0;
+            for (int slot = 0; slot < 4; ++slot)
+                if (sampler.getInsertState (bus, channel, slot).type != glorp::InsertType::none)
+                    ++count;
+            return count;
+        };
 
-            std::cout << "preset " << preset.name.toStdString()
-                      << " strips=" << preset.micStrips.size()
-                      << " buses=" << preset.busStrips.size() << std::endl;
+        for (int flavour = 0; flavour < 8; ++flavour)
+        {
+            sampler.applyFactoryMix (flavour, pieces);
 
-            for (int i = 0; i < sampler.numMicStrips(); ++i)
-            {
-                const auto params = sampler.getMicStripParams (i);
-                std::cout << "  " << sampler.micStripTitle (i).toStdString()
-                          << " role=" << sampler.micStripRole (i).toStdString()
-                          << " level=" << params.level
-                          << " pan=" << params.pan
-                          << " reverb=" << params.reverbSend
-                          << " out=" << params.outputBus << std::endl;
-            }
+            std::cout << "preset " << glorp::MixerPreset::configurationMixName (flavour).toStdString()
+                      << " kickInserts=" << countInserts (false, kickStrip)
+                      << " busInserts=" << countInserts (true, 0)
+                      << " mixInserts=" << countInserts (true, 5) << std::endl;
 
-            for (int b = 0; b < sampler.numFactoryBuses(); ++b)
-            {
-                const auto params = sampler.getFactoryBusParams (b);
-                std::cout << "  bus " << sampler.factoryBusTitle (b).toStdString()
-                          << " level=" << params.level << " pan=" << params.pan << std::endl;
-            }
-
-            if (flavour == 0)
-            {
-                proc.prepareToPlay (48000.0, 512);
-                juce::AudioBuffer<float> buffer (2, 512);
-                float peak = 0.0f;
-                for (int block = 0; block < 80; ++block)
-                {
-                    juce::MidiBuffer midi;
-                    if (block == 0)
-                        midi.addEvent (juce::MidiMessage::noteOn (1, 38, static_cast<juce::uint8> (100)), 0);
-                    buffer.clear();
-                    proc.processBlock (buffer, midi);
-                    for (int ch = 0; ch < 2; ++ch)
-                        for (int i = 0; i < buffer.getNumSamples(); ++i)
-                            peak = std::max (peak, std::abs (buffer.getSample (ch, i)));
-                }
-                std::cout << "  balanced mix peak=" << peak
-                          << " peakDb=" << juce::Decibels::gainToDecibels (peak) << std::endl;
-            }
+            const auto stats = renderNote (proc, 38, 0.5);
+            std::cout << "  peakDb=" << juce::Decibels::gainToDecibels (stats.peak)
+                      << " rmsDb=" << juce::Decibels::gainToDecibels (static_cast<float> (stats.rms))
+                      << " nonFinite=" << stats.nonFinite << std::endl;
         }
 
         return 0;

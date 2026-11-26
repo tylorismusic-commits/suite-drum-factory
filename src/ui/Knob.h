@@ -66,6 +66,12 @@ class Knob
         repaint();
     }
 
+    /// Maps the range logarithmically, which is what frequency controls want.
+    void setLogarithmic(bool shouldLog)
+    {
+        logarithmic = shouldLog;
+    }
+
     void paint(juce::Graphics &) override;
     void mouseDown(const juce::MouseEvent &) override;
     void mouseDrag(const juce::MouseEvent &) override;
@@ -83,6 +89,7 @@ class Knob
     juce::Colour customAccent {0xff6b5bff};
     bool hasCustomAccent = false;
     bool bipolar = false;
+    bool logarithmic = false;
     bool learnArmed = false;
     bool isDragging = false;
 

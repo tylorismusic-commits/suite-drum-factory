@@ -252,6 +252,7 @@ class Sampler
     void moveInsert(bool bus, int channel, int from, int to);
 
     void applyMixerPreset(const MixerPreset &preset, bool preserveRouting = false);
+    void applyFactoryMix(int flavour, const std::vector<MixPieceInfo> &pieces);
     MixerPreset getCurrentMixerPreset(const juce::String &name) const;
 
     float getMicPeakL(int index) const noexcept;

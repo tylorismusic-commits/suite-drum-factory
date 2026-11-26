@@ -513,7 +513,7 @@ class MixerView
     void hideInsertPicker();
     void promptSavePreset();
 
-    juce::String activePresetName {"Balanced"};
+    juce::String activePresetName {"Studio Glue"};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MixerView)
 };

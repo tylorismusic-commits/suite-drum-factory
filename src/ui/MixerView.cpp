@@ -1147,11 +1147,13 @@ void MixerView::InsertRackPopup::rebuildKnobs()
         const int band = juce::jlimit(0, eqBandCount - 1, selectedEqBand);
         const bool cut = eqBandIsCut(band);
 
-        auto addEqKnob = [&](int param)
+        auto addEqKnob = [&](int param, bool logarithmic = false)
         {
             const auto &info = insertParamInfo(InsertType::eq, param);
             auto knob = std::make_unique<Knob>(juce::String(info.name), info.minimum, info.maximum,
                                                info.defaultValue, juce::String(info.unit));
+            if (logarithmic)
+                knob->setLogarithmic(true);
             knob->setValue(state.values[static_cast<size_t>(param)]);
             knob->setTheme(theme);
             knob->onValueChanged = [this, param](float v)
@@ -1164,7 +1166,7 @@ void MixerView::InsertRackPopup::rebuildKnobs()
             knobParams.push_back(param);
         };
 
-        addEqKnob(eqParamFreq(band));
+        addEqKnob(eqParamFreq(band), true);
         if (!cut)
         {
             addEqKnob(eqParamGain(band));
@@ -2877,7 +2879,8 @@ void MixerView::PresetBrowserPopup::rebuildEntries()
 {
     entries.clear();
 
-    static const char *factoryNames[] = {"Balanced", "Punch", "Room", "Tight"};
+    static const char *factoryNames[] = {"Balanced", "Punch", "Room", "Tight",
+                                         "Studio Glue", "Punch Bus", "Tape Room", "Modern Tight"};
 
     for (int i = 0; i < static_cast<int>(std::size(factoryNames)); ++i)
         entries.push_back({factoryNames[i], {}, i, false});
@@ -4123,37 +4126,13 @@ void MixerView::hideInsertPicker()
 
 void MixerView::applyPreset(int presetIndex)
 {
-    presetIndex = juce::jlimit(0, 3, presetIndex);
+    presetIndex = juce::jlimit(0, 7, presetIndex);
 
-    const auto &selection = processor.getFactorySelection();
-    const auto moduleForRole = [&selection](const juce::String &role) -> juce::String
-    {
-        if (role.startsWithIgnoreCase("kick."))
-            return juce::String(selection.kickModule);
-        if (role.startsWithIgnoreCase("snare."))
-            return juce::String(selection.snareModule);
-        if (role.startsWithIgnoreCase("tom."))
-        {
-            const int number = juce::jlimit(1, 5, role.fromFirstOccurrenceOf(".", false, false).getIntValue());
-            return juce::String(selection.tomModules[static_cast<size_t>(number - 1)]);
-        }
-        return "naked";
-    };
+    const auto pieces = processor.getMixPieces();
+    const auto presetName = MixerPreset::configurationMixName(presetIndex);
 
-    std::vector<MixPieceInfo> pieces;
-    const int count = processor.getSampler().numMicStrips();
-    pieces.reserve(static_cast<size_t>(count));
-
-    for (int i = 0; i < count; ++i)
-    {
-        const auto role = processor.getSampler().micStripRole(i);
-        pieces.push_back({processor.getSampler().micStripTitle(i), role, moduleForRole(role)});
-    }
-
-    const auto preset = MixerPreset::createConfigurationMix(presetIndex, pieces);
-    activePresetName = preset.name;
-
-    processor.getSampler().applyMixerPreset(preset, true);
+    processor.getSampler().applyFactoryMix(presetIndex, pieces);
+    activePresetName = presetName;
 
     for (auto &s : channelStrips)
         s->updateFromState();

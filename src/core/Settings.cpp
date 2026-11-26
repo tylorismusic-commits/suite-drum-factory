@@ -106,6 +106,7 @@ void Settings::writeState(juce::MemoryBlock &destination) const
     root.setAttribute("midiLibraryPath", midiLibraryPath);
     root.setAttribute("factoryKickModule", factoryKickModule);
     root.setAttribute("factorySnareModule", factorySnareModule);
+    root.setAttribute("factoryStudioDefaultApplied", factoryStudioDefaultApplied);
 
     auto *factoryToms = root.createNewChildElement("FactoryTomModules");
     for (const auto &id : factoryTomModules)
@@ -154,6 +155,7 @@ void Settings::readState(const juce::MemoryBlock &source)
     midiLibraryPath = root->getStringAttribute("midiLibraryPath", midiLibraryPath);
     factoryKickModule = root->getStringAttribute("factoryKickModule", factoryKickModule);
     factorySnareModule = root->getStringAttribute("factorySnareModule", factorySnareModule);
+    factoryStudioDefaultApplied = root->getBoolAttribute("factoryStudioDefaultApplied", factoryStudioDefaultApplied);
     factoryTomModules.clear();
     if (auto *toms = root->getChildByName("FactoryTomModules"))
         for (auto *t : toms->getChildIterator())

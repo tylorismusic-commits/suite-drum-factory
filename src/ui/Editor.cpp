@@ -2364,7 +2364,7 @@ void Editor::setViewMode(EditorView mode)
             slot->button->setVisible(isKit && !isMinimal && slot->hasBounds);
     if (minimalGrid != nullptr)
         minimalGrid->setVisible(isKit && isMinimal);
-    kitSelectorButton.setVisible(false);
+    kitSelectorButton.setVisible(isKit);
     instSelectorButton.setVisible(isKit);
     outBusButton.setVisible(isKit);
     for (auto &z : zoneButtons)

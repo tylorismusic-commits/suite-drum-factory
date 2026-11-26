@@ -1197,6 +1197,207 @@ void Sampler::applyMixerPreset(const MixerPreset &preset, bool preserveRouting)
             channel->params.phaseInvert = true;
 }
 
+void Sampler::applyFactoryMix(int flavour, const std::vector<MixPieceInfo> &pieces)
+{
+    flavour = juce::jlimit(0, 7, flavour);
+    const int levelFlavour = flavour >= 4 ? flavour - 4 : flavour;
+
+    auto preset = MixerPreset::createConfigurationMix(levelFlavour, pieces);
+    preset.name = MixerPreset::configurationMixName(flavour);
+    applyMixerPreset(preset, true);
+
+    const bool punch = flavour == 5;
+    const bool tape = flavour == 6;
+    const bool modern = flavour == 7;
+
+    auto clearInserts = [this](bool bus, int channel)
+    {
+        for (int slot = 0; slot < InsertChain::slotCount; ++slot)
+            setInsertType(bus, channel, slot, InsertType::none);
+    };
+
+    // Factory mixes are complete starting points: every rack is rebuilt.
+    for (int i = 0; i < static_cast<int>(micChannels.size()); ++i)
+        clearInserts(false, i);
+    for (int b = 0; b < factorySumCount; ++b)
+        clearInserts(true, b);
+    clearInserts(true, factoryMixBus);
+
+    if (flavour < 4)
+        return;
+
+    auto setEq = [this](bool bus, int channel, int slot, float lowDb, float midDb, float midHz,
+                        float highDb, float hpf, float lpf)
+    {
+        setInsertType(bus, channel, slot, InsertType::eq);
+        setInsertValue(bus, channel, slot, eqParamFreq(0), hpf);
+        setInsertValue(bus, channel, slot, eqParamGain(1), lowDb);
+        setInsertValue(bus, channel, slot, eqParamFreq(3), midHz);
+        setInsertValue(bus, channel, slot, eqParamGain(3), midDb);
+        setInsertValue(bus, channel, slot, eqParamGain(6), highDb);
+        setInsertValue(bus, channel, slot, eqParamFreq(7), lpf);
+    };
+
+    auto setComp = [this](bool bus, int channel, int slot, float thresholdDb, float ratio,
+                          float attackMs, float releaseMs, float makeupDb)
+    {
+        setInsertType(bus, channel, slot, InsertType::compressor);
+        setInsertValue(bus, channel, slot, 0, thresholdDb);
+        setInsertValue(bus, channel, slot, 1, ratio);
+        setInsertValue(bus, channel, slot, 2, attackMs);
+        setInsertValue(bus, channel, slot, 3, releaseMs);
+        setInsertValue(bus, channel, slot, 4, makeupDb);
+    };
+
+    auto setDrive = [this](bool bus, int channel, int slot, float drive, float outputDb)
+    {
+        setInsertType(bus, channel, slot, InsertType::drive);
+        setInsertValue(bus, channel, slot, 0, drive);
+        setInsertValue(bus, channel, slot, 1, outputDb);
+    };
+
+    auto setTransient = [this](bool bus, int channel, int slot, float attack, float sustain)
+    {
+        setInsertType(bus, channel, slot, InsertType::transient);
+        setInsertValue(bus, channel, slot, 0, attack);
+        setInsertValue(bus, channel, slot, 1, sustain);
+    };
+
+    auto setLimiter = [this](bool bus, int channel, int slot, float ceilingDb, float releaseMs)
+    {
+        setInsertType(bus, channel, slot, InsertType::limiter);
+        setInsertValue(bus, channel, slot, 0, ceilingDb);
+        setInsertValue(bus, channel, slot, 1, releaseMs);
+    };
+
+    for (int i = 0; i < static_cast<int>(micChannels.size()); ++i)
+    {
+        const auto role = i < static_cast<int>(pieces.size()) ? pieces[static_cast<size_t>(i)].role.toLowerCase()
+                                                              : juce::String();
+        const auto title = (i < static_cast<int>(pieces.size()) ? pieces[static_cast<size_t>(i)].name
+                                                                : micChannels[static_cast<size_t>(i)]->title)
+                               .toLowerCase();
+
+        const bool room = title.contains("amb") || title.contains("room") || title.contains("overhead")
+                          || title.contains("oh") || title.contains("o/h");
+        const bool bottom = !room
+                            && (title.contains("bottom") || title.contains("under") || title.contains("btm"));
+        const bool kick = !room
+                          && (role.startsWith("kick.") || title.contains("kick") || title.contains("kdrum")
+                              || title.contains("bdrum"));
+        const bool snare = !room && !bottom
+                           && (role.startsWith("snare.") || title.contains("snare") || title.contains("rim"));
+        const bool tom = !room && (role.startsWith("tom.") || title.contains("tom") || title.contains("floor"));
+        const bool cymbal = !room
+                            && (role.startsWith("base.") || title.contains("crash") || title.contains("ride")
+                                || title.contains("hihat") || title.contains("hat") || title.contains("china")
+                                || title.contains("splash") || title.contains("cymbal"));
+
+        if (room)
+        {
+            setEq(false, i, 0, -1.0f, -1.0f, 2500.0f, -1.5f, 150.0f, 12000.0f);
+            setComp(false, i, 1, -26.0f, 1.8f, 30.0f, 180.0f, 0.5f);
+            if (tape)
+                setDrive(false, i, 2, 0.10f, 0.0f);
+        }
+        else if (kick)
+        {
+            setEq(false, i, 0, 1.8f, -1.5f, 400.0f, 0.6f, 28.0f, 16000.0f);
+            setComp(false, i, 1, -18.0f, 3.0f, 20.0f, 120.0f, 2.0f);
+            if (tape)
+                setDrive(false, i, 2, 0.22f, 0.0f);
+            else if (punch)
+                setTransient(false, i, 2, 0.30f, -0.05f);
+            else if (modern)
+                setTransient(false, i, 2, 0.20f, -0.12f);
+            else
+                setDrive(false, i, 2, 0.10f, 0.0f);
+        }
+        else if (bottom)
+        {
+            setEq(false, i, 0, -1.0f, -1.0f, 900.0f, -2.0f, 130.0f, 8000.0f);
+            setComp(false, i, 1, -24.0f, 2.5f, 12.0f, 90.0f, 1.5f);
+            if (tape)
+                setDrive(false, i, 2, 0.12f, 0.0f);
+        }
+        else if (snare)
+        {
+            setEq(false, i, 0, 0.8f, -2.0f, 650.0f, 2.0f, 75.0f, 18000.0f);
+            setComp(false, i, 1, -20.0f, 3.0f, 10.0f, 80.0f, 2.0f);
+            if (tape)
+                setDrive(false, i, 2, 0.20f, 0.0f);
+            else if (punch)
+                setTransient(false, i, 2, 0.28f, -0.05f);
+            else if (modern)
+                setTransient(false, i, 2, 0.22f, -0.12f);
+            else
+                setDrive(false, i, 2, 0.10f, 0.0f);
+        }
+        else if (tom)
+        {
+            setEq(false, i, 0, 1.0f, -1.5f, 500.0f, 1.0f, 60.0f, 16000.0f);
+            setComp(false, i, 1, -22.0f, 2.5f, 18.0f, 120.0f, 1.5f);
+            if (tape)
+                setDrive(false, i, 2, 0.18f, 0.0f);
+            else if (punch)
+                setTransient(false, i, 2, 0.25f, -0.05f);
+            else if (modern)
+                setTransient(false, i, 2, 0.18f, -0.10f);
+        }
+        else if (cymbal)
+        {
+            setEq(false, i, 0, -1.5f, -1.5f, 4000.0f, -2.0f, 300.0f, 18500.0f);
+            setComp(false, i, 1, -26.0f, 1.8f, 25.0f, 150.0f, 0.5f);
+            if (tape)
+                setDrive(false, i, 2, 0.08f, 0.0f);
+        }
+        else
+        {
+            setEq(false, i, 0, -0.5f, -1.0f, 1200.0f, -0.5f, 60.0f, 18000.0f);
+            setComp(false, i, 1, -24.0f, 2.0f, 20.0f, 150.0f, 1.0f);
+        }
+    }
+
+    // Sum buses.
+    for (int b = 0; b < factorySumCount; ++b)
+    {
+        if (b == 0)
+        {
+            setEq(true, b, 0, 1.5f, -1.0f, 350.0f, 0.5f, 20.0f, 18000.0f);
+            setComp(true, b, 1, -18.0f, 2.0f, 20.0f, 140.0f, 1.0f);
+        }
+        else if (b == 1)
+        {
+            setEq(true, b, 0, 0.5f, -1.0f, 600.0f, 1.0f, 25.0f, 18000.0f);
+            setComp(true, b, 1, -20.0f, 2.0f, 15.0f, 120.0f, 1.0f);
+        }
+        else if (b == 2)
+        {
+            setEq(true, b, 0, 1.0f, -1.0f, 500.0f, 0.5f, 25.0f, 16000.0f);
+            setComp(true, b, 1, -20.0f, 2.0f, 20.0f, 140.0f, 1.0f);
+        }
+        else if (b == 3)
+        {
+            setEq(true, b, 0, -1.0f, -1.0f, 4000.0f, -1.0f, 150.0f, 18500.0f);
+            setComp(true, b, 1, -24.0f, 1.8f, 25.0f, 160.0f, 0.5f);
+        }
+        else
+        {
+            setEq(true, b, 0, -1.0f, -1.0f, 2000.0f, -1.0f, 100.0f, 12000.0f);
+            setComp(true, b, 1, -24.0f, 1.8f, 30.0f, 200.0f, 0.5f);
+        }
+
+        setDrive(true, b, 2, tape ? 0.28f : (punch ? 0.16f : 0.07f), 0.0f);
+        setLimiter(true, b, 3, -1.0f, 120.0f);
+    }
+
+    // Mix bus inserts.
+    setEq(true, factoryMixBus, 0, 0.6f, -0.5f, 800.0f, 0.6f, 20.0f, 20000.0f);
+    setComp(true, factoryMixBus, 1, -12.0f, 2.0f, 30.0f, 150.0f, 1.0f);
+    setDrive(true, factoryMixBus, 2, tape ? 0.12f : (modern ? 0.04f : 0.06f), 0.0f);
+    setLimiter(true, factoryMixBus, 3, -0.8f, 100.0f);
+}
+
 MixerPreset Sampler::getCurrentMixerPreset(const juce::String &name) const
 {
     MixerPreset p;
