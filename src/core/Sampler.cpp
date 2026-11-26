@@ -1138,7 +1138,13 @@ void Sampler::applyMixerPreset(const MixerPreset &preset)
     if (!hasMicNames)
     {
         for (size_t i = 0; i < preset.micStrips.size() && i < micChannels.size(); ++i)
-            micChannels[i]->params = preset.micStrips[i];
+        {
+            auto next = preset.micStrips[i];
+            // Direct output routing is a technical choice, not a mix flavour.
+            next.outputBus = micChannels[i]->params.outputBus;
+            next.sendToMaster = micChannels[i]->params.sendToMaster;
+            micChannels[i]->params = next;
+        }
 
         for (auto &channel : micChannels)
             if (channel->kitPhaseInvert)
@@ -1162,7 +1168,10 @@ void Sampler::applyMixerPreset(const MixerPreset &preset)
 
             if (presetName.equalsIgnoreCase(channel->name) || presetName.equalsIgnoreCase(channel->title))
             {
-                channel->params = preset.micStrips[i];
+                auto next = preset.micStrips[i];
+                next.outputBus = channel->params.outputBus;
+                next.sendToMaster = channel->params.sendToMaster;
+                channel->params = next;
                 used[i] = true;
                 break;
             }

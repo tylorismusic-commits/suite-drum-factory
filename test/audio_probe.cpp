@@ -956,6 +956,13 @@ int main (int argc, char** argv)
             pieces.push_back ({ sampler.micStripTitle (i), role, moduleForRole (role) });
         }
 
+        for (int i = 0; i < sampler.numMicStrips(); ++i)
+            if (sampler.micStripTitle (i).containsIgnoreCase ("kick"))
+            {
+                sampler.setMicOutputBus (i, 1);
+                break;
+            }
+
         for (int flavour = 0; flavour < 4; ++flavour)
         {
             const auto preset = glorp::MixerPreset::createConfigurationMix (flavour, pieces);
@@ -972,7 +979,8 @@ int main (int argc, char** argv)
                           << " role=" << sampler.micStripRole (i).toStdString()
                           << " level=" << params.level
                           << " pan=" << params.pan
-                          << " reverb=" << params.reverbSend << std::endl;
+                          << " reverb=" << params.reverbSend
+                          << " out=" << params.outputBus << std::endl;
             }
 
             for (int b = 0; b < sampler.numFactoryBuses(); ++b)
@@ -991,7 +999,7 @@ int main (int argc, char** argv)
                 {
                     juce::MidiBuffer midi;
                     if (block == 0)
-                        midi.addEvent (juce::MidiMessage::noteOn (1, 36, static_cast<juce::uint8> (100)), 0);
+                        midi.addEvent (juce::MidiMessage::noteOn (1, 38, static_cast<juce::uint8> (100)), 0);
                     buffer.clear();
                     proc.processBlock (buffer, midi);
                     for (int ch = 0; ch < 2; ++ch)
