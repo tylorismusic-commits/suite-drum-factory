@@ -2472,12 +2472,6 @@ void Editor::mouseDown(const juce::MouseEvent &e)
         return;
     }
 
-    if (studioDeckActive() && studioFlowRect.contains(e.position))
-    {
-        handleStudioDeckClick(e.position);
-        return;
-    }
-
     if (layerDrawer != nullptr && layerDrawer->isVisible()
         && !layerDrawer->getBounds().contains(e.getPosition()))
         closeLayerDrawer();
@@ -3248,32 +3242,6 @@ void Editor::buildControls()
     addAndMakeVisible(*masterVolumeKnob);
 
     // Studio deck controls.
-    studioSoundTab = std::make_unique<ZoneButton>("SOUND", true);
-    studioSoundTab->setTheme(theme);
-    studioSoundTab->onClick = [this]
-    {
-        studioInspectorTab = 0;
-        studioSoundTab->setActive(true);
-        studioMixTab->setActive(false);
-        refreshStudioDeckControls();
-        resized();
-        repaint();
-    };
-    addChildComponent(*studioSoundTab);
-
-    studioMixTab = std::make_unique<ZoneButton>("MIX", false);
-    studioMixTab->setTheme(theme);
-    studioMixTab->onClick = [this]
-    {
-        studioInspectorTab = 1;
-        studioSoundTab->setActive(false);
-        studioMixTab->setActive(true);
-        refreshStudioDeckControls();
-        resized();
-        repaint();
-    };
-    addChildComponent(*studioMixTab);
-
     instBleedKnob = std::make_unique<Knob>("BLEED", 0.0f, 1.0f, 0.15f, "");
     instBleedKnob->setDoubleClickReturnValue(true, 0.15);
     instBleedKnob->onValueChanged = [this](float v)
@@ -3336,10 +3304,6 @@ void Editor::buildControls()
         g.addTransform(juce::AffineTransform::translation(-studioDeckRect.getX(), -studioDeckRect.getY()));
         drawStudioDeck(g);
         g.restoreState();
-    };
-    backdrop->onMouseDown = [this](const juce::MouseEvent &e)
-    {
-        handleStudioDeckClick(e.position + studioDeckRect.getTopLeft());
     };
     studioDeckBackdrop = std::move(backdrop);
     addChildComponent(*studioDeckBackdrop);
@@ -3809,8 +3773,7 @@ bool Editor::studioDeckActive() const
            && !theme.minimalStyle
            && processor.getSettings().fullWidthKitLayout
            && !logicalInstruments.empty()
-           && studioSoundTab != nullptr
-           && studioMixTab != nullptr;
+           && studioDeckBackdrop != nullptr;
 }
 
 void Editor::setFullWidthKitLayout(bool fullWidth)
@@ -3839,8 +3802,6 @@ void Editor::refreshStudioDeckControls()
             c->setVisible(studio);
     };
 
-    setStudioOnlyVisible(studioSoundTab.get());
-    setStudioOnlyVisible(studioMixTab.get());
     if (studioDeckBackdrop != nullptr)
         studioDeckBackdrop->setVisible(studio);
 
@@ -3877,34 +3838,26 @@ void Editor::refreshStudioDeckControls()
         return;
     }
 
-    const bool mixTab = studioInspectorTab == 1;
-
-    studioSoundTab->setActive(!mixTab);
-    studioMixTab->setActive(mixTab);
-
     instSelectorButton.setVisible(true);
     outBusButton.setVisible(false);
 
     for (auto &z : zoneButtons)
-        z->setVisible(!mixTab);
+        z->setVisible(true);
 
-    for (auto *knob : {instPitchKnob.get(), instDynamicsKnob.get(), instAttackKnob.get(), instDampKnob.get()})
+    for (auto *knob : {instVolumeKnob.get(), instPanKnob.get(), instPitchKnob.get(),
+                       instDynamicsKnob.get(), instAttackKnob.get(), instDampKnob.get()})
         if (knob != nullptr)
-            knob->setVisible(!mixTab);
+            knob->setVisible(true);
 
-    instCurveButton.setVisible(!mixTab);
-    instCurvePreview.setVisible(!mixTab);
-    instLearnButton.setVisible(!mixTab);
-    instLayerButton.setVisible(!mixTab);
+    instCurveButton.setVisible(true);
+    instCurvePreview.setVisible(true);
+    instLearnButton.setVisible(true);
+    instLayerButton.setVisible(true);
 
-    if (instVolumeKnob != nullptr)
-        instVolumeKnob->setVisible(mixTab);
-    if (instPanKnob != nullptr)
-        instPanKnob->setVisible(mixTab);
     if (instBleedKnob != nullptr)
-        instBleedKnob->setVisible(mixTab && processor.getSampler().isFactoryPieceMode());
-    studioOutputButton.setVisible(mixTab);
-    studioOpenStripButton.setVisible(mixTab);
+        instBleedKnob->setVisible(processor.getSampler().isFactoryPieceMode());
+    studioOutputButton.setVisible(true);
+    studioOpenStripButton.setVisible(true);
 
     scope.setVisible(false);
     if (masterVolumeKnob != nullptr)
@@ -3922,8 +3875,6 @@ void Editor::bringStudioDeckToFront()
             component->toFront(false);
     };
 
-    bring(studioSoundTab.get());
-    bring(studioMixTab.get());
     bring(instBleedKnob.get());
     bring(&studioOutputButton);
     bring(&studioOpenStripButton);
@@ -3944,33 +3895,10 @@ void Editor::bringStudioDeckToFront()
         bring(z.get());
 }
 
-void Editor::handleStudioDeckClick(juce::Point<float> position)
-{
-    if (!studioDeckActive() || !studioFlowRect.contains(position))
-        return;
-
-    const int piece = selectedPieceIndex();
-    if (piece >= 0 && mixerView != nullptr)
-    {
-        setViewMode(EditorView::mixerView);
-        mixerView->focusChannel(piece);
-    }
-}
-
 int Editor::selectedPieceIndex() const
 {
     const int samplerIndex = getActiveSamplerIndex();
     return samplerIndex >= 0 ? processor.getSampler().micStripForInstrument(samplerIndex) : -1;
-}
-
-int Editor::selectedSumIndex() const
-{
-    const int piece = selectedPieceIndex();
-    if (piece < 0)
-        return -1;
-
-    const int bus = processor.getSampler().micStripBus(piece);
-    return bus >= 0 && bus < 5 ? bus : -1;
 }
 
 int Editor::countInserts(bool bus, int channel) const
@@ -4205,7 +4133,6 @@ void Editor::timerCallback()
         if (studioDeck && currentView == EditorView::kitView)
         {
             repaint(studioMonitorRect.toNearestInt().expanded(2));
-            repaint(studioFlowRect.toNearestInt().expanded(2));
         }
         else if (!minimalMasterCardRect.isEmpty())
         {
@@ -4453,8 +4380,8 @@ void Editor::resized()
         const int deckW = w - 40;
         const int gap = 10;
 
-        int inspectorW = juce::jlimit(360, 520, juce::roundToInt(static_cast<float>(deckW) * 0.42f));
-        int monitorW = juce::jlimit(210, 270, juce::roundToInt(static_cast<float>(deckW) * 0.23f));
+        int inspectorW = juce::jlimit(380, 580, juce::roundToInt(static_cast<float>(deckW) * 0.46f));
+        int monitorW = juce::jlimit(190, 230, juce::roundToInt(static_cast<float>(deckW) * 0.20f));
         int flowW = deckW - inspectorW - monitorW - gap * 2;
         if (flowW < 240)
         {
@@ -4481,8 +4408,8 @@ void Editor::resized()
                 zoneRows += (remaining + fullRowCapacity - 1) / fullRowCapacity;
         }
 
-        const int baseDeckH = compact ? 204 : 232;
-        const int deckH = baseDeckH + juce::jmax(0, zoneRows - 2) * (zoneRowH + 2);
+        const int baseDeckH = compact ? 176 : 190;
+        const int deckH = baseDeckH + juce::jmax(0, zoneRows - 1) * (zoneRowH + 2);
         const int deckY = h - deckH - 14;
         const int baseDeckY = h - baseDeckH - 14;
 
@@ -4490,7 +4417,7 @@ void Editor::resized()
                           static_cast<float>(deckW), static_cast<float>(deckH)};
         studioInspectorRect = {static_cast<float>(deckX), static_cast<float>(deckY),
                                static_cast<float>(inspectorW), static_cast<float>(deckH)};
-        studioFlowRect = {static_cast<float>(deckX + inspectorW + gap), static_cast<float>(deckY),
+        studioMixRect = {static_cast<float>(deckX + inspectorW + gap), static_cast<float>(deckY),
                           static_cast<float>(flowW), static_cast<float>(deckH)};
         studioMonitorRect = {static_cast<float>(deckX + inspectorW + flowW + gap * 2),
                              static_cast<float>(deckY), static_cast<float>(monitorW),
@@ -4510,25 +4437,18 @@ void Editor::resized()
         if (studioDeckBackdrop != nullptr)
             studioDeckBackdrop->setBounds(studioDeckRect.toNearestInt());
 
-        const int tabW = compact ? 58 : 64;
-        const int tabH = 22;
-        studioSoundTab->setBounds(static_cast<int>(studioInspectorRect.getRight()) - tabW * 2 - 16,
-                                  static_cast<int>(studioInspectorRect.getY()) + 8, tabW, tabH);
-        studioMixTab->setBounds(static_cast<int>(studioInspectorRect.getRight()) - tabW - 10,
-                                static_cast<int>(studioInspectorRect.getY()) + 8, tabW, tabH);
-
         const int ix = static_cast<int>(studioInspectorRect.getX()) + 12;
         const int iy = static_cast<int>(studioInspectorRect.getY());
-        const int selectorY = iy + 36;
+        const int selectorY = iy + 32;
         instSelectorButton.setBounds(ix, selectorY, iw, 26);
 
-        studioNoteRect = {static_cast<float>(ix + iw - noteLearnW), static_cast<float>(iy + 68),
+        studioNoteRect = {static_cast<float>(ix + iw - noteLearnW), static_cast<float>(iy + 62),
                           static_cast<float>(noteW), static_cast<float>(zoneRowH)};
-        instLearnButton.setBounds(ix + iw - learnW, iy + 68, learnW, 24);
+        instLearnButton.setBounds(ix + iw - learnW, iy + 62, learnW, 22);
 
         int placed = 0;
-        int zy = iy + 68;
-        int zonesBottom = iy + 68;
+        int zy = iy + 62;
+        int zonesBottom = iy + 62;
         for (int row = 0; placed < static_cast<int>(zoneButtons.size()); ++row)
         {
             const int capacity = row == 0 ? firstRowCapacity : fullRowCapacity;
@@ -4540,9 +4460,9 @@ void Editor::resized()
             }
             zy += zoneRowH + 2;
         }
-        const int soundY = zonesBottom + (compact ? 6 : 8);
+        const int soundY = zonesBottom + 6;
         const int knobW = compact ? 52 : 56;
-        const int knobH = compact ? 58 : 64;
+        const int knobH = 58;
         int kx = ix;
         for (auto *knob : {instPitchKnob.get(), instDynamicsKnob.get(), instAttackKnob.get(), instDampKnob.get()})
         {
@@ -4554,19 +4474,22 @@ void Editor::resized()
         const int rightX = ix + 4 * (knobW + 4) + 8;
         const int rightW = juce::jmax(110, static_cast<int>(studioInspectorRect.getRight()) - 12 - rightX);
         instCurveButton.setBounds(rightX, soundY, rightW, 24);
-        instCurvePreview.setBounds(rightX, soundY + 28, rightW, compact ? 34 : 50);
-        instLayerButton.setBounds(rightX, soundY + (compact ? 66 : 82), rightW, 20);
+        instCurvePreview.setBounds(rightX, soundY + 28, rightW, compact ? 30 : 40);
+        instLayerButton.setBounds(rightX, soundY + (compact ? 62 : 72), rightW, 20);
 
-        const int mixY = iy + (compact ? 74 : 78);
-        instVolumeKnob->setBounds(ix, mixY, 60, 68);
-        instPanKnob->setBounds(ix + 64, mixY, 60, 68);
-        instBleedKnob->setBounds(ix + 128, mixY, 60, 68);
-        studioOutputButton.setBounds(ix, iy + (compact ? 146 : 152), 124, 24);
-        studioOpenStripButton.setBounds(ix + 132, iy + (compact ? 146 : 152), 112, 24);
+        const int mx = static_cast<int>(studioMixRect.getX()) + 12;
+        const int my = static_cast<int>(studioMixRect.getY());
+        const int mixKnobW = 58;
+        const int mixKnobH = 64;
+        instVolumeKnob->setBounds(mx, my + 34, mixKnobW, mixKnobH);
+        instPanKnob->setBounds(mx + mixKnobW + 4, my + 34, mixKnobW, mixKnobH);
+        instBleedKnob->setBounds(mx + (mixKnobW + 4) * 2, my + 34, mixKnobW, mixKnobH);
+        studioOutputButton.setBounds(mx, my + 104, 118, 24);
+        studioOpenStripButton.setBounds(mx + 126, my + 104, 108, 24);
 
-        const int knobSize = juce::jmin(86, deckH - 84);
+        const int knobSize = juce::jmin(80, deckH - 78);
         masterVolumeKnob->setBounds(static_cast<int>(studioMonitorRect.getRight()) - knobSize - 12,
-                                    static_cast<int>(studioMonitorRect.getY()) + 64, knobSize, knobSize);
+                                    static_cast<int>(studioMonitorRect.getY()) + 52, knobSize, knobSize);
 
         outBusButton.setBounds(0, 0, 0, 0);
         scope.setBounds(0, 0, 0, 0);
@@ -4938,15 +4861,15 @@ void Editor::drawStudioDeck(juce::Graphics &g)
         g.setFont(displayFont(15.0f));
         g.setColour(theme.ink);
         g.drawText(title, juce::Rectangle<float>(rect.getX() + 12.0f, rect.getY() + 3.0f,
-                                                 rect.getWidth() - 150.0f, 22.0f),
+                                                 rect.getWidth() - 24.0f, 22.0f),
                    juce::Justification::centredLeft, false);
     };
 
     drawCard(studioInspectorRect, "PIECE INSPECTOR");
-    drawCard(studioFlowRect, "SIGNAL FLOW");
+    drawCard(studioMixRect, "MIX STRIP");
     drawCard(studioMonitorRect, "MONITOR");
 
-    if (studioInspectorTab == 0 && instLearnButton.isVisible())
+    if (instLearnButton.isVisible())
     {
         const int samplerIndex = getActiveSamplerIndex();
         const auto note = (learningInstrument == samplerIndex && samplerIndex >= 0)
@@ -4964,168 +4887,25 @@ void Editor::drawStudioDeck(juce::Graphics &g)
                    juce::Justification::centredLeft, false);
     }
 
-    if (studioInspectorTab == 1)
     {
         const int piece = selectedPieceIndex();
         if (piece >= 0)
         {
             const auto role = processor.getSampler().micStripRole(piece);
-            const auto text = juce::String("STRIP  ")
+            const auto info = juce::String("STRIP  ")
                               + (role.isNotEmpty() ? role.toUpperCase() : juce::String("MIC"))
                               + "   ·   " + juce::String(countInserts(false, piece)) + " INSERTS";
             g.setFont(uiFont(8.0f));
             g.setColour(theme.inkSoft);
-            g.drawText(text,
-                       juce::Rectangle<float>(studioInspectorRect.getX() + 12.0f,
-                                              studioInspectorRect.getBottom() - 20.0f,
-                                              studioInspectorRect.getWidth() - 24.0f, 14.0f),
+            g.drawText(info,
+                       juce::Rectangle<float>(studioMixRect.getX() + 12.0f,
+                                              studioMixRect.getBottom() - 24.0f,
+                                              studioMixRect.getWidth() - 24.0f, 14.0f),
                        juce::Justification::centredLeft, false);
         }
     }
 
-    drawStudioSignalFlow(g, studioFlowRect);
     drawStudioMonitor(g, studioMonitorRect);
-}
-
-void Editor::drawStudioSignalFlow(juce::Graphics &g, juce::Rectangle<float> area)
-{
-    auto &sampler = processor.getSampler();
-    const int piece = selectedPieceIndex();
-    const int sum = selectedSumIndex();
-    const bool factory = sampler.isFactoryPieceMode();
-
-    g.setFont(uiFont(8.0f));
-    g.setColour(theme.inkSoft);
-    g.drawText("CLICK TO OPEN STRIP",
-               juce::Rectangle<float>(area.getRight() - 116.0f, area.getY() + 4.0f, 104.0f, 16.0f),
-               juce::Justification::centredRight, false);
-
-    const auto content = area.reduced(12.0f, 10.0f);
-    float top = content.getY() + 22.0f;
-
-    if (factory)
-    {
-        static const char *names[5] {"KICK", "SNARE", "TOMS", "CYMBALS", "ROOM"};
-        const float gap = 3.0f;
-        const float chipW = (content.getWidth() - gap * 4.0f) / 5.0f;
-
-        for (int i = 0; i < 5; ++i)
-        {
-            const auto chip = juce::Rectangle<float>(content.getX() + static_cast<float>(i) * (chipW + gap),
-                                                     top, chipW, 25.0f);
-            const bool selected = i == sum;
-            g.setColour(selected ? theme.accent.withAlpha(0.18f) : theme.trough);
-            g.fillRoundedRectangle(chip, 3.0f);
-            g.setColour(selected ? theme.accent : theme.panelEdge);
-            g.drawRoundedRectangle(chip, 3.0f, selected ? 1.4f : 1.0f);
-
-            g.setFont(uiFont(8.0f).boldened());
-            g.setColour(selected ? theme.accent : theme.inkSoft);
-            g.drawText(names[i], chip.withTrimmedBottom(4.0f).toNearestInt(), juce::Justification::centred, false);
-
-            const float level = std::max(sampler.getFactoryBusPeakL(i), sampler.getFactoryBusPeakR(i));
-            const float meterW = std::max(0.0f, (chip.getWidth() - 8.0f) * juce::jlimit(0.0f, 1.0f, level));
-            g.setColour((selected ? theme.accent : theme.panelEdge).withAlpha(0.9f));
-            g.fillRect(chip.getX() + 4.0f, chip.getBottom() - 4.0f, meterW, 2.0f);
-        }
-
-        top += 34.0f;
-    }
-
-    const bool direct = piece >= 0 && sampler.getMicOutputBus(piece) > 0;
-    const int boxCount = direct ? 2 : 3;
-    const float arrowW = 18.0f;
-    const float boxH = juce::jmax(38.0f, content.getBottom() - top - 2.0f);
-    const float boxW = (content.getWidth() - arrowW * static_cast<float>(boxCount - 1)) / static_cast<float>(boxCount);
-
-    const auto drawBox = [&](juce::Rectangle<float> box, const juce::String &title, const juce::String &subtitle,
-                             const juce::String &foot, float level, bool accent)
-    {
-        g.setColour(accent ? theme.accent.withAlpha(0.13f) : theme.trough);
-        g.fillRoundedRectangle(box, 4.0f);
-        g.setColour(accent ? theme.accent.withAlpha(0.75f) : theme.panelEdge);
-        g.drawRoundedRectangle(box, 4.0f, 1.1f);
-
-        g.setFont(uiFont(9.5f).boldened());
-        g.setColour(accent ? theme.accent : theme.ink);
-        g.drawFittedText(title, box.reduced(7.0f, 5.0f).withTrimmedBottom(box.getHeight() - 20.0f).toNearestInt(),
-                         juce::Justification::centredLeft, 1, 0.72f);
-
-        g.setFont(uiFont(7.5f));
-        g.setColour(theme.inkSoft);
-        g.drawFittedText(subtitle,
-                         juce::Rectangle<float>(box.getX() + 7.0f, box.getCentreY() - 13.0f,
-                                                box.getWidth() - 14.0f, 13.0f).toNearestInt(),
-                         juce::Justification::centredLeft, 1, 0.7f);
-
-        const auto meter = juce::Rectangle<float>(box.getX() + 7.0f, box.getCentreY() + 4.0f,
-                                                  box.getWidth() - 14.0f, 6.0f);
-        g.setColour(theme.background);
-        g.fillRoundedRectangle(meter, 2.0f);
-        const float meterW = std::max(0.0f, meter.getWidth() * juce::jlimit(0.0f, 1.0f, level));
-        g.setColour(accent ? theme.accent : theme.accentAlt);
-        g.fillRoundedRectangle(meter.withWidth(meterW), 2.0f);
-
-        g.setColour(theme.inkSoft);
-        g.setFont(uiFont(7.5f));
-        const float db = juce::Decibels::gainToDecibels(level, -60.0f);
-        g.drawText(foot + " · " + juce::String(db, 1) + " dB",
-                   juce::Rectangle<float>(box.getX() + 7.0f, box.getBottom() - 18.0f,
-                                          box.getWidth() - 14.0f, 12.0f),
-                   juce::Justification::centredLeft, false);
-    };
-
-    const auto drawArrow = [&](juce::Rectangle<float> from, juce::Rectangle<float> to)
-    {
-        const float y = from.getCentreY();
-        g.setColour(theme.panelEdge);
-        g.drawLine(from.getRight() + 2.0f, y, to.getX() - 4.0f, y, 1.2f);
-        juce::Path arrow;
-        arrow.startNewSubPath(to.getX() - 4.0f, y);
-        arrow.lineTo(to.getX() - 9.0f, y - 3.0f);
-        arrow.lineTo(to.getX() - 9.0f, y + 3.0f);
-        arrow.closeSubPath();
-        g.fillPath(arrow);
-    };
-
-    juce::Rectangle<float> box(content.getX(), top, boxW, boxH);
-    const auto sourceTitle = piece >= 0 ? sampler.micStripTitle(piece) : juce::String("NO PIECE");
-    const auto role = piece >= 0 ? sampler.micStripRole(piece) : juce::String();
-    const float sourceLevel = piece >= 0 ? std::max(sampler.getMicPeakL(piece), sampler.getMicPeakR(piece)) : 0.0f;
-    drawBox(box, sourceTitle, role.isNotEmpty() ? role : "MIC INPUT",
-            juce::String(countInserts(false, piece)) + " INS", sourceLevel, false);
-
-    if (direct)
-    {
-        auto dest = box.translated(boxW + arrowW, 0.0f);
-        drawArrow(box, dest);
-        const int out = sampler.getMicOutputBus(piece);
-        drawBox(dest, "DIRECT OUT " + juce::String(out * 2 + 1) + "/" + juce::String(out * 2 + 2),
-                "strip inserts", juce::String(countInserts(false, piece)) + " INS", sourceLevel, true);
-    }
-    else
-    {
-        auto dest = box.translated(boxW + arrowW, 0.0f);
-        juce::String destTitle = "MIX BUS";
-        juce::String destSub = "sum inserts";
-        float destLevel = std::max(sampler.getMasterPeakL(), sampler.getMasterPeakR());
-        int destInserts = countInserts(true, 5);
-
-        if (factory && sum >= 0)
-        {
-            destTitle = sampler.factoryBusTitle(sum).toUpperCase();
-            destSub = "sum inserts";
-            destLevel = std::max(sampler.getFactoryBusPeakL(sum), sampler.getFactoryBusPeakR(sum));
-            destInserts = countInserts(true, sum);
-        }
-
-        drawBox(dest, destTitle, destSub, juce::String(destInserts) + " INS", destLevel, true);
-
-        auto outBox = dest.translated(boxW + arrowW, 0.0f);
-        drawArrow(dest, outBox);
-        drawBox(outBox, "OUT 1/2", "master inserts", juce::String(countInserts(true, 5)) + " INS",
-                std::max(sampler.getMasterPeakL(), sampler.getMasterPeakR()), false);
-    }
 }
 
 void Editor::drawStudioMonitor(juce::Graphics &g, juce::Rectangle<float> area)

@@ -59,10 +59,11 @@ Drums Glorp.
   snare and tom source modules.
 - A new session opens on the **Studio Mix** configuration with the lightly
   processed **Studio Glue** preset.
-- The kit view uses a full-width art layout with a three-zone studio deck:
-  a **SOUND/MIX** piece inspector, a live **Signal Flow** map, and a master
-  **Monitor**. **Settings → Kit View Layout** switches back to the classic
-  sidebar at any time.
+- The kit view uses a full-width art layout with a compact three-zone studio
+  deck: a **Piece Inspector** for source/articulation and tuning, a **Mix Strip**
+  with always-visible volume, pan, bleed, output routing and an open-strip
+  action, and a master **Monitor**. **Settings → Kit View Layout** switches back
+  to the classic sidebar at any time.
 - The **KIT** dropdown in the kit view loads any installed external kit, browses
   for a `.glorpkit`/XML file, or rescans the kit folders.
 - Source-mic polarity is applied automatically while the piece is summed, so
