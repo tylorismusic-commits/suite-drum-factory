@@ -80,8 +80,8 @@ const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &
         juce::Rectangle<float>(0.173f, 0.380f, 0.185f, 0.145f), // tom 5 head (left)
         juce::Rectangle<float>(0.500f, 0.086f, 0.054f, 0.071f), // splash 1
         juce::Rectangle<float>(0.573f, 0.086f, 0.042f, 0.071f), // splash 2
-        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // china 1 (bright right cymbal)
-        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 2 (left)
+        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 1 (left of tom 5)
+        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // china 2 (right of ride)
     }};
 
     return regions;
@@ -105,8 +105,8 @@ const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &
         juce::Rectangle<float>(0.173f, 0.380f, 0.185f, 0.470f), // tom 5
         juce::Rectangle<float>(0.500f, 0.086f, 0.054f, 0.071f), // splash 1
         juce::Rectangle<float>(0.573f, 0.086f, 0.042f, 0.071f), // splash 2
-        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // china 1
-        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 2
+        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 1
+        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // china 2
     }};
 
     return bodies;
@@ -129,8 +129,8 @@ const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &sing
         juce::Point<float>(0.265f, 0.465f), // tom 5
         juce::Point<float>(0.527f, 0.121f), // splash 1
         juce::Point<float>(0.594f, 0.121f), // splash 2
-        juce::Point<float>(0.885f, 0.360f), // china 1
-        juce::Point<float>(0.162f, 0.250f), // china 2
+        juce::Point<float>(0.162f, 0.250f), // china 1
+        juce::Point<float>(0.885f, 0.360f), // china 2
     }};
 
     return points;
