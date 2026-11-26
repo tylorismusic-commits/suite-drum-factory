@@ -367,6 +367,8 @@ class MixerView
 
         bool draggingFader = false;
         bool draggingPan = false;
+        HandButton soloBtn {"S", true};
+        HandButton muteBtn {"M", true};
     };
 
     //==========================================================================

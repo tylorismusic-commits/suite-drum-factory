@@ -2631,6 +2631,12 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
         std::fill(reverbAccumL.begin(), reverbAccumL.begin() + numSamples, 0.0f);
         std::fill(reverbAccumR.begin(), reverbAccumR.begin() + numSamples, 0.0f);
 
+        bool anyBusSolo = false;
+        if (factoryPieceMode)
+            for (const auto &bus : factoryBuses)
+                if (bus != nullptr && bus->params.solo)
+                    anyBusSolo = true;
+
         // 2. Voices accumulate directly into per-mic scratch buffers
         for (auto &voicePtr : pool.voices)
         {
@@ -3162,7 +3168,8 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             if (factoryPieceMode)
             {
                 const int bus = juce::jlimit(0, 3, state.factoryBus);
-                if (numSamples <= static_cast<int>(busScratchL[static_cast<size_t>(bus)].size()))
+                if (!(anyBusSolo && bus == 3)
+                    && numSamples <= static_cast<int>(busScratchL[static_cast<size_t>(bus)].size()))
                 {
                     juce::FloatVectorOperations::add(busScratchL[static_cast<size_t>(bus)].data(), sL, numSamples);
                     juce::FloatVectorOperations::add(busScratchR[static_cast<size_t>(bus)].data(), sR, numSamples);
@@ -3195,7 +3202,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             for (int b = 0; b < 3; ++b)
             {
                 auto &bus = *factoryBuses[static_cast<size_t>(b)];
-                if (bus.params.mute)
+                if (bus.params.mute || (anyBusSolo && !bus.params.solo))
                     continue;
 
                 bus.fx.process(busScratchL[static_cast<size_t>(b)].data(),

@@ -31,6 +31,9 @@ Drums Glorp.
 - The mixer exposes **one strip per active kit piece**, not one strip per
   microphone. A Naked-only kit shows 16 strips; the Monster-kick/Crocell-snare/
   DRS-tom example shows 14.
+- Kick, snare and room sums now sit in the same scrolling strip browser as the
+  piece channels, with their own fader, pan, mute, solo and meters. They feed
+  the Mix bus, which remains the fixed master strip.
 - Source-mic polarity is applied automatically while the piece is summed, so
   modules that mark a mic out of phase (for example DRS Kdrum_back) need no
   manual setup.
@@ -39,6 +42,8 @@ Drums Glorp.
   another plugin instance cannot forget it.
 - File pickers are non-native and parented to the plugin window, so they open
   over the DAW instead of tiling behind it.
+- **CONFIG** sits under the mixer button and **PIECES** under settings. About
+  opens an in-app attribution card.
 - The existing kit view, MIDI browser, channel insert FX and master strip are
   inherited from Suite Drums Glorp.
 - Kit artwork is unchanged; the existing Naked art is reused for the prototype.

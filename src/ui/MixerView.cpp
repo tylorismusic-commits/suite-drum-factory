@@ -568,27 +568,63 @@ MixerView::BusStripComponent::BusStripComponent(MixerView &o, PluginProcessor &p
     : owner(o), processor(p), busIndex_(busIndex)
 {
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
+
+    soloBtn.onClick = [this]
+    {
+        auto params = processor.getSampler().getFactoryBusParams(busIndex_);
+        params.solo = !params.solo;
+        processor.getSampler().setFactoryBusParams(busIndex_, params);
+        soloBtn.setActive(params.solo);
+        repaint();
+    };
+    muteBtn.onClick = [this]
+    {
+        auto params = processor.getSampler().getFactoryBusParams(busIndex_);
+        params.mute = !params.mute;
+        processor.getSampler().setFactoryBusParams(busIndex_, params);
+        muteBtn.setActive(params.mute);
+        repaint();
+    };
+    addAndMakeVisible(soloBtn);
+    addAndMakeVisible(muteBtn);
 }
 
 void MixerView::BusStripComponent::setTheme(const Theme &t)
 {
     theme = t;
+    soloBtn.setTheme(t);
+    muteBtn.setTheme(t);
     repaint();
 }
 
 void MixerView::BusStripComponent::resized()
 {
-    auto b = getLocalBounds().toFloat();
-    b.removeFromTop(52.0f);
-    panBarBounds = b.removeFromTop(14.0f).reduced(8.0f, 0.0f);
-    b.removeFromTop(8.0f);
-    auto bottom = b.removeFromBottom(52.0f);
-    muteBounds = bottom.removeFromBottom(24.0f).withSizeKeepingCentre(52.0f, 22.0f);
-    b.removeFromBottom(4.0f);
+    const auto r = getLocalBounds().toFloat();
+    const bool isCompact = (r.getHeight() < 300.0f);
 
-    faderTrackBounds = b.withWidth(16.0f).withX(b.getCentreX() - 24.0f);
-    meterBounds = b.withWidth(20.0f).withX(b.getCentreX() + 10.0f);
-    faderThumbBounds = {faderTrackBounds.getX() - 4.0f, 0.0f, faderTrackBounds.getWidth() + 8.0f, 16.0f};
+    const float panY = isCompact ? 52.0f : 64.0f;
+    const float panH = isCompact ? 15.0f : 18.0f;
+    panBarBounds = juce::Rectangle<float>(r.getX() + 8.0f, panY, r.getWidth() - 16.0f, panH);
+
+    const float soloMuteY = isCompact ? 70.0f : 86.0f;
+    const float soloMuteH = isCompact ? 19.0f : 22.0f;
+    soloBtn.setBounds(r.getX() + 6.0f, soloMuteY, (r.getWidth() - 16.0f) * 0.48f, soloMuteH);
+    muteBtn.setBounds(r.getX() + 8.0f + (r.getWidth() - 16.0f) * 0.48f, soloMuteY,
+                      (r.getWidth() - 16.0f) * 0.48f, soloMuteH);
+
+    const float faderTop = soloMuteY + soloMuteH + 7.0f;
+    const float faderBottom = isCompact ? (r.getBottom() - 44.0f) : (r.getBottom() - 56.0f);
+    const float faderH = std::max(30.0f, faderBottom - faderTop);
+
+    faderTrackBounds = juce::Rectangle<float>(r.getX() + 14.0f, faderTop, 24.0f, faderH);
+    meterBounds = juce::Rectangle<float>(r.getX() + 46.0f, faderTop, 16.0f, faderH);
+
+    const auto params = processor.getSampler().getFactoryBusParams(busIndex_);
+    const float norm = gainToNormalized(params.level);
+    const float thumbY = faderTrackBounds.getBottom() - norm * faderTrackBounds.getHeight()
+                         - (isCompact ? 8.0f : 10.0f);
+    faderThumbBounds = juce::Rectangle<float>(faderTrackBounds.getX() - 4.0f, thumbY,
+                                              faderTrackBounds.getWidth() + 8.0f, isCompact ? 16.0f : 20.0f);
 }
 
 void MixerView::BusStripComponent::paint(juce::Graphics &g)
@@ -600,6 +636,8 @@ void MixerView::BusStripComponent::paint(juce::Graphics &g)
 
     const auto &sampler = processor.getSampler();
     const auto params = sampler.getFactoryBusParams(busIndex_);
+    soloBtn.setActive(params.solo);
+    muteBtn.setActive(params.mute);
     const auto title = sampler.factoryBusTitle(busIndex_);
     const auto colour = busIndex_ == 0 ? juce::Colour(0xffe67e22)
                                       : (busIndex_ == 1 ? juce::Colour(0xff2ecc71) : juce::Colour(0xff9b59b6));
@@ -662,24 +700,11 @@ void MixerView::BusStripComponent::paint(juce::Graphics &g)
                juce::Justification::centred,
                false);
 
-    g.setColour(params.mute ? theme.warning : theme.panelEdge);
-    g.fillRoundedRectangle(muteBounds, 4.0f);
-    g.setColour(params.mute ? juce::Colours::white : theme.inkSoft);
-    g.setFont(uiFont(9.0f).boldened());
-    g.drawText("MUTE", muteBounds, juce::Justification::centred, false);
 }
 
 void MixerView::BusStripComponent::mouseDown(const juce::MouseEvent &e)
 {
     const auto pos = e.position;
-    if (muteBounds.contains(pos))
-    {
-        auto params = processor.getSampler().getFactoryBusParams(busIndex_);
-        params.mute = !params.mute;
-        processor.getSampler().setFactoryBusParams(busIndex_, params);
-        repaint();
-        return;
-    }
     if (panBarBounds.contains(pos))
     {
         draggingPan = true;
@@ -2795,7 +2820,7 @@ void MixerView::refreshChannels()
     {
         auto strip = std::make_unique<BusStripComponent>(*this, processor, i);
         strip->setTheme(theme);
-        addAndMakeVisible(*strip);
+        channelContainer->addAndMakeVisible(*strip);
         busStrips.push_back(std::move(strip));
     }
 
@@ -3013,8 +3038,7 @@ void MixerView::resized()
     const float contentY = 46.0f;
     const float totalAvailH = r.getHeight() - contentY - 8.0f;
     const float masterW = 100.0f;
-    const float busW = busStrips.empty() ? 0.0f : (3.0f * 86.0f + 8.0f);
-    const float viewW = r.getWidth() - masterW - busW - (busStrips.empty() ? 20.0f : 30.0f);
+    const float viewW = r.getWidth() - masterW - 20.0f;
 
     float contentH = totalAvailH;
     if (bleedMatrixOpen)
@@ -3025,8 +3049,14 @@ void MixerView::resized()
 
     channelViewport.setBounds(12, static_cast<int>(contentY), static_cast<int>(viewW), static_cast<int>(contentH));
 
-    const float stripW = 86.0f;
-    const float containerW = std::max(viewW, static_cast<float>(channelStrips.size()) * (stripW + 4.0f) + 12.0f);
+    const float stripW = 92.0f;
+    const float busStripW = 112.0f;
+    const float gap = 6.0f;
+    const float busGap = 10.0f;
+    const float totalStripsW = static_cast<float>(channelStrips.size()) * (stripW + gap)
+                               + (busStrips.empty() ? 0.0f
+                                                    : busGap + static_cast<float>(busStrips.size()) * (busStripW + gap));
+    const float containerW = std::max(viewW, totalStripsW + 12.0f);
 
     // The horizontal scrollbar lives inside the viewport, so strips drawn at
     // the full viewport height lose their bottom edge underneath it. Reserve
@@ -3042,17 +3072,17 @@ void MixerView::resized()
     for (auto &s : channelStrips)
     {
         s->setBounds(static_cast<int>(curX), 0, static_cast<int>(stripW), static_cast<int>(stripH));
-        curX += stripW + 4.0f;
+        curX += stripW + gap;
     }
 
-    float busX = 12.0f + viewW + 8.0f;
-    for (auto &bus : busStrips)
+    if (!busStrips.empty())
     {
-        bus->setBounds(static_cast<int>(busX),
-                       static_cast<int>(contentY),
-                       86,
-                       static_cast<int>(stripH));
-        busX += 90.0f;
+        curX += busGap - gap;
+        for (auto &bus : busStrips)
+        {
+            bus->setBounds(static_cast<int>(curX), 0, static_cast<int>(busStripW), static_cast<int>(stripH));
+            curX += busStripW + gap;
+        }
     }
 
     masterStrip->setBounds(static_cast<int>(r.getWidth() - masterW - 8.0f),
