@@ -124,6 +124,7 @@ juce_add_binary_data(GlorpDrumsAssets
         assets/suite_kit_studio_icon.png
         assets/suite_logo.png
         assets/drumstructor_kit.png
+        assets/drum_factory_kit.png
 )
 
 #==================================================================================

@@ -62,41 +62,85 @@ juce::Image makeGlowImage(const juce::Image &src, juce::Colour glowColour = juce
 }
 const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &singleImageRegions()
 {
-    // Normalised ellipse bounds for the visible head/surface of each piece on
-    // the bundled Drumstructor artwork. These are used for both hit-testing and
-    // the hit rings, so a ring never wraps the shell or a stand.
+    // Normalised clickable surfaces on the Drum Factory master image. The
+    // order matches KitPiece: kick, snare, tom1, tom2, floorTom, hihat, ride,
+    // crash1, crash2, tom3..5, splash1/2, china1/2.
     static const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> regions {{
-        juce::Rectangle<float>(0.41f, 0.50f, 0.22f, 0.19f), // kick head
-        juce::Rectangle<float>(0.25f, 0.405f, 0.21f, 0.115f), // snare head
-        juce::Rectangle<float>(0.36f, 0.21f, 0.14f, 0.11f), // tom1 head
-        juce::Rectangle<float>(0.55f, 0.21f, 0.15f, 0.11f), // tom2 head
-        juce::Rectangle<float>(0.64f, 0.40f, 0.22f, 0.14f), // floor tom head
-        juce::Rectangle<float>(0.03f, 0.195f, 0.23f, 0.075f), // hi-hat surface
-        juce::Rectangle<float>(0.72f, 0.235f, 0.26f, 0.12f), // ride surface
-        juce::Rectangle<float>(0.245f, 0.050f, 0.21f, 0.10f), // crash 1 surface
-        juce::Rectangle<float>(0.60f, 0.050f, 0.24f, 0.10f), // crash 2 surface
+        juce::Rectangle<float>(0.515f, 0.360f, 0.100f, 0.135f), // kick head
+        juce::Rectangle<float>(0.412f, 0.350f, 0.100f, 0.130f), // snare head
+        juce::Rectangle<float>(0.469f, 0.225f, 0.077f, 0.088f), // tom 1 head
+        juce::Rectangle<float>(0.573f, 0.205f, 0.096f, 0.100f), // tom 2 head
+        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.120f), // legacy floor tom = tom 4
+        juce::Rectangle<float>(0.262f, 0.207f, 0.119f, 0.079f), // hi-hat
+        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // ride
+        juce::Rectangle<float>(0.362f, 0.043f, 0.112f, 0.071f), // crash 1
+        juce::Rectangle<float>(0.619f, 0.050f, 0.119f, 0.071f), // crash 2
+        juce::Rectangle<float>(0.615f, 0.365f, 0.112f, 0.112f), // tom 3 head
+        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.120f), // tom 4 head
+        juce::Rectangle<float>(0.173f, 0.380f, 0.185f, 0.145f), // tom 5 head (left)
+        juce::Rectangle<float>(0.500f, 0.086f, 0.054f, 0.071f), // splash 1
+        juce::Rectangle<float>(0.573f, 0.086f, 0.042f, 0.071f), // splash 2
+        juce::Rectangle<float>(0.685f, 0.236f, 0.146f, 0.107f), // china 1 (right)
+        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 2 (left)
     }};
 
     return regions;
 }
 
+const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &singleImageBodies()
+{
+    // Full visible body used for the disabled-piece dim overlay.
+    static const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> bodies {{
+        juce::Rectangle<float>(0.505f, 0.340f, 0.135f, 0.300f), // kick
+        juce::Rectangle<float>(0.410f, 0.345f, 0.105f, 0.220f), // snare
+        juce::Rectangle<float>(0.469f, 0.225f, 0.077f, 0.200f), // tom 1
+        juce::Rectangle<float>(0.573f, 0.205f, 0.096f, 0.200f), // tom 2
+        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.405f), // floor tom = tom 4
+        juce::Rectangle<float>(0.262f, 0.207f, 0.119f, 0.079f), // hi-hat
+        juce::Rectangle<float>(0.792f, 0.293f, 0.185f, 0.136f), // ride
+        juce::Rectangle<float>(0.362f, 0.043f, 0.112f, 0.071f), // crash 1
+        juce::Rectangle<float>(0.619f, 0.050f, 0.119f, 0.071f), // crash 2
+        juce::Rectangle<float>(0.615f, 0.365f, 0.112f, 0.355f), // tom 3
+        juce::Rectangle<float>(0.715f, 0.405f, 0.131f, 0.405f), // tom 4
+        juce::Rectangle<float>(0.173f, 0.380f, 0.185f, 0.470f), // tom 5
+        juce::Rectangle<float>(0.500f, 0.086f, 0.054f, 0.071f), // splash 1
+        juce::Rectangle<float>(0.573f, 0.086f, 0.042f, 0.071f), // splash 2
+        juce::Rectangle<float>(0.685f, 0.236f, 0.146f, 0.107f), // china 1
+        juce::Rectangle<float>(0.069f, 0.171f, 0.185f, 0.157f), // china 2
+    }};
+
+    return bodies;
+}
+
 const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &singleImageHitPoints()
 {
-    // Where a stick/beater would actually contact each piece. These are
-    // independent of the clickable region, which stays generous.
     static const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> points {{
-        juce::Point<float>(0.52f, 0.60f),  // kick head
-        juce::Point<float>(0.35f, 0.455f), // snare head
-        juce::Point<float>(0.43f, 0.27f),  // tom1 head
-        juce::Point<float>(0.625f, 0.27f), // tom2 head
-        juce::Point<float>(0.75f, 0.475f), // floor tom head
-        juce::Point<float>(0.14f, 0.235f), // hi-hat top
-        juce::Point<float>(0.79f, 0.315f), // ride bow
-        juce::Point<float>(0.34f, 0.09f),  // crash 1 bow
-        juce::Point<float>(0.71f, 0.10f),  // crash 2 bow
+        juce::Point<float>(0.565f, 0.425f), // kick
+        juce::Point<float>(0.462f, 0.415f), // snare
+        juce::Point<float>(0.508f, 0.270f), // tom 1
+        juce::Point<float>(0.621f, 0.255f), // tom 2
+        juce::Point<float>(0.781f, 0.465f), // floor tom = tom 4
+        juce::Point<float>(0.321f, 0.246f), // hi-hat
+        juce::Point<float>(0.885f, 0.360f), // ride
+        juce::Point<float>(0.417f, 0.079f), // crash 1
+        juce::Point<float>(0.678f, 0.086f), // crash 2
+        juce::Point<float>(0.671f, 0.420f), // tom 3
+        juce::Point<float>(0.781f, 0.465f), // tom 4
+        juce::Point<float>(0.265f, 0.450f), // tom 5
+        juce::Point<float>(0.527f, 0.121f), // splash 1
+        juce::Point<float>(0.594f, 0.121f), // splash 2
+        juce::Point<float>(0.758f, 0.289f), // china 1
+        juce::Point<float>(0.162f, 0.250f), // china 2
     }};
 
     return points;
+}
+
+bool isCymbalPiece(KitPiece piece)
+{
+    return piece == KitPiece::hihat || piece == KitPiece::ride || piece == KitPiece::crash1
+           || piece == KitPiece::crash2 || piece == KitPiece::splash1 || piece == KitPiece::splash2
+           || piece == KitPiece::china1 || piece == KitPiece::china2;
 }
 
 bool ellipseContains(const juce::Rectangle<float> &bounds, juce::Point<float> point)
@@ -113,6 +157,7 @@ bool ellipseContains(const juce::Rectangle<float> &bounds, juce::Point<float> po
 //==============================================================================
 DrumKitView::DrumKitView()
 {
+    pieceEnabled.fill(true);
     setOpaque(true);
     setInterceptsMouseClicks(true, true);
     setWantsKeyboardFocus(true);
@@ -143,6 +188,20 @@ const char *DrumKitView::pieceIdentifier(KitPiece piece)
             return "crash1";
         case KitPiece::crash2:
             return "crash2";
+        case KitPiece::tom3:
+            return "tom3";
+        case KitPiece::tom4:
+            return "tom4";
+        case KitPiece::tom5:
+            return "tom5";
+        case KitPiece::splash1:
+            return "splash1";
+        case KitPiece::splash2:
+            return "splash2";
+        case KitPiece::china1:
+            return "china1";
+        case KitPiece::china2:
+            return "china2";
         default:
             return "unknown";
     }
@@ -169,7 +228,21 @@ juce::String DrumKitView::pieceDisplayName(KitPiece piece)
         case KitPiece::crash1:
             return "Crash 1";
         case KitPiece::crash2:
-            return "Crash 2 / China";
+            return "Crash 2";
+        case KitPiece::tom3:
+            return "Floor Tom 3";
+        case KitPiece::tom4:
+            return "Floor Tom 4";
+        case KitPiece::tom5:
+            return "Floor Tom 5";
+        case KitPiece::splash1:
+            return "Splash 1";
+        case KitPiece::splash2:
+            return "Splash 2";
+        case KitPiece::china1:
+            return "China 1";
+        case KitPiece::china2:
+            return "China 2";
         default:
             return "Piece";
     }
@@ -322,7 +395,7 @@ void DrumKitView::setEditMode(bool enabled)
 
 void DrumKitView::loadPieceImages()
 {
-    singleKitImage = imageFromMemory(GlorpAssets::drumstructor_kit_png, GlorpAssets::drumstructor_kit_pngSize);
+    singleKitImage = imageFromMemory(GlorpAssets::drum_factory_kit_png, GlorpAssets::drum_factory_kit_pngSize);
 
     pieces[static_cast<size_t>(KitPiece::kick)].image =
         imageFromMemory(GlorpAssets::kick_png, GlorpAssets::kick_pngSize);
@@ -611,18 +684,30 @@ KitPiece DrumKitView::pieceForName(const juce::String &name)
     if (n.contains("ride") || n.contains("bell"))
         return KitPiece::ride;
 
-    if (n.contains("crash2") || n.contains("china") || n.contains("splash"))
-        return KitPiece::crash2;
+    if (n.contains("china2") || n.contains("china 2"))
+        return KitPiece::china2;
+    if (n.contains("china"))
+        return KitPiece::china1;
 
+    if (n.contains("splash2") || n.contains("splash 2"))
+        return KitPiece::splash2;
+    if (n.contains("splash"))
+        return KitPiece::splash1;
+
+    if (n.contains("crash2"))
+        return KitPiece::crash2;
     if (n.contains("crash") || n.contains("cymbal"))
         return KitPiece::crash1;
 
-    // Floor toms are checked before rack toms: names like "ftom2" and
-    // "floortom2" also contain "tom2", and would otherwise light the rack tom.
-    if (n.contains("floor") || n.contains("ftom") || n.contains("floortom") || n.contains("tom3")
-        || n.contains("tom4") || n.contains("tom5") || n.contains("tom6") || n.contains("tom7")
-        || n.contains("tom8") || n.contains("tom9") || n.contains("racktom3") || n.contains("lowtom")
-        || n.contains("tom14") || n.contains("tom16") || n.contains("tom18"))
+    if (n.contains("tom5") || n.contains("ftom5") || n.contains("floor5"))
+        return KitPiece::tom5;
+    if (n.contains("tom4") || n.contains("ftom4") || n.contains("floor4"))
+        return KitPiece::tom4;
+    if (n.contains("tom3") || n.contains("ftom3") || n.contains("floor3"))
+        return KitPiece::tom3;
+
+    // Generic floor-tom names keep the legacy marker; factory hits use roles.
+    if (n.contains("floor") || n.contains("ftom") || n.contains("floortom") || n.contains("lowtom"))
         return KitPiece::floorTom;
 
     // Check Tom 2 after floor toms (so "tom 2" or "tom_2" or "tom2" or "tom13" never gets
@@ -641,6 +726,103 @@ KitPiece DrumKitView::pieceForName(const juce::String &name)
         return KitPiece::tom1;
 
     return KitPiece::count;
+}
+
+KitPiece DrumKitView::pieceForRole(const juce::String &role)
+{
+    const auto r = role.toLowerCase();
+    if (r.startsWith("kick."))
+        return KitPiece::kick;
+    if (r.startsWith("snare."))
+        return KitPiece::snare;
+    if (r.startsWith("tom."))
+    {
+        const int slot = r.fromFirstOccurrenceOf(".", false, false).getIntValue();
+        switch (slot)
+        {
+            case 1: return KitPiece::tom1;
+            case 2: return KitPiece::tom2;
+            case 3: return KitPiece::tom3;
+            case 4: return KitPiece::tom4;
+            case 5: return KitPiece::tom5;
+            default: break;
+        }
+    }
+    if (r.contains("hihat"))
+        return KitPiece::hihat;
+    if (r.contains("ride"))
+        return KitPiece::ride;
+    if (r.contains("crash_1") || r.contains("crash1"))
+        return KitPiece::crash1;
+    if (r.contains("crash_2") || r.contains("crash2"))
+        return KitPiece::crash2;
+    if (r.contains("splash_1") || r.contains("splash1"))
+        return KitPiece::splash1;
+    if (r.contains("splash_2") || r.contains("splash2"))
+        return KitPiece::splash2;
+    if (r.contains("china_1") || r.contains("china1"))
+        return KitPiece::china1;
+    if (r.contains("china_2") || r.contains("china2"))
+        return KitPiece::china2;
+    return KitPiece::count;
+}
+
+void DrumKitView::setPieceEnabled(const std::array<bool, static_cast<size_t>(KitPiece::count)> &enabled)
+{
+    pieceEnabled = enabled;
+    rebuildStaticKitCache();
+    repaint();
+}
+
+void DrumKitView::setAllPiecesEnabled(bool enabled)
+{
+    pieceEnabled.fill(enabled);
+    rebuildStaticKitCache();
+    repaint();
+}
+
+void DrumKitView::drawSingleImageDimming(juce::Graphics &g) const
+{
+    if (!useSingleKitImage || !singleKitScaled.isValid())
+        return;
+
+    const auto &bodies = singleImageBodies();
+    for (size_t i = 0; i < static_cast<size_t>(KitPiece::count); ++i)
+    {
+        if (pieceEnabled[i])
+            continue;
+
+        const auto r = bodies[i];
+        if (r.isEmpty())
+            continue;
+
+        const auto area = juce::Rectangle<float>(singleKitBounds.getX() + r.getX() * singleKitBounds.getWidth(),
+                                                 singleKitBounds.getY() + r.getY() * singleKitBounds.getHeight(),
+                                                 r.getWidth() * singleKitBounds.getWidth(),
+                                                 r.getHeight() * singleKitBounds.getHeight());
+
+        juce::Path clip;
+        if (isCymbalPiece(static_cast<KitPiece>(i)))
+            clip.addEllipse(area);
+        else
+            clip.addRoundedRectangle(area, 8.0f);
+
+        if (singleKitBlack.isValid())
+        {
+            g.saveState();
+            g.reduceClipRegion(clip, {});
+            g.setOpacity(0.58f);
+            g.drawImageAt(singleKitBlack,
+                          juce::roundToInt(singleKitBounds.getX()),
+                          juce::roundToInt(singleKitBounds.getY()));
+            g.restoreState();
+        }
+        else
+        {
+            g.setColour(juce::Colours::black.withAlpha(0.58f));
+            g.fillPath(clip);
+        }
+    }
 }
 
 void DrumKitView::setInstrumentNames(const std::vector<juce::String> &names)
@@ -893,12 +1075,18 @@ KitPiece DrumKitView::pieceAt(juce::Point<float> pos) const
     {
         const KitPiece order[] = {KitPiece::snare,
                                   KitPiece::kick,
-                                  KitPiece::floorTom,
-                                  KitPiece::tom2,
+                                  KitPiece::tom5,
+                                  KitPiece::tom3,
+                                  KitPiece::tom4,
                                   KitPiece::tom1,
+                                  KitPiece::tom2,
                                   KitPiece::ride,
+                                  KitPiece::china1,
                                   KitPiece::crash2,
                                   KitPiece::crash1,
+                                  KitPiece::china2,
+                                  KitPiece::splash1,
+                                  KitPiece::splash2,
                                   KitPiece::hihat};
 
         for (const auto piece : order)
@@ -1468,6 +1656,7 @@ void DrumKitView::rebuildStaticKitCache()
             cg.drawImageAt(singleKitScaled,
                            juce::roundToInt(singleKitBounds.getX()),
                            juce::roundToInt(singleKitBounds.getY()));
+            drawSingleImageDimming(cg);
             staticKitImage = cache;
             return;
         }
@@ -1537,7 +1726,20 @@ void DrumKitView::layoutSingleKit(float W, float H)
     const int targetW = std::max(1, juce::roundToInt(drawW));
     const int targetH = std::max(1, juce::roundToInt(drawH));
     if (singleKitScaled.getWidth() != targetW || singleKitScaled.getHeight() != targetH)
+    {
         singleKitScaled = singleKitImage.rescaled(targetW, targetH, juce::Graphics::mediumResamplingQuality);
+
+        singleKitBlack = juce::Image(juce::Image::ARGB, targetW, targetH, true);
+        juce::Image::BitmapData src(singleKitScaled, juce::Image::BitmapData::readOnly);
+        juce::Image::BitmapData dst(singleKitBlack, juce::Image::BitmapData::writeOnly);
+        for (int y = 0; y < targetH; ++y)
+            for (int x = 0; x < targetW; ++x)
+            {
+                const auto pixel = src.getPixelColour(x, y);
+                if (pixel.getAlpha() > 0)
+                    dst.setPixelColour(x, y, juce::Colours::black.withAlpha(pixel.getAlpha()));
+            }
+    }
 
     const auto &regions = singleImageRegions();
     for (size_t i = 0; i < static_cast<size_t>(KitPiece::count); ++i)
@@ -1743,6 +1945,8 @@ void DrumKitView::paint(juce::Graphics &g)
                 g.drawImageAt(singleKitScaled,
                               juce::roundToInt(singleKitBounds.getX()),
                               juce::roundToInt(singleKitBounds.getY()));
+
+            drawSingleImageDimming(g);
 
             for (size_t i = 0; i < static_cast<size_t>(KitPiece::count); ++i)
             {

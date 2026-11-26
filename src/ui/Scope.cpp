@@ -68,6 +68,9 @@ ScopeLane Scope::laneForPieceAndName(KitPiece piece, const juce::String &name)
 
         case KitPiece::tom1:
         case KitPiece::tom2:
+        case KitPiece::tom3:
+        case KitPiece::tom4:
+        case KitPiece::tom5:
         case KitPiece::floorTom:
             return ScopeLane::tom;
 
@@ -123,6 +126,12 @@ juce::Colour Scope::colorForInstrument(KitPiece piece, const juce::String &name)
         return juce::Colour(0xffa855f7); // Bright Violet / Lavender
     if (piece == KitPiece::tom2 || lower.contains("tom2") || lower.contains("midtom") || lower.contains("rack2"))
         return juce::Colour(0xff7e22ce); // Deep Purple
+    if (piece == KitPiece::tom3)
+        return juce::Colour(0xffa21caf);
+    if (piece == KitPiece::tom4)
+        return juce::Colour(0xff86198f);
+    if (piece == KitPiece::tom5)
+        return juce::Colour(0xffc026d3);
     if (piece == KitPiece::floorTom || lower.contains("floor") || lower.contains("ftom") || lower.contains("lowtom"))
         return juce::Colour(0xffc026d3); // Deep Magenta / Plum
 
@@ -185,6 +194,12 @@ juce::String Scope::shortLabelForInstrument(KitPiece piece, const juce::String &
         return "T1";
     if (piece == KitPiece::tom2 || lower.contains("tom2") || lower.contains("midtom"))
         return "T2";
+    if (piece == KitPiece::tom3)
+        return "T3";
+    if (piece == KitPiece::tom4)
+        return "T4";
+    if (piece == KitPiece::tom5)
+        return "T5";
     if (piece == KitPiece::floorTom || lower.contains("floor") || lower.contains("ftom"))
         return "FT";
 

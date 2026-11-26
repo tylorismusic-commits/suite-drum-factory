@@ -20,11 +20,18 @@ enum class KitPiece
     snare,
     tom1,
     tom2,
-    floorTom,
+    floorTom, // legacy alias kept for older layouts/presets
     hihat,
     ride,
     crash1,
     crash2,
+    tom3,
+    tom4,
+    tom5,
+    splash1,
+    splash2,
+    china1,
+    china2,
     count
 };
 
@@ -54,6 +61,13 @@ class DrumKitView
 
     /// Which piece an instrument name most likely refers to.
     static KitPiece pieceForName(const juce::String &name);
+
+    /// Stable factory roles ("kick.main", "snare.main", "tom.3", ...).
+    static KitPiece pieceForRole(const juce::String &role);
+
+    /// Marks pieces that are currently available. Disabled pieces are dimmed.
+    void setPieceEnabled(const std::array<bool, static_cast<size_t>(KitPiece::count)> &enabled);
+    void setAllPiecesEnabled(bool enabled);
 
     /// Fired when a piece is clicked to trigger sound (at max velocity) and select in settings panel.
     std::function<void(KitPiece, float velocity)> onPieceHit;
@@ -159,6 +173,7 @@ class DrumKitView
     };
 
     void loadPieceImages();
+    void drawSingleImageDimming(juce::Graphics &g) const;
     juce::Image getCowbellImage();
     void layout();
     void rebuildStaticKitCache();
@@ -190,7 +205,9 @@ class DrumKitView
 
     Theme theme = Theme::suite();
     juce::Colour hitGlowColour {0xffff8200};
-    std::array<int, static_cast<size_t>(KitPiece::count)> pieceZOrder {{1, 4, 5, 6, 9, 3, 7, 2, 8}};
+    std::array<bool, static_cast<size_t>(KitPiece::count)> pieceEnabled;
+    std::array<int, static_cast<size_t>(KitPiece::count)> pieceZOrder {
+        {1, 4, 5, 6, 9, 3, 7, 2, 8, 6, 7, 5, 2, 2, 3, 1}};
     bool hasLayout = false;
 
     juce::Image cowbellImage;
@@ -198,6 +215,7 @@ class DrumKitView
     juce::Image staticKitImage;
     juce::Image singleKitImage;
     juce::Image singleKitScaled;
+    juce::Image singleKitBlack;
     juce::Rectangle<float> singleKitBounds;
     std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> singlePieceBounds;
     bool useSingleKitImage = true;

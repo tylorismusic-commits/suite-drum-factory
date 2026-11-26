@@ -1949,9 +1949,10 @@ void Editor::updateShellSlotButtons()
                 pieceId = toms[static_cast<size_t>(slot)].id;
         }
 
-        const auto fallback = slot == 0 ? KitPiece::tom1 : (slot == 1 ? KitPiece::tom2 : KitPiece::floorTom);
-        const int duplicateIndex = slot >= 2 ? slot - 2 : 0;
-        apply(ShellSlotKind::tom, slot, moduleId, pieceId, "Tom " + juce::String(slot + 1), fallback, duplicateIndex);
+        static const KitPiece tomPieces[factory::tomSlots] {
+            KitPiece::tom1, KitPiece::tom2, KitPiece::tom3, KitPiece::tom4, KitPiece::tom5};
+        const auto fallback = tomPieces[std::clamp(slot, 0, factory::tomSlots - 1)];
+        apply(ShellSlotKind::tom, slot, moduleId, pieceId, "Tom " + juce::String(slot + 1), fallback, 0);
     }
 }
 
@@ -3065,6 +3066,20 @@ void Editor::buildLogicalInstruments()
             li.piece = DrumKitView::pieceForName(p.name);
             if (li.piece == KitPiece::count)
                 li.piece = DrumKitView::pieceForName(p.id);
+
+            // Factory pieces carry a stable role; use it instead of the module's
+            // file name so Crocell FTom1 lands on tom.3 and DRS Tom 3 on tom.3.
+            for (const auto &z : p.zones)
+            {
+                if (z.samplerIndex < 0)
+                    continue;
+                const auto rolePiece = DrumKitView::pieceForRole(sampler.instrumentRole(z.samplerIndex));
+                if (rolePiece != KitPiece::count)
+                {
+                    li.piece = rolePiece;
+                    break;
+                }
+            }
             // Do not fall back to the graphic for named pieces. Auxiliary
             // pieces often reuse a snare/crash graphic (cowbell, stick click,
             // hand clap), and that made the classic kit view trigger them when
@@ -3516,6 +3531,23 @@ void Editor::kitChanged()
 
     kitView.setInstrumentNames(names);
     kitView.applyKitVisuals(processor.getCurrentKit());
+
+    std::array<bool, static_cast<size_t>(KitPiece::count)> enabled;
+    enabled.fill(true);
+    if (processor.getSampler().isFactoryPieceMode())
+    {
+        enabled.fill(false);
+        for (int i = 0; i < processor.getSampler().numInstruments(); ++i)
+        {
+            auto piece = DrumKitView::pieceForRole(processor.getSampler().instrumentRole(i));
+            if (piece == KitPiece::count)
+                piece = DrumKitView::pieceForName(processor.getSampler().instrumentName(i));
+            if (piece != KitPiece::count)
+                enabled[static_cast<size_t>(piece)] = true;
+        }
+    }
+    kitView.setPieceEnabled(enabled);
+
     updateShellSlotButtons();
 
     if (!logicalInstruments.empty())
@@ -3631,14 +3663,19 @@ void Editor::timerCallback()
         }
         else
         {
+            const auto instName = processor.getSampler().instrumentName(event.instrumentIndex);
+            auto piece = DrumKitView::pieceForRole(processor.getSampler().instrumentRole(event.instrumentIndex));
+            if (piece == KitPiece::count)
+                piece = DrumKitView::pieceForName(instName);
+
             if (!kitView.triggerHitForSamplerIndex(event.instrumentIndex, event.velocity))
             {
-                const auto instName = processor.getSampler().instrumentName(event.instrumentIndex);
-                kitView.triggerHit(instName, event.velocity);
+                if (piece != KitPiece::count)
+                    kitView.triggerHitForPiece(piece, event.velocity);
+                else
+                    kitView.triggerHit(instName, event.velocity);
             }
 
-            const auto instName = processor.getSampler().instrumentName(event.instrumentIndex);
-            const auto piece = DrumKitView::pieceForName(instName);
             scope.hitReceived(instName, piece, event.note, event.velocity);
         }
     }
