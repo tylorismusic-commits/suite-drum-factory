@@ -2000,21 +2000,8 @@ void Editor::updateShellSlotButtons()
 
         if (fallback == KitPiece::count)
         {
-            // Empty slot: take the first visual tom that is not already used,
-            // so the chevron can still be clicked to assign a source.
-            for (const auto candidate : tomPieces)
-            {
-                if (!usedVisual[static_cast<size_t>(candidate)])
-                {
-                    fallback = candidate;
-                    usedVisual[static_cast<size_t>(candidate)] = true;
-                    break;
-                }
-            }
-        }
-
-        if (fallback == KitPiece::count)
-        {
+            // Empty slot: hide the chevron. It is off; there is no source to
+            // assign until the configuration selects one.
             if (holder != nullptr && holder->button != nullptr)
             {
                 holder->button->setVisible(false);
