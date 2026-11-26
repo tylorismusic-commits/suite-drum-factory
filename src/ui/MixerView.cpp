@@ -312,7 +312,7 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
     addAndMakeVisible(phaseBtn);
 
     fxBtn.setButtonText("FX");
-    fxBtn.activeColour = juce::Colour(0xfff39c12);
+    fxBtn.activeColour = juce::Colour(0xff4cc2a8);
     fxBtn.onClick = [this]()
     {
         owner.closePopups();
@@ -322,12 +322,12 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
     addAndMakeVisible(fxBtn);
 
     bleedBtn.setButtonText("BLD");
-    bleedBtn.activeColour = juce::Colour(0xffe67e22);
+    bleedBtn.activeColour = juce::Colour(0xff4cc2a8);
     bleedBtn.onClick = [this]() { owner.openBleedMatrix(channelIndex_); };
     addAndMakeVisible(bleedBtn);
 
     soloBtn.setButtonText("S");
-    soloBtn.activeColour = juce::Colour(0xfff1c40f);
+    soloBtn.activeColour = juce::Colour(0xff4cc2a8);
     soloBtn.onClick = [this]()
     {
         auto params = processor.getSampler().getMicStripParams(channelIndex_);
@@ -368,7 +368,7 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
     {
         juce::PopupMenu menu;
         const int currentBus = processor.getSampler().getMicOutputBus(channelIndex_);
-        for (int b = 0; b < 16; ++b)
+        for (int b = 0; b < config::MAX_OUTPUT_BUSES; ++b)
         {
             const juce::String busLabel = (b == 0)
                                               ? "Internal Sums (Kick/Snare/Toms/Cymbals/Room)"
@@ -438,7 +438,7 @@ void MixerView::ChannelStripComponent::updateFromState()
 
     const int b = processor.getSampler().getMicOutputBus(channelIndex_);
     busBtn.setButtonText(b == 0 ? "SUMS" : ("OUT " + juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2)));
-    busBtn.activeColour = (b == 0) ? juce::Colour(0xffea8c16) : juce::Colour(0xff3498db);
+    busBtn.activeColour = (b == 0) ? juce::Colour(0xff4cc2a8) : juce::Colour(0xff3498db);
     busBtn.setActive(b > 0);
     busBtn.setActive(b > 0);
 
@@ -837,7 +837,7 @@ MixerView::BusStripComponent::BusStripComponent(MixerView &o, PluginProcessor &p
         repaint();
     };
     fxBtn.setButtonText("FX");
-    fxBtn.activeColour = juce::Colour(0xfff39c12);
+    fxBtn.activeColour = juce::Colour(0xff4cc2a8);
     fxBtn.onClick = [this]
     {
         owner.closePopups();
@@ -1879,7 +1879,7 @@ MixerView::MasterStripComponent::MasterStripComponent(MixerView &o, PluginProces
     addAndMakeVisible(fxBtn);
 
     insBtn.setButtonText("INS");
-    insBtn.activeColour = juce::Colour(0xfff39c12);
+    insBtn.activeColour = juce::Colour(0xff4cc2a8);
     insBtn.onClick = [this]
     {
         owner.closePopups();
@@ -3401,7 +3401,7 @@ void MixerView::BleedMatrixPopup::paint(juce::Graphics &g)
 
         drawSketchRect(g,
                        colR,
-                       isHighlighted ? juce::Colour(0xffe67e22) : theme.panelEdge,
+                       isHighlighted ? theme.accent : theme.panelEdge,
                        isHighlighted ? 1.6f : 1.1f,
                        static_cast<uint32_t>(310 + m));
 
@@ -3562,7 +3562,7 @@ void MixerView::BleedMatrixPopup::paint(juce::Graphics &g)
             // Cell border
             drawSketchRect(g,
                            cellR,
-                           isHighlighted ? juce::Colour(0xffe67e22) : theme.panelEdge,
+                           isHighlighted ? theme.accent : theme.panelEdge,
                            isHighlighted ? 1.5f : 1.0f,
                            static_cast<uint32_t>(500 + p * 32 + m));
 
@@ -3600,7 +3600,7 @@ void MixerView::BleedMatrixPopup::paint(juce::Graphics &g)
         // Bubble body
         g.setColour(theme.isDark ? juce::Colour(0xff2d3436) : juce::Colour(0xff2c3e50));
         g.fillRoundedRectangle(bubbleR, 5.0f);
-        drawSketchRect(g, bubbleR, juce::Colour(0xffe67e22), 1.5f, 999);
+        drawSketchRect(g, bubbleR, theme.accent, 1.5f, 999);
 
         g.setColour(juce::Colours::white);
         g.setFont(displayFont(10.0f));
@@ -3899,11 +3899,50 @@ MixerView::MixerView(PluginProcessor &proc) : processor(proc)
     };
     addAndMakeVisible(presetBrowserBtn);
 
+    outputModeBtn.onClick = [this]
+    {
+        auto &sampler = processor.getSampler();
+        const bool factory = sampler.isFactoryPieceMode();
+        const auto mode = sampler.getOutputMode();
+
+        juce::PopupMenu menu;
+        menu.addSectionHeader("OUTPUT ROUTING");
+        menu.addItem("Default Stereo (Mix Bus -> Out 1/2)", true, mode == OutputMode::stereo, [this]
+        {
+            processor.getSampler().setOutputMode(OutputMode::stereo);
+            updateOutputModeButton();
+            repaint();
+        });
+        menu.addItem("Multi-Out Easy (Sums only)", factory, mode == OutputMode::multiEasy, [this]
+        {
+            processor.getSampler().setOutputMode(OutputMode::multiEasy);
+            updateOutputModeButton();
+            repaint();
+        });
+        menu.addItem("Multi-Out Advanced (Groups)", factory, mode == OutputMode::multiAdvanced, [this]
+        {
+            processor.getSampler().setOutputMode(OutputMode::multiAdvanced);
+            updateOutputModeButton();
+            repaint();
+        });
+        menu.addItem("Full Multi-Out (Every piece)", factory, mode == OutputMode::full, [this]
+        {
+            processor.getSampler().setOutputMode(OutputMode::full);
+            updateOutputModeButton();
+            repaint();
+        });
+
+        juce::PopupMenu::Options opts;
+        opts = opts.withTargetComponent(&outputModeBtn).withParentComponent(this);
+        menu.showMenuAsync(opts);
+    };
+    addAndMakeVisible(outputModeBtn);
+
     // Generic factory presets from Suite Drums Glorp are intentionally not
     // shown; this bundle will get configuration-aware mix presets later.
 
     bleedMatrixBtn.setButtonText("BLEED MATRIX");
-    bleedMatrixBtn.activeColour = juce::Colour(0xffe67e22);
+    bleedMatrixBtn.activeColour = juce::Colour(0xff4cc2a8);
     bleedMatrixBtn.onClick = [this]() { toggleBleedMatrix(); };
     addAndMakeVisible(bleedMatrixBtn);
 
@@ -3960,6 +3999,7 @@ void MixerView::refreshChannels()
     // Factory kits mix pieces, not microphones, so the mic bleed matrix does
     // not apply. Polarity/pan are already baked into each piece during assembly.
     bleedMatrixBtn.setVisible(false);
+    updateOutputModeButton();
     if (bleedMatrixOpen)
         setBleedMatrixOpen(false);
 
@@ -4128,6 +4168,26 @@ void MixerView::hideInsertPicker()
     insertPickerLayer.reset();
 }
 
+void MixerView::updateOutputModeButton()
+{
+    const bool factory = processor.getSampler().isFactoryPieceMode();
+    const auto mode = processor.getSampler().getOutputMode();
+
+    juce::String label = "OUT: STEREO";
+    switch (mode)
+    {
+        case OutputMode::multiEasy: label = "OUT: SUMS"; break;
+        case OutputMode::multiAdvanced: label = "OUT: GROUPS"; break;
+        case OutputMode::full: label = "OUT: FULL"; break;
+        case OutputMode::stereo:
+        default: label = "OUT: STEREO"; break;
+    }
+
+    outputModeBtn.setButtonText(label);
+    outputModeBtn.setActive(mode != OutputMode::stereo && factory);
+    outputModeBtn.setEnabled(factory);
+}
+
 void MixerView::applyPreset(int presetIndex)
 {
     presetIndex = juce::jlimit(0, 7, presetIndex);
@@ -4225,7 +4285,8 @@ void MixerView::resized()
     const float btnY = 10.0f;
     const float btnH = 26.0f;
     presetBrowserBtn.setBounds(16, btnY, 96, btnH);
-    bleedMatrixBtn.setBounds(120, btnY, 114, btnH);
+    outputModeBtn.setBounds(120, btnY, 122, btnH);
+    bleedMatrixBtn.setBounds(250, btnY, 114, btnH);
 
     // Channel Area vs Master Strip
     const float contentY = 46.0f;
@@ -4328,6 +4389,7 @@ void MixerView::setTheme(const Theme &newTheme)
     presetMixBtn.setTheme(theme);
     savePresetBtn.setTheme(theme);
     presetBrowserBtn.setTheme(theme);
+    outputModeBtn.setTheme(theme);
     if (presetBrowser != nullptr)
         presetBrowser->setTheme(theme);
     bleedMatrixBtn.setTheme(theme);

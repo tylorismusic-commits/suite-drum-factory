@@ -28,6 +28,7 @@
 - [x] Kit dropdown for external kits, logarithmic EQ frequency knobs, and four insert-driven factory mix presets.
 - [x] Full-width kit view with a three-zone studio deck, plus a classic-sidebar fallback in Settings.
 - [x] One-shot layer pitch matching, compact curve labels and adaptive monitor metering.
+- [x] Output menu with stereo, sums-only, advanced group and full per-piece multi-out modes.
 - [x] Direct out fully bypasses sums, Mix bus and shared reverb; routing persists in the project state.
 - [x] Four-slot serial insert racks on pieces and buses (EQ, compressor, drive, transient, limiter, clipper).
 - [ ] Configuration-aware mix-ready presets.

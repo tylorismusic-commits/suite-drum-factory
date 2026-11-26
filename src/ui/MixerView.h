@@ -69,7 +69,7 @@ class MixerView
             theme = t;
             repaint();
         }
-        juce::Colour activeColour = juce::Colour(0xfff1c40f);
+        juce::Colour activeColour = juce::Colour(0xff4cc2a8);
 
       private:
         bool isToggle_ = false;
@@ -499,6 +499,7 @@ class MixerView
 
     // Bleed Matrix Button
     HandButton bleedMatrixBtn {"BLEED MATRIX"};
+    HandButton outputModeBtn {"OUT: STEREO"};
 
     // FX Drawers & Popups
     std::unique_ptr<ChannelFXPopup> channelFXPopup;
@@ -510,6 +511,7 @@ class MixerView
     std::unique_ptr<BleedMatrixPopup> bleedMatrixPopup;
 
     void applyPreset(int presetIndex);
+    void updateOutputModeButton();
     void showInsertMenu(bool bus, int channel, int slot, juce::Component *target, juce::Rectangle<int> area);
     void hideInsertPicker();
     void promptSavePreset();

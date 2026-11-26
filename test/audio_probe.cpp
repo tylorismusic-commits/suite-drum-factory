@@ -394,6 +394,7 @@ int main (int argc, char** argv)
         }
 
         proc.setMicOutputBus (strip, 3);
+        proc.getSampler().setOutputMode (glorp::OutputMode::full);
 
         juce::MemoryBlock block;
         proc.getStateInformation (block);
@@ -403,6 +404,7 @@ int main (int argc, char** argv)
         sampler.setInsertType (true, 0, 0, glorp::InsertType::none);
         sampler.setInsertType (true, 5, 0, glorp::InsertType::none);
         proc.setMicOutputBus (strip, 0);
+        proc.getSampler().setOutputMode (glorp::OutputMode::stereo);
         if (sampler.numFactoryBuses() > 0)
         {
             auto bus = sampler.getFactoryBusParams (0);
@@ -426,6 +428,7 @@ int main (int argc, char** argv)
         ok = ok && limiter.type == glorp::InsertType::limiter && std::abs (limiter.values[0] + 3.0f) < 0.05f;
         ok = ok && clipper.type == glorp::InsertType::clipper && std::abs (clipper.values[0] - 0.6f) < 0.05f;
         ok = ok && sampler.getMicOutputBus (strip) == 3;
+        ok = ok && sampler.getOutputMode() == glorp::OutputMode::full;
 
         if (sampler.numFactoryBuses() > 0)
             ok = ok && std::abs (sampler.getFactoryBusParams (0).level - 0.42f) < 0.01f;
@@ -437,7 +440,8 @@ int main (int argc, char** argv)
                   << " compType=" << static_cast<int> (comp.type)
                   << " limiterType=" << static_cast<int> (limiter.type)
                   << " clipperType=" << static_cast<int> (clipper.type)
-                  << " outBus=" << sampler.getMicOutputBus (strip) << std::endl;
+                  << " outBus=" << sampler.getMicOutputBus (strip)
+                  << " outputMode=" << static_cast<int> (sampler.getOutputMode()) << std::endl;
         return 0;
     }
 
@@ -469,6 +473,80 @@ int main (int argc, char** argv)
                 std::cout << static_cast<int> (proc.getSampler().getInsertState (true, b, slot).type) << ",";
             std::cout << std::endl;
         }
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_OUTPUTMODE") != nullptr)
+    {
+        proc.prepareToPlay (48000.0, 512);
+        auto& sampler = proc.getSampler();
+
+        const auto renderBuses = [&] (glorp::OutputMode mode)
+        {
+            sampler.setOutputMode (mode);
+            juce::AudioBuffer<float> buffer (36, 512);
+            std::array<double, 18> sumSq {};
+            int64_t frames = 0;
+
+            for (int block = 0; block < 120; ++block)
+            {
+                juce::MidiBuffer midi;
+                if (block == 0)
+                {
+                    for (int i = 0; i < sampler.numInstruments(); ++i)
+                    {
+                        const int note = proc.getMidiMap().noteForInstrument (i);
+                        if (note >= 0)
+                            midi.addEvent (juce::MidiMessage::noteOn (1, note, static_cast<juce::uint8> (96)), 0);
+                    }
+                }
+
+                buffer.clear();
+                proc.processBlock (buffer, midi);
+
+                for (int bus = 0; bus < 18; ++bus)
+                {
+                    const int l = bus * 2;
+                    const int r = l + 1;
+                    if (r >= buffer.getNumChannels())
+                        break;
+                    for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    {
+                        const float a = buffer.getSample (l, i);
+                        const float b = buffer.getSample (r, i);
+                        sumSq[static_cast<size_t> (bus)] += static_cast<double> (a) * a
+                                                            + static_cast<double> (b) * b;
+                    }
+                }
+                frames += static_cast<int64_t> (buffer.getNumSamples()) * 2;
+            }
+
+            std::array<float, 18> db {};
+            for (int bus = 0; bus < 18; ++bus)
+            {
+                const double rms = std::sqrt (sumSq[static_cast<size_t> (bus)]
+                                              / static_cast<double> (std::max<int64_t> (1, frames)));
+                db[static_cast<size_t> (bus)] = juce::Decibels::gainToDecibels (static_cast<float> (rms), -100.0f);
+            }
+            return db;
+        };
+
+        const std::array<std::pair<const char*, glorp::OutputMode>, 4> modes {{
+            {"stereo", glorp::OutputMode::stereo},
+            {"easy", glorp::OutputMode::multiEasy},
+            {"advanced", glorp::OutputMode::multiAdvanced},
+            {"full", glorp::OutputMode::full}}};
+
+        for (const auto& [name, mode] : modes)
+        {
+            const auto db = renderBuses (mode);
+            std::cout << "outputmode " << name << " bus";
+            for (int bus = 0; bus < 18; ++bus)
+                std::cout << " " << bus << "=" << juce::String (db[static_cast<size_t> (bus)], 1);
+            std::cout << std::endl;
+        }
+
+        sampler.setOutputMode (glorp::OutputMode::stereo);
         return 0;
     }
 

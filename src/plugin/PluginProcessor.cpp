@@ -373,7 +373,7 @@ void PluginProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::MidiB
     const auto numSamples = buffer.getNumSamples();
     const juce::MidiBuffer inputMidi = midi;
 
-    // Map host output buses to up to 16 stereo bus write pointers (32 channels)
+    // Map host output buses to stereo write pointers for the full bus layout.
     std::array<float *, maxOutputBuses * 2> busOutputs {};
     busOutputs.fill(nullptr);
 
@@ -917,7 +917,7 @@ void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
         if (currentKit.isNativeGlorpKit && i < static_cast<int>(currentKit.instruments.size()))
         {
             const auto &inst = currentKit.instruments[static_cast<size_t>(i)];
-            busIdx = std::clamp(inst.outputBus, 0, 15);
+            busIdx = std::clamp(inst.outputBus, 0, config::MAX_OUTPUT_BUSES - 1);
 
             auto itL = currentKit.factoryInstrumentLevels.find(inst.logicalName);
             if (itL == currentKit.factoryInstrumentLevels.end())
@@ -941,7 +941,7 @@ void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
         if (i < static_cast<int>(parameterManager.instrumentDynamicsParams.size()))
             parameterManager.instrumentDynamicsParams[static_cast<size_t>(i)]->setValueNotifyingHost(0.5f);
         if (i < static_cast<int>(parameterManager.instrumentBusParams.size()))
-            parameterManager.instrumentBusParams[static_cast<size_t>(i)]->setValueNotifyingHost(busIdx / 15.0f);
+            parameterManager.instrumentBusParams[static_cast<size_t>(i)]->setValueNotifyingHost(busIdx / static_cast<float>(config::MAX_OUTPUT_BUSES - 1));
     }
 
     listeners.call(&Listener::kitChanged);
@@ -949,7 +949,7 @@ void PluginProcessor::loadAssembledKit(DrumKit kit, const juce::String &kitPath)
 
 void PluginProcessor::setMicOutputBus(int micStripIndex, int bus)
 {
-    bus = juce::jlimit(0, 15, bus);
+    bus = juce::jlimit(0, config::MAX_OUTPUT_BUSES - 1, bus);
 
     if (micStripIndex < 0 || micStripIndex >= audioEngine.getSampler().numMicStrips())
         return;
@@ -968,7 +968,7 @@ void PluginProcessor::setMicOutputBus(int micStripIndex, int bus)
 
         if (i < static_cast<int>(parameterManager.instrumentBusParams.size()))
             parameterManager.instrumentBusParams[static_cast<size_t>(i)]->setValueNotifyingHost(
-                static_cast<float>(bus) / 15.0f);
+                static_cast<float>(bus) / static_cast<float>(config::MAX_OUTPUT_BUSES - 1));
 
         changed = true;
     }
@@ -979,7 +979,7 @@ void PluginProcessor::setMicOutputBus(int micStripIndex, int bus)
 
 void PluginProcessor::setInstrumentOutputBus(int instrumentIndex, int bus)
 {
-    bus = juce::jlimit(0, 15, bus);
+    bus = juce::jlimit(0, config::MAX_OUTPUT_BUSES - 1, bus);
 
     if (instrumentIndex < 0 || instrumentIndex >= audioEngine.getSampler().numInstruments())
         return;
@@ -988,7 +988,7 @@ void PluginProcessor::setInstrumentOutputBus(int instrumentIndex, int bus)
 
     if (instrumentIndex < static_cast<int>(parameterManager.instrumentBusParams.size()))
         parameterManager.instrumentBusParams[static_cast<size_t>(instrumentIndex)]->setValueNotifyingHost(
-            static_cast<float>(bus) / 15.0f);
+            static_cast<float>(bus) / static_cast<float>(config::MAX_OUTPUT_BUSES - 1));
 
     const auto instrumentName = audioEngine.getSampler().instrumentName(instrumentIndex);
 
@@ -1200,6 +1200,7 @@ void PluginProcessor::getStateInformation(juce::MemoryBlock &destination)
     state.setAttribute("version", 1);
     state.setAttribute("kit", currentKitPath);
     state.setAttribute("hiHatMode", static_cast<int>(audioEngine.getSampler().getHiHatMode()));
+    state.setAttribute("outputMode", static_cast<int>(audioEngine.getSampler().getOutputMode()));
 
     const auto mixerPreset = audioEngine.getSampler().getCurrentMixerPreset("CurrentMix");
     if (auto mixerXml = juce::XmlDocument::parse(mixerPreset.toXmlString()))
@@ -1481,6 +1482,9 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
         listeners.call(&Listener::kitChanged);
         listeners.call(&Listener::parametersChanged);
     }
+
+    audioEngine.getSampler().setOutputMode(
+        static_cast<OutputMode>(xml->getIntAttribute("outputMode", 0)));
 
     for (const auto &bus : storedBuses)
     {

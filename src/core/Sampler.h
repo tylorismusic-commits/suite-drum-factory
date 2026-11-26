@@ -112,6 +112,14 @@ struct HitEvent
     float pitchSemitones = 0.0f;
 };
 
+enum class OutputMode
+{
+    stereo = 0,
+    multiEasy,
+    multiAdvanced,
+    full
+};
+
 class Sampler
 {
   public:
@@ -298,6 +306,9 @@ class Sampler
     void setMultiOutMode(bool enabled) noexcept { multiOutMode.store(enabled); }
     bool isMultiOutMode() const noexcept { return multiOutMode.load(); }
 
+    void setOutputMode(OutputMode mode) noexcept;
+    OutputMode getOutputMode() const noexcept;
+
     void setInstrumentBus(int instrument, int busIndex);
     int getInstrumentBus(int instrument) const noexcept;
 
@@ -443,6 +454,7 @@ class Sampler
     void resolveInstrumentChannels(const DrumKit &kit, const Instrument &instrument, InstrumentRuntime &out,
                                    int pieceIndex);
     void calibrateFactoryPieces();
+    int advancedOutputBusForPiece(int piece) const noexcept;
     InsertChain *insertChain(bool bus, int channel) noexcept;
     const InsertChain *insertChain(bool bus, int channel) const noexcept;
     void recomputeSoloFlags();
@@ -465,6 +477,7 @@ class Sampler
     std::atomic<bool> kitLoaded {false};
     std::atomic<bool> anySolo {false};
     std::atomic<bool> multiOutMode {true};
+    std::atomic<int> outputModeValue {0};
     std::atomic<int> nextVoiceIndex {0};
     std::atomic<uint32_t> randomState {0x12345678u};
 

@@ -304,6 +304,8 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
     // mode paired with the previous kit's (already reset) buses.
     factoryPieceMode = newFactoryPieceMode;
     instrumentPiece = std::move(newInstrumentPiece);
+    if (!factoryPieceMode)
+        outputModeValue.store(0, std::memory_order_relaxed);
 
     instruments_ = std::move(resolved);
     kitChannels_ = kit.channels;
@@ -414,7 +416,7 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
         if (kit.isNativeGlorpKit)
         {
             instrumentBuses[static_cast<size_t>(i)] =
-                std::clamp(kit.instruments[static_cast<size_t>(i)].outputBus, 0, 15);
+                std::clamp(kit.instruments[static_cast<size_t>(i)].outputBus, 0, config::MAX_OUTPUT_BUSES - 1);
 
             const auto &inst = kit.instruments[static_cast<size_t>(i)];
             auto itL = kit.factoryInstrumentLevels.find(inst.logicalName);
@@ -1050,7 +1052,7 @@ MicStripParams Sampler::getMicStripParams(int index) const
 void Sampler::setMicOutputBus(int index, int bus)
 {
     if (index >= 0 && index < static_cast<int>(micChannels.size()))
-        micChannels[static_cast<size_t>(index)]->params.outputBus = std::clamp(bus, 0, 15);
+        micChannels[static_cast<size_t>(index)]->params.outputBus = std::clamp(bus, 0, config::MAX_OUTPUT_BUSES - 1);
 }
 
 int Sampler::getMicOutputBus(int index) const
@@ -1625,7 +1627,7 @@ InstrumentParams Sampler::getInstrumentParams(int index) const
 void Sampler::setInstrumentBus(int instrument, int busIndex)
 {
     if (instrument >= 0 && instrument < static_cast<int>(instrumentBuses.size()))
-        instrumentBuses[static_cast<size_t>(instrument)] = std::clamp(busIndex, 0, 15);
+        instrumentBuses[static_cast<size_t>(instrument)] = std::clamp(busIndex, 0, config::MAX_OUTPUT_BUSES - 1);
 }
 
 int Sampler::getInstrumentBus(int instrument) const noexcept
@@ -3035,6 +3037,44 @@ bool Sampler::hasPendingHits() const noexcept
 }
 
 //==============================================================================
+void Sampler::setOutputMode(OutputMode mode) noexcept
+{
+    if (!factoryPieceMode && mode != OutputMode::stereo)
+        mode = OutputMode::stereo;
+    outputModeValue.store(static_cast<int>(mode), std::memory_order_relaxed);
+}
+
+OutputMode Sampler::getOutputMode() const noexcept
+{
+    return static_cast<OutputMode>(outputModeValue.load(std::memory_order_relaxed));
+}
+
+int Sampler::advancedOutputBusForPiece(int piece) const noexcept
+{
+    if (piece < 0 || piece >= static_cast<int>(micChannels.size()))
+        return 0;
+
+    const auto &channel = *micChannels[static_cast<size_t>(piece)];
+    const auto role = juce::String(channel.insertKey).toLowerCase();
+    const auto title = channel.title.toLowerCase();
+
+    if (role.startsWith("kick.") || title.contains("kick") || title.contains("kdrum") || title.contains("bdrum"))
+        return 1;
+    if (role.startsWith("snare.") || title.contains("snare") || title.contains("rim"))
+        return 2;
+    if (role.startsWith("tom."))
+    {
+        const int slot = juce::jlimit(1, 5, std::atoi(role.toRawUTF8() + 4));
+        return 2 + slot;
+    }
+    if (role.startsWith("base.") || title.contains("crash") || title.contains("ride") || title.contains("hihat")
+        || title.contains("china") || title.contains("splash") || title.contains("cymbal"))
+        return 8;
+    if (title.contains("room") || title.contains("amb") || title.contains("overhead") || title.contains("oh"))
+        return 9;
+    return 8;
+}
+
 void Sampler::render(float *const *output, int numOutputChannels, int numSamples)
 {
     if (numSamples <= 0 || numOutputChannels < 2)
@@ -3053,6 +3093,21 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
     KitUnlock unlock {kitLock};
 
     const auto totalBuses = numOutputChannels / 2;
+    const auto outputMode = getOutputMode();
+    const bool sendReverb = outputMode == OutputMode::stereo;
+    const auto roomFollowsStrip = [&](int micIndex)
+    {
+        if (micIndex < 0 || micIndex >= static_cast<int>(micChannels.size()))
+            return false;
+        const auto &params = micChannels[static_cast<size_t>(micIndex)]->params;
+        if (!factoryPieceMode)
+            return params.outputBus > 0;
+        if (outputMode == OutputMode::full)
+            return true;
+        if (outputMode == OutputMode::stereo)
+            return params.outputBus > 0;
+        return false;
+    };
     for (int c = 0; c < numOutputChannels; ++c)
         if (output[c] != nullptr)
             juce::FloatVectorOperations::clear(output[c], numSamples);
@@ -3267,7 +3322,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     {
                         // A directly routed piece keeps all of its room content
                         // on its own strip; nothing is left for the Room sum.
-                        const bool direct = micChannels[static_cast<size_t>(micIdx)]->params.outputBus > 0;
+                        const bool direct = roomFollowsStrip(micIdx);
                         plan.bleed = direct ? 1.0f
                                             : juce::jlimit(0.0f, 1.0f,
                                                            micChannels[static_cast<size_t>(micIdx)]->params.bleed);
@@ -3368,7 +3423,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     {
                         // A directly routed piece keeps all of its room content
                         // on its own strip; nothing is left for the Room sum.
-                        const bool direct = micChannels[static_cast<size_t>(micIdx)]->params.outputBus > 0;
+                        const bool direct = roomFollowsStrip(micIdx);
                         plan.bleed = direct ? 1.0f
                                             : juce::jlimit(0.0f, 1.0f,
                                                            micChannels[static_cast<size_t>(micIdx)]->params.bleed);
@@ -3532,7 +3587,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         else if (factoryPieceMode && channelRef.roomMic)
                         {
                             const auto &roomParams = micChannels[static_cast<size_t>(micIdx)]->params;
-                            const float bleed = roomParams.outputBus > 0
+                            const float bleed = roomFollowsStrip(micIdx)
                                                     ? 1.0f
                                                     : juce::jlimit(0.0f, 1.0f, roomParams.bleed);
                             const float l = sample * channelRef.gainL * instGainL * effGain;
@@ -3604,7 +3659,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         else if (factoryPieceMode && channelRef.roomMic)
                         {
                             const auto &roomParams = micChannels[static_cast<size_t>(micIdx)]->params;
-                            const float bleed = roomParams.outputBus > 0
+                            const float bleed = roomFollowsStrip(micIdx)
                                                     ? 1.0f
                                                     : juce::jlimit(0.0f, 1.0f, roomParams.bleed);
                             const float l = sample * channelRef.gainL * instGainL * effGain;
@@ -3697,8 +3752,8 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                              micScratchR[static_cast<size_t>(m)].data(),
                              numSamples,
                              p,
-                             directStrip ? nullptr : reverbAccumL.data(),
-                             directStrip ? nullptr : reverbAccumR.data());
+                             (directStrip || !sendReverb) ? nullptr : reverbAccumL.data(),
+                             (directStrip || !sendReverb) ? nullptr : reverbAccumR.data());
             state.inserts.process(micScratchL[static_cast<size_t>(m)].data(),
                                   micScratchR[static_cast<size_t>(m)].data(),
                                   numSamples);
@@ -3764,8 +3819,16 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                 // Direct output routing bypasses the sums and Mix bus entirely.
                 // If the chosen host bus is unavailable, the strip stays silent
                 // rather than leaking back into the internal sums.
-                const int directBus = state.params.outputBus;
-                if (directBus > 0)
+                int directBus = state.params.outputBus;
+                if (outputMode == OutputMode::multiEasy)
+                    directBus = 0;
+                else if (outputMode == OutputMode::multiAdvanced)
+                    directBus = advancedOutputBusForPiece(m);
+                else if (outputMode == OutputMode::full)
+                    directBus = m + 1;
+
+                const bool routingToSums = directBus <= 0;
+                if (!routingToSums)
                 {
                     if (directBus < totalBuses && output[directBus * 2] != nullptr
                         && output[directBus * 2 + 1] != nullptr)
@@ -3819,8 +3882,8 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                                busScratchR[static_cast<size_t>(b)].data(),
                                numSamples,
                                bus.params,
-                               reverbAccumL.data(),
-                               reverbAccumR.data());
+                               sendReverb ? reverbAccumL.data() : nullptr,
+                               sendReverb ? reverbAccumR.data() : nullptr);
                 bus.inserts.process(busScratchL[static_cast<size_t>(b)].data(),
                                     busScratchR[static_cast<size_t>(b)].data(),
                                     numSamples);
@@ -3853,8 +3916,28 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                 bus.rmsL.store(static_cast<float>(std::sqrt(rmsL / std::max(1, numSamples))), std::memory_order_relaxed);
                 bus.rmsR.store(static_cast<float>(std::sqrt(rmsR / std::max(1, numSamples))), std::memory_order_relaxed);
 
-                juce::FloatVectorOperations::add(busScratchL[5].data(), bl, numSamples);
-                juce::FloatVectorOperations::add(busScratchR[5].data(), br, numSamples);
+                int busDirect = bus.params.outputBus;
+                if (factoryPieceMode)
+                {
+                    if (outputMode == OutputMode::multiEasy)
+                        busDirect = b + 1;
+                    else if (outputMode == OutputMode::multiAdvanced)
+                        busDirect = b == 4 ? 9 : 0;
+                    else if (outputMode == OutputMode::full)
+                        busDirect = 0;
+                }
+
+                if (busDirect > 0 && busDirect < totalBuses
+                    && output[busDirect * 2] != nullptr && output[busDirect * 2 + 1] != nullptr)
+                {
+                    juce::FloatVectorOperations::add(output[busDirect * 2], bl, numSamples);
+                    juce::FloatVectorOperations::add(output[busDirect * 2 + 1], br, numSamples);
+                }
+                else
+                {
+                    juce::FloatVectorOperations::add(busScratchL[5].data(), bl, numSamples);
+                    juce::FloatVectorOperations::add(busScratchR[5].data(), br, numSamples);
+                }
             }
 
             if (output[0] != nullptr && output[1] != nullptr)
@@ -3872,7 +3955,10 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             effectiveMasterParams.level *= globals.masterLevel;
             effectiveMasterParams.pan = std::clamp(masterStripParams.pan + globals.masterPan, -1.0f, 1.0f);
             masterFX.process(
-                output[0], output[1], numSamples, reverbAccumL.data(), reverbAccumR.data(), effectiveMasterParams);
+                output[0], output[1], numSamples,
+                sendReverb ? reverbAccumL.data() : nullptr,
+                sendReverb ? reverbAccumR.data() : nullptr,
+                effectiveMasterParams);
 
             // Master metering
             float mPeakL = 0.0f, mPeakR = 0.0f;

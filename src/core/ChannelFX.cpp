@@ -3,6 +3,7 @@
 */
 
 #include "ChannelFX.h"
+#include "Config.h"
 #include "XmlLite.h"
 
 namespace glorp
@@ -1571,7 +1572,7 @@ MicStripParams readMicStripXml(const juce::XmlElement &e)
     s.transientSustain = static_cast<float>(e.getDoubleAttribute("transientSustain", 0.0));
     s.reverbSend = static_cast<float>(e.getDoubleAttribute("reverbSend", 0.0));
     s.bleed = static_cast<float>(e.getDoubleAttribute("bleed", 0.15));
-    s.outputBus = juce::jlimit(0, 15, e.getIntAttribute("outputBus", 0));
+    s.outputBus = juce::jlimit(0, config::MAX_OUTPUT_BUSES - 1, e.getIntAttribute("outputBus", 0));
     s.sendToMaster = e.getBoolAttribute("sendToMaster", false);
     return s;
 }

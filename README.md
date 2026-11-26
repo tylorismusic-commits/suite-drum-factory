@@ -48,6 +48,12 @@ Drums Glorp.
   to a host output pair. Direct out keeps the strip inserts and carries the
   piece's room content, but bypasses the sums, Mix bus, master inserts and the
   shared reverb return.
+- **OUT** in the mixer selects the host routing mode:
+  **Default Stereo**, **Multi-Out Easy** (the five sums each on their own
+  output), **Multi-Out Advanced** (kick group, snare group, Tom 1–5,
+  cymbals/overhead and room/ambient groups) or **Full Multi-Out** (every piece
+  on its own output). Multi-out modes bypass the Mix bus and shared reverb so
+  the kit can be mixed in the DAW.
 - Insert pickers open at the clicked strip row; the editor updates EQ curves,
   compressor gain reduction and clipper transfer curves live.
 - Insert racks and bus levels are saved in the plugin state, so reopening a

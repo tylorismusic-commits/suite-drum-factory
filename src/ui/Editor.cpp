@@ -1290,7 +1290,7 @@ class Editor::AboutCard : public juce::Component
                                           std::min(560.0f, card.getHeight() - 80.0f));
         g.setColour(juce::Colour(0xff1e1e22));
         g.fillRoundedRectangle(card, 14.0f);
-        g.setColour(juce::Colour(0xffe0a128));
+        g.setColour(juce::Colour(0xff4cc2a8));
         g.drawRoundedRectangle(card.reduced(1.0f), 14.0f, 1.5f);
 
         auto area = card.reduced(34.0f, 26.0f);
@@ -2690,7 +2690,7 @@ juce::PopupMenu Editor::buildFileMenu()
                  [this, multiOut]
                  {
                      processor.getSampler().setMultiOutMode(!multiOut);
-                     statusText = (!multiOut) ? "Multi-out mode active (16 stereo buses)"
+                     statusText = (!multiOut) ? "Multi-out mode active (18 stereo buses)"
                                               : "Stereo mix mode active (all to 1-2)";
                      repaint();
                  });
@@ -3098,7 +3098,7 @@ void Editor::buildControls()
         auto &inst = logicalInstruments[selectedLogicalIndex];
         juce::PopupMenu menu;
 
-        for (int b = 0; b < 16; ++b)
+        for (int b = 0; b < config::MAX_OUTPUT_BUSES; ++b)
         {
             const juce::String busLabel = "Out " + juce::String(b * 2 + 1) + "/" + juce::String(b * 2 + 2)
                                           + (b == 0 ? " (Main / Stereo Mix)" : "");
@@ -3289,7 +3289,7 @@ void Editor::buildControls()
         const int currentBus = processor.getSampler().getMicOutputBus(piece);
         juce::PopupMenu menu;
         menu.addSectionHeader("STRIP OUTPUT");
-        for (int b = 0; b < 16; ++b)
+        for (int b = 0; b < config::MAX_OUTPUT_BUSES; ++b)
         {
             const auto label = b == 0
                                    ? juce::String("Internal Sums")
@@ -4852,7 +4852,7 @@ void Editor::paint(juce::Graphics &g)
                 (learningInstrument == samplerIdx && samplerIdx >= 0) ? "???" : noteLabelFor(samplerIdx);
 
             g.setFont(displayFont(17.5f));
-            g.setColour(juce::Colour(0xffea8c16));
+            g.setColour(juce::Colour(0xff4cc2a8));
             g.drawText(noteStr,
                        juce::Rectangle<float>(noteRowX + pfxW, noteRowY, noteMaxW - pfxW, noteRowH),
                        juce::Justification::centredLeft,

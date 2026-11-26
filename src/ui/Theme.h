@@ -54,7 +54,7 @@ struct Theme
         t.panelEdge = juce::Colour(0xff3b3b40);
         t.ink = juce::Colour(0xfff2f2f0);
         t.inkSoft = juce::Colour(0xff9a9aa0);
-        t.accent = juce::Colour(0xffe0a128);
+        t.accent = juce::Colour(0xff4cc2a8);
         t.accentAlt = juce::Colour(0xff6fcf97);
         t.accentWarm = juce::Colour(0xffd98c2b);
         t.warning = juce::Colour(0xffe05a4f);

@@ -780,7 +780,15 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
 
                 if (micLower.find("snarebottom") != std::string::npos
                     || micLower.find("snare_bottom") != std::string::npos)
+                {
                     out.factoryMicPhaseInvert[mapped] = true;
+
+                    // Crocell's bottom mic is very bright; trim the snare-wire
+                    // sizzle so the internal piece mix stays balanced.
+                    const auto levelIt = out.factoryMicLevels.find(mapped);
+                    out.factoryMicLevels[mapped] =
+                        (levelIt != out.factoryMicLevels.end() ? levelIt->second : 1.0f) * 0.68f;
+                }
 
             }
         }

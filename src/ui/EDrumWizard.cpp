@@ -16,11 +16,11 @@ EDrumWizard::WizardButton::WizardButton(const juce::String &name, bool primary, 
 void EDrumWizard::WizardButton::paintButton(juce::Graphics &g, bool isHover, bool /*isDown*/)
 {
     auto b = getLocalBounds().toFloat().reduced(1.0f);
-    const auto orangeCol = juce::Colour(0xffea8c16);
+    const auto orangeCol = juce::Colour(0xff4cc2a8);
     const auto inkCol = juce::Colour(0xff111215);
 
     if (isPrimary)
-        g.setColour(isHover ? juce::Colour(0xfff39c27) : orangeCol);
+        g.setColour(isHover ? juce::Colour(0xff5fd6bb) : orangeCol);
     else
         g.setColour(isHover ? juce::Colour(0xfff4f5f4) : juce::Colour(0xfffcfdfc));
 
@@ -446,11 +446,11 @@ void EDrumWizard::paint(juce::Graphics &g)
     const float barW = card.getWidth() - 48.0f;
     const float barH = 8.0f;
 
-    g.setColour(juce::Colour(0x33ea8c16));
+    g.setColour(juce::Colour(0x334cc2a8));
     g.fillRoundedRectangle(juce::Rectangle<float>(barX, progressY, barW, barH), 4.0f);
 
     const float fillW = barW * (static_cast<float>(currentStepIndex + 1) / static_cast<float>(steps.size()));
-    g.setColour(juce::Colour(0xffea8c16));
+    g.setColour(juce::Colour(0xff4cc2a8));
     g.fillRoundedRectangle(juce::Rectangle<float>(barX, progressY, fillW, barH), 4.0f);
 
     // Step Counter
@@ -468,11 +468,11 @@ void EDrumWizard::paint(juce::Graphics &g)
     g.setColour(theme.isDark ? juce::Colour(0xff1f1f23) : juce::Colour(0xfff3f5f3));
     g.fillRoundedRectangle(promptBox, 6.0f);
     drawSketchRect(
-        g, promptBox, justLearned ? juce::Colour(0xffea8c16) : theme.panelEdge, justLearned ? 2.0f : 1.2f, 5);
+        g, promptBox, justLearned ? juce::Colour(0xff4cc2a8) : theme.panelEdge, justLearned ? 2.0f : 1.2f, 5);
 
     // Action Title
     g.setFont(displayFont(24.0f));
-    g.setColour(justLearned ? juce::Colour(0xffea8c16) : theme.ink);
+    g.setColour(justLearned ? juce::Colour(0xff4cc2a8) : theme.ink);
     g.drawText("STRIKE: " + s.prompt,
                juce::Rectangle<float>(promptBox.getX(), promptBox.getY() + 16.0f, promptBox.getWidth(), 30.0f),
                juce::Justification::centred,
@@ -502,7 +502,7 @@ void EDrumWizard::paint(juce::Graphics &g)
 
     // Feedback status (waiting vs captured)
     g.setFont(displayFont(18.0f));
-    g.setColour(justLearned ? juce::Colour(0xff2e9b3a) : juce::Colour(0xffea8c16));
+    g.setColour(justLearned ? juce::Colour(0xff2e9b3a) : juce::Colour(0xff4cc2a8));
     g.drawText(statusFeedback,
                juce::Rectangle<float>(promptBox.getX(), promptBox.getY() + 118.0f, promptBox.getWidth(), 26.0f),
                juce::Justification::centred,

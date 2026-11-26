@@ -47,7 +47,7 @@ constexpr int MAX_INSTRUMENT_BUSES = 32;
 
 /// Maximum number of output buses exposed to the host (stereo pairs).
 /// This is the bus count the plugin advertises; actual instrument count may be lower.
-constexpr int MAX_OUTPUT_BUSES = 16;
+constexpr int MAX_OUTPUT_BUSES = 18;
 
 /// Maximum number of instruments the plugin can handle simultaneously.
 /// Used for parameter array sizing and voice allocation.
