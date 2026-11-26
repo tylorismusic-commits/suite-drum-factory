@@ -3830,7 +3830,7 @@ void MixerView::showInsertMenu(bool bus, int channelIndex, int slot, juce::Compo
         });
 
     const auto screenArea = target != nullptr ? target->localAreaToGlobal(area) : juce::Rectangle<int>(0, 0, 1, 1);
-    juce::CallOutBox::launchAsynchronously(std::move(picker), screenArea, nullptr);
+    juce::CallOutBox::launchAsynchronously(std::move(picker), screenArea, this);
 }
 
 void MixerView::applyPreset(int presetIndex)
