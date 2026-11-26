@@ -4389,10 +4389,16 @@ void Editor::resized()
         const int zw = 68;
         const int zoneRowH = compact ? 20 : 22;
 
-        int perRow = juce::jmax(1, (zonesAvail + 4) / (zw + 4));
+        const int firstRowCapacity = juce::jmax(1, (zonesAvail + 4) / (zw + 4));
+        const int fullRowCapacity = juce::jmax(1, (iw + 4) / (zw + 4));
         int zoneRows = 0;
         if (! zoneButtons.empty())
-            zoneRows = (static_cast<int>(zoneButtons.size()) + perRow - 1) / perRow;
+        {
+            zoneRows = 1;
+            const int remaining = static_cast<int>(zoneButtons.size()) - firstRowCapacity;
+            if (remaining > 0)
+                zoneRows += (remaining + fullRowCapacity - 1) / fullRowCapacity;
+        }
 
         const int baseDeckH = compact ? 204 : 232;
         const int deckH = baseDeckH + juce::jmax(0, zoneRows - 2) * (zoneRowH + 2);
@@ -4435,20 +4441,20 @@ void Editor::resized()
                           static_cast<float>(noteW), static_cast<float>(zoneRowH)};
         instLearnButton.setBounds(ix + iw - learnW, iy + 68, learnW, 24);
 
-        int zx = ix;
+        int placed = 0;
         int zy = iy + 68;
-        for (auto &z : zoneButtons)
+        int zonesBottom = iy + 68;
+        for (int row = 0; placed < static_cast<int>(zoneButtons.size()); ++row)
         {
-            if (zx + zw > ix + zonesAvail)
+            const int capacity = row == 0 ? firstRowCapacity : fullRowCapacity;
+            for (int col = 0; col < capacity && placed < static_cast<int>(zoneButtons.size()); ++col, ++placed)
             {
-                zx = ix;
-                zy += zoneRowH + 2;
+                auto &z = zoneButtons[static_cast<size_t>(placed)];
+                z->setBounds(ix + col * (zw + 4), zy, zw, zoneRowH);
+                zonesBottom = juce::jmax(zonesBottom, zy + zoneRowH);
             }
-            z->setBounds(zx, zy, zw, zoneRowH);
-            zx += zw + 4;
+            zy += zoneRowH + 2;
         }
-
-        const int zonesBottom = zoneButtons.empty() ? iy + 68 : zy + zoneRowH;
         const int soundY = zonesBottom + (compact ? 6 : 8);
         const int knobW = compact ? 52 : 56;
         const int knobH = compact ? 58 : 64;
