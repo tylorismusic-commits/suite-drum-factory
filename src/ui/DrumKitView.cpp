@@ -72,7 +72,7 @@ const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &
         juce::Rectangle<float>(0.563f, 0.173f, 0.099f, 0.180f), // tom 2
         juce::Rectangle<float>(0.665f, 0.480f, 0.159f, 0.340f), // legacy floor tom = tom 4
         juce::Rectangle<float>(0.243f, 0.200f, 0.123f, 0.100f), // hi-hat
-        juce::Rectangle<float>(0.683f, 0.307f, 0.127f, 0.120f), // ride
+        juce::Rectangle<float>(0.685f, 0.300f, 0.125f, 0.085f), // ride
         juce::Rectangle<float>(0.349f, 0.040f, 0.120f, 0.087f), // crash 1
         juce::Rectangle<float>(0.634f, 0.047f, 0.120f, 0.093f), // crash 2
         juce::Rectangle<float>(0.592f, 0.380f, 0.127f, 0.360f), // tom 3
@@ -96,7 +96,7 @@ const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &
         juce::Rectangle<float>(0.563f, 0.173f, 0.099f, 0.180f), // tom 2
         juce::Rectangle<float>(0.665f, 0.480f, 0.159f, 0.340f), // floor tom = tom 4
         juce::Rectangle<float>(0.243f, 0.200f, 0.123f, 0.100f), // hi-hat
-        juce::Rectangle<float>(0.683f, 0.307f, 0.127f, 0.120f), // ride
+        juce::Rectangle<float>(0.685f, 0.300f, 0.125f, 0.085f), // ride
         juce::Rectangle<float>(0.349f, 0.040f, 0.120f, 0.087f), // crash 1
         juce::Rectangle<float>(0.634f, 0.047f, 0.120f, 0.093f), // crash 2
         juce::Rectangle<float>(0.592f, 0.380f, 0.127f, 0.360f), // tom 3
@@ -115,13 +115,13 @@ const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &sing
 {
     // Natural striking points: stick/beater contact, not geometric centres.
     static const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> points {{
-        juce::Point<float>(0.546f, 0.427f), // kick beater
+        juce::Point<float>(0.550f, 0.470f), // kick beater
         juce::Point<float>(0.451f, 0.407f), // snare centre
         juce::Point<float>(0.496f, 0.240f), // tom 1
         juce::Point<float>(0.611f, 0.240f), // tom 2
         juce::Point<float>(0.743f, 0.573f), // floor tom = tom 4
         juce::Point<float>(0.324f, 0.260f), // hi-hat bow
-        juce::Point<float>(0.761f, 0.387f), // ride bow
+        juce::Point<float>(0.761f, 0.365f), // ride bow
         juce::Point<float>(0.430f, 0.093f), // crash 1 bow
         juce::Point<float>(0.711f, 0.100f), // crash 2 bow
         juce::Point<float>(0.655f, 0.440f), // tom 3
@@ -130,7 +130,7 @@ const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &sing
         juce::Point<float>(0.523f, 0.109f), // splash 1 bow
         juce::Point<float>(0.596f, 0.109f), // splash 2 bow
         juce::Point<float>(0.148f, 0.373f), // china 1 bow
-        juce::Point<float>(0.880f, 0.500f), // china 2 bow
+        juce::Point<float>(0.925f, 0.545f), // china 2 bow
     }};
 
     return points;
@@ -139,17 +139,17 @@ const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &sing
 const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &singleImageShellAnchors()
 {
     static const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> points {{
-        juce::Point<float>(0.615f, 0.550f), // kick
-        juce::Point<float>(0.505f, 0.500f), // snare
+        juce::Point<float>(0.555f, 0.365f), // kick
+        juce::Point<float>(0.500f, 0.360f), // snare
         juce::Point<float>(0.535f, 0.200f), // tom 1
         juce::Point<float>(0.655f, 0.190f), // tom 2
-        juce::Point<float>(0.820f, 0.520f), // floor tom = tom 4
+        juce::Point<float>(0.815f, 0.720f), // floor tom = tom 4
         juce::Point<float>(0.324f, 0.260f), // hihat (unused)
         juce::Point<float>(0.761f, 0.387f), // ride (unused)
         juce::Point<float>(0.430f, 0.093f), // crash 1 (unused)
         juce::Point<float>(0.711f, 0.100f), // crash 2 (unused)
         juce::Point<float>(0.715f, 0.450f), // tom 3
-        juce::Point<float>(0.820f, 0.520f), // tom 4
+        juce::Point<float>(0.815f, 0.720f), // tom 4
         juce::Point<float>(0.322f, 0.480f), // tom 5
         juce::Point<float>(0.523f, 0.109f), // splash 1 (unused)
         juce::Point<float>(0.596f, 0.109f), // splash 2 (unused)
@@ -1131,36 +1131,45 @@ KitPiece DrumKitView::pieceAt(juce::Point<float> pos) const
 {
     if (useSingleKitImage && singleKitScaled.isValid())
     {
-        const KitPiece order[] = {KitPiece::snare,
-                                  KitPiece::kick,
-                                  KitPiece::tom5,
-                                  KitPiece::tom3,
-                                  KitPiece::tom4,
-                                  KitPiece::tom1,
-                                  KitPiece::tom2,
-                                  KitPiece::ride,
-                                  KitPiece::china1,
-                                  KitPiece::crash2,
-                                  KitPiece::crash1,
-                                  KitPiece::china2,
-                                  KitPiece::splash1,
-                                  KitPiece::splash2,
-                                  KitPiece::hihat};
+        // Cymbals first: their surfaces are thin and can overlap the floor
+        // toms behind them, so a hit on the cymbal must win over the shell.
+        const KitPiece cymbalOrder[] = {KitPiece::hihat,
+                                        KitPiece::ride,
+                                        KitPiece::china1,
+                                        KitPiece::china2,
+                                        KitPiece::crash1,
+                                        KitPiece::crash2,
+                                        KitPiece::splash1,
+                                        KitPiece::splash2};
 
-        for (const auto piece : order)
+        auto opaqueAt = [&](juce::Point<float> p)
         {
-            const bool cymbal = isCymbalPiece(piece);
-            const auto &region = cymbal ? singlePieceBounds[static_cast<size_t>(piece)]
-                                        : singlePieceBodyBounds[static_cast<size_t>(piece)];
-            if (cymbal ? !ellipseContains(region, pos) : !region.contains(pos))
-                continue;
-
-            const float u = juce::jlimit(0.0f, 1.0f, (pos.x - singleKitBounds.getX()) / singleKitBounds.getWidth());
-            const float v = juce::jlimit(0.0f, 1.0f, (pos.y - singleKitBounds.getY()) / singleKitBounds.getHeight());
+            const float u = juce::jlimit(0.0f, 1.0f, (p.x - singleKitBounds.getX()) / singleKitBounds.getWidth());
+            const float v = juce::jlimit(0.0f, 1.0f, (p.y - singleKitBounds.getY()) / singleKitBounds.getHeight());
             const int px = juce::jlimit(0, singleKitImage.getWidth() - 1, static_cast<int>(u * singleKitImage.getWidth()));
             const int py = juce::jlimit(0, singleKitImage.getHeight() - 1, static_cast<int>(v * singleKitImage.getHeight()));
+            return singleKitImage.getPixelAt(px, py).getAlpha() > 18;
+        };
 
-            if (singleKitImage.getPixelAt(px, py).getAlpha() > 18)
+        for (const auto piece : cymbalOrder)
+        {
+            if (ellipseContains(singlePieceBounds[static_cast<size_t>(piece)], pos) && opaqueAt(pos))
+                return piece;
+        }
+
+        const KitPiece shellOrder[] = {KitPiece::snare,
+                                       KitPiece::kick,
+                                       KitPiece::tom5,
+                                       KitPiece::tom3,
+                                       KitPiece::tom4,
+                                       KitPiece::tom1,
+                                       KitPiece::tom2};
+
+        for (const auto piece : shellOrder)
+        {
+            if (!singlePieceBodyBounds[static_cast<size_t>(piece)].contains(pos))
+                continue;
+            if (opaqueAt(pos))
                 return piece;
         }
 
@@ -1778,7 +1787,7 @@ void DrumKitView::layoutSingleKit(float W, float H)
         return;
 
     const float margin = 8.0f;
-    const float zoom = 1.05f;
+    const float zoom = 1.00f;
     const float scale = std::min((W - margin * 2.0f) / imageW, (H - margin * 2.0f) / imageH) * zoom;
     const float drawW = imageW * scale;
     const float drawH = imageH * scale;
