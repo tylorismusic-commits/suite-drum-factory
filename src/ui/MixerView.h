@@ -33,6 +33,7 @@ class MixerView
     void refreshBusStates();
     void focusChannel(int channelIndex);
     void openChannelFX(int channelIndex);
+    void openInsertRack(bool bus, int channel, int slot);
     void openMasterFX();
     void openBleedMatrix(int highlightMic = -1);
     void toggleBleedMatrix();
@@ -213,7 +214,6 @@ class MixerView
         juce::Rectangle<float> graphBounds;
 
         void rebuildKnobs();
-        void chooseType(int slot);
         void drawSlot(juce::Graphics &g, int slot, juce::Rectangle<float> area);
         void drawEqGraph(juce::Graphics &g, juce::Rectangle<float> area);
         int slotAt(juce::Point<float> pos) const;
@@ -495,12 +495,15 @@ class MixerView
     // FX Drawers & Popups
     std::unique_ptr<ChannelFXPopup> channelFXPopup;
     std::unique_ptr<InsertRackPopup> insertRackPopup;
+    std::unique_ptr<juce::Component> insertPickerLayer;
+    std::unique_ptr<juce::Component> insertPickerPanel;
     std::unique_ptr<MasterFXPopup> masterFXPopup;
     std::unique_ptr<PresetBrowserPopup> presetBrowser;
     std::unique_ptr<BleedMatrixPopup> bleedMatrixPopup;
 
     void applyPreset(int presetIndex);
     void showInsertMenu(bool bus, int channel, int slot, juce::Component *target, juce::Rectangle<int> area);
+    void hideInsertPicker();
     void promptSavePreset();
 
     juce::String activePresetName {"Default Clean"};

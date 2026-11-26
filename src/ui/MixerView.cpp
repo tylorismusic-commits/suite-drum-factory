@@ -96,8 +96,6 @@ class InsertTypePicker : public juce::Component
             return;
         if (onPick)
             onPick(typeAt(index));
-        if (auto *box = findParentComponentOfClass<juce::CallOutBox>())
-            box->dismiss();
     }
 
   private:
@@ -142,6 +140,36 @@ class InsertTypePicker : public juce::Component
                 return i;
         return -1;
     }
+};
+
+// Full-window transparent layer that closes the insert picker when clicking
+// anywhere outside the picker itself.
+class InsertPickerLayer : public juce::Component
+{
+  public:
+    explicit InsertPickerLayer(std::function<void()> dismissCallback)
+        : onDismiss(std::move(dismissCallback))
+    {
+        setInterceptsMouseClicks(true, true);
+    }
+
+    void paint(juce::Graphics &) override {}
+
+    void mouseDown(const juce::MouseEvent &) override
+    {
+        if (onDismiss != nullptr)
+        {
+            const auto callback = onDismiss;
+            juce::MessageManager::callAsync([callback]
+                                            {
+                                                if (callback != nullptr)
+                                                    callback();
+                                            });
+        }
+    }
+
+  private:
+    std::function<void()> onDismiss;
 };
 
 float linearToDb(float linear) noexcept
@@ -704,9 +732,7 @@ void MixerView::ChannelStripComponent::mouseDown(const juce::MouseEvent &e)
             repaint();
             return;
         }
-        owner.closePopups();
-        if (owner.insertRackPopup != nullptr)
-            owner.insertRackPopup->open(false, channelIndex_, slot);
+        owner.openInsertRack(false, channelIndex_, slot);
         return;
     }
 
@@ -989,9 +1015,7 @@ void MixerView::BusStripComponent::mouseDown(const juce::MouseEvent &e)
             repaint();
             return;
         }
-        owner.closePopups();
-        if (owner.insertRackPopup != nullptr)
-            owner.insertRackPopup->open(true, busIndex_, slot);
+        owner.openInsertRack(true, busIndex_, slot);
         return;
     }
 
@@ -1128,42 +1152,6 @@ int MixerView::InsertRackPopup::slotAt(juce::Point<float> pos) const
         if (slotBounds[static_cast<size_t>(i)].contains(pos))
             return i;
     return -1;
-}
-
-void MixerView::InsertRackPopup::chooseType(int slot)
-{
-    juce::PopupMenu menu;
-    menu.addSectionHeader("INSERT " + juce::String(slot + 1));
-    menu.addItem(1, "Graphical EQ");
-    menu.addItem(2, "Compressor");
-    menu.addItem(3, "Drive");
-    menu.addItem(4, "Transient Shaper");
-    menu.addItem(5, "Limiter");
-    menu.addItem(6, "Clipper");
-    menu.addSeparator();
-    menu.addItem(7, "Off");
-
-    juce::Component::SafePointer<InsertRackPopup> safe(this);
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
-                       [safe, slot](int result)
-                       {
-                           if (safe == nullptr || result <= 0)
-                               return;
-                           auto type = InsertType::none;
-                           switch (result)
-                           {
-                               case 1: type = InsertType::eq; break;
-                               case 2: type = InsertType::compressor; break;
-                               case 3: type = InsertType::drive; break;
-                               case 4: type = InsertType::transient; break;
-                               case 5: type = InsertType::limiter; break;
-                               case 6: type = InsertType::clipper; break;
-                               default: break;
-                           }
-                           safe->processor.getSampler().setInsertType(safe->busTarget, safe->channel, slot, type);
-                           safe->selectedSlot = slot;
-                           safe->rebuildKnobs();
-                       });
 }
 
 void MixerView::InsertRackPopup::drawSlot(juce::Graphics &g, int slot, juce::Rectangle<float> area)
@@ -1506,30 +1494,45 @@ void MixerView::InsertRackPopup::resized()
     }
 
     const auto state = processor.getSampler().getInsertState(busTarget, channel, selectedSlot);
-    graphBounds = {16.0f, 150.0f, 400.0f, 190.0f};
+    const float margin = 16.0f;
+    const float graphW = juce::jmin(400.0f, b.getWidth() * 0.47f);
+    graphBounds = {margin, 150.0f, graphW, 190.0f};
 
     if (!knobs.empty())
     {
-        const bool eq = state.type == InsertType::eq;
+        const bool hasGraph = state.type == InsertType::eq || state.type == InsertType::compressor
+                              || state.type == InsertType::clipper;
         const int count = static_cast<int>(knobs.size());
-        if (eq)
+
+        if (hasGraph)
         {
-            const float kx = 436.0f;
-            const float ky = 154.0f;
+            const int cols = juce::jmin(3, count);
+            const int rows = (count + cols - 1) / cols;
+            const float areaX = graphBounds.getRight() + 14.0f;
+            const float areaW = juce::jmax(120.0f, b.getWidth() - areaX - 10.0f);
+            const float cellW = areaW / static_cast<float>(cols);
+            const float cellH = juce::jmin(92.0f, 190.0f / static_cast<float>(rows));
+            const float startY = 150.0f + (190.0f - cellH * static_cast<float>(rows)) * 0.5f;
+
             for (int i = 0; i < count; ++i)
             {
-                const int col = i % 3;
-                const int row = i / 3;
-                knobs[static_cast<size_t>(i)]->setBounds(static_cast<int>(kx + col * 106.0f),
-                                                         static_cast<int>(ky + row * 92.0f), 88, 84);
+                const int col = i % cols;
+                const int row = i / cols;
+                const float kw = juce::jmin(88.0f, cellW - 8.0f);
+                const float kh = juce::jmin(84.0f, cellH - 4.0f);
+                const float kx = areaX + static_cast<float>(col) * cellW + (cellW - kw) * 0.5f;
+                const float ky = startY + static_cast<float>(row) * cellH;
+                knobs[static_cast<size_t>(i)]->setBounds(static_cast<int>(kx), static_cast<int>(ky),
+                                                         static_cast<int>(kw), static_cast<int>(kh));
             }
         }
         else
         {
-            const float kw = 88.0f;
-            const float start = std::max(20.0f, (b.getWidth() - count * kw) * 0.5f);
+            const float cellW = 108.0f;
+            const float totalW = count * cellW;
+            const float start = juce::jmax(16.0f, (b.getWidth() - totalW) * 0.5f);
             for (int i = 0; i < count; ++i)
-                knobs[static_cast<size_t>(i)]->setBounds(static_cast<int>(start + i * kw), 190, 80, 88);
+                knobs[static_cast<size_t>(i)]->setBounds(static_cast<int>(start + i * cellW), 180, 92, 88);
         }
     }
 }
@@ -1580,7 +1583,7 @@ void MixerView::InsertRackPopup::mouseDown(const juce::MouseEvent &e)
 
     const auto state = processor.getSampler().getInsertState(busTarget, channel, slot);
     if (state.type == InsertType::none)
-        chooseType(slot);
+        owner.showInsertMenu(busTarget, channel, slot, this, slotBounds[static_cast<size_t>(slot)].toNearestInt());
 }
 
 void MixerView::InsertRackPopup::mouseDrag(const juce::MouseEvent &e)
@@ -3788,6 +3791,14 @@ void MixerView::toggleBleedMatrix()
     setBleedMatrixOpen(!bleedMatrixOpen);
 }
 
+void MixerView::openInsertRack(bool bus, int channelIndex, int slot)
+{
+    closePopups();
+
+    if (insertRackPopup != nullptr)
+        insertRackPopup->open(bus, channelIndex, slot);
+}
+
 void MixerView::openBleedMatrix(int highlightMic)
 {
     bleedMatrixOpen = true;
@@ -3800,6 +3811,8 @@ void MixerView::openBleedMatrix(int highlightMic)
 
 void MixerView::closePopups()
 {
+    hideInsertPicker();
+
     if (channelFXPopup != nullptr && channelFXPopup->isOpen())
         channelFXPopup->close();
 
@@ -3816,21 +3829,68 @@ void MixerView::closePopups()
 void MixerView::showInsertMenu(bool bus, int channelIndex, int slot, juce::Component *target,
                                juce::Rectangle<int> area)
 {
-    auto picker = std::make_unique<InsertTypePicker>(
+    hideInsertPicker();
+
+    const int panelW = 196;
+    const int panelH = 6 * 30 + 16;
+
+    juce::Component::SafePointer<MixerView> safeThis(this);
+    auto panel = std::make_unique<InsertTypePicker>(
         theme,
-        [this, bus, channelIndex, slot](InsertType type)
+        [this, safeThis, bus, channelIndex, slot](InsertType type)
         {
             processor.getSampler().setInsertType(bus, channelIndex, slot, type);
+            if (insertRackPopup != nullptr && insertRackPopup->isOpen())
+                insertRackPopup->open(bus, channelIndex, slot);
             for (auto &strip : channelStrips)
                 if (strip != nullptr)
                     strip->repaint();
             for (auto &strip : busStrips)
                 if (strip != nullptr)
                     strip->repaint();
+
+            juce::MessageManager::callAsync([safeThis]
+                                            {
+                                                if (safeThis != nullptr)
+                                                    safeThis->hideInsertPicker();
+                                            });
         });
 
-    const auto screenArea = target != nullptr ? target->localAreaToGlobal(area) : juce::Rectangle<int>(0, 0, 1, 1);
-    juce::CallOutBox::launchAsynchronously(std::move(picker), screenArea, this);
+    const auto areaInMixer = target != nullptr ? getLocalArea(target, area) : juce::Rectangle<int>(0, 0, 1, 1);
+
+    // Prefer directly below the clicked row; flip above when there is no room.
+    int px = juce::jlimit(4, juce::jmax(4, getWidth() - panelW - 4), areaInMixer.getX());
+    int py = areaInMixer.getBottom() + 6;
+    if (py + panelH > getHeight() - 4)
+        py = areaInMixer.getY() - panelH - 6;
+    py = juce::jlimit(4, juce::jmax(4, getHeight() - panelH - 4), py);
+    panel->setBounds(px, py, panelW, panelH);
+    insertPickerPanel = std::move(panel);
+
+    auto layer = std::make_unique<InsertPickerLayer>([safeThis]
+                                                    {
+                                                        if (safeThis != nullptr)
+                                                            safeThis->hideInsertPicker();
+                                                    });
+    layer->setBounds(getLocalBounds());
+    layer->addAndMakeVisible(*insertPickerPanel);
+    insertPickerLayer = std::move(layer);
+
+    addAndMakeVisible(*insertPickerLayer);
+    insertPickerLayer->toFront(true);
+}
+
+void MixerView::hideInsertPicker()
+{
+    if (insertPickerLayer != nullptr)
+    {
+        if (insertPickerPanel != nullptr)
+            insertPickerLayer->removeChildComponent(insertPickerPanel.get());
+        removeChildComponent(insertPickerLayer.get());
+    }
+
+    insertPickerPanel.reset();
+    insertPickerLayer.reset();
 }
 
 void MixerView::applyPreset(int presetIndex)
@@ -3941,6 +4001,16 @@ void MixerView::timerCallback()
 
 void MixerView::resized()
 {
+    if (insertPickerLayer != nullptr)
+    {
+        juce::Component::SafePointer<MixerView> safeThis(this);
+        juce::MessageManager::callAsync([safeThis]
+                                        {
+                                            if (safeThis != nullptr)
+                                                safeThis->hideInsertPicker();
+                                        });
+    }
+
     const auto r = getLocalBounds().toFloat();
 
     // Top control bar
