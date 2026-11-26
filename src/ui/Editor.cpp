@@ -4408,7 +4408,7 @@ void Editor::resized()
                 zoneRows += (remaining + fullRowCapacity - 1) / fullRowCapacity;
         }
 
-        const int baseDeckH = compact ? 176 : 190;
+        const int baseDeckH = compact ? 154 : 160;
         const int deckH = baseDeckH + juce::jmax(0, zoneRows - 1) * (zoneRowH + 2);
         const int deckY = h - deckH - 14;
         const int baseDeckY = h - baseDeckH - 14;
@@ -4474,20 +4474,21 @@ void Editor::resized()
         const int rightX = ix + 4 * (knobW + 4) + 8;
         const int rightW = juce::jmax(110, static_cast<int>(studioInspectorRect.getRight()) - 12 - rightX);
         instCurveButton.setBounds(rightX, soundY, rightW, 24);
-        instCurvePreview.setBounds(rightX, soundY + 28, rightW, compact ? 30 : 40);
-        instLayerButton.setBounds(rightX, soundY + (compact ? 62 : 72), rightW, 20);
+        instCurvePreview.setBounds(rightX, soundY + 28, rightW, compact ? 28 : 34);
 
         const int mx = static_cast<int>(studioMixRect.getX()) + 12;
         const int my = static_cast<int>(studioMixRect.getY());
         const int mixKnobW = 58;
-        const int mixKnobH = 64;
-        instVolumeKnob->setBounds(mx, my + 34, mixKnobW, mixKnobH);
-        instPanKnob->setBounds(mx + mixKnobW + 4, my + 34, mixKnobW, mixKnobH);
-        instBleedKnob->setBounds(mx + (mixKnobW + 4) * 2, my + 34, mixKnobW, mixKnobH);
-        studioOutputButton.setBounds(mx, my + 104, 118, 24);
-        studioOpenStripButton.setBounds(mx + 126, my + 104, 108, 24);
+        const int mixKnobH = 58;
+        instVolumeKnob->setBounds(mx, my + 32, mixKnobW, mixKnobH);
+        instPanKnob->setBounds(mx + mixKnobW + 4, my + 32, mixKnobW, mixKnobH);
+        instBleedKnob->setBounds(mx + (mixKnobW + 4) * 2, my + 32, mixKnobW, mixKnobH);
+        studioOutputButton.setBounds(mx, my + 96, 118, 24);
+        studioOpenStripButton.setBounds(mx + 126, my + 96, 108, 24);
+        instLayerButton.setBounds(static_cast<int>(studioMixRect.getRight()) - 96,
+                                  static_cast<int>(studioMixRect.getY()) + 4, 84, 20);
 
-        const int knobSize = juce::jmin(80, deckH - 78);
+        const int knobSize = juce::jmin(76, deckH - 76);
         masterVolumeKnob->setBounds(static_cast<int>(studioMonitorRect.getRight()) - knobSize - 12,
                                     static_cast<int>(studioMonitorRect.getY()) + 52, knobSize, knobSize);
 
