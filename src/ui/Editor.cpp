@@ -1935,24 +1935,100 @@ void Editor::updateShellSlotButtons()
         }
     };
 
+    auto visualPieceFor = [this](const std::string &moduleId, const std::string &pieceId)
+    {
+        if (moduleId.empty())
+            return KitPiece::count;
+
+        for (const auto &lp : processor.getCurrentKit().logicalPieces)
+        {
+            if (lp.sourceModule != moduleId)
+                continue;
+            if (!pieceId.empty() && lp.sourceId != pieceId)
+                continue;
+
+            for (const auto &zone : lp.zones)
+            {
+                if (zone.samplerIndex < 0)
+                    continue;
+                const auto piece = DrumKitView::pieceForRole(
+                    processor.getSampler().instrumentRole(zone.samplerIndex));
+                if (piece != KitPiece::count)
+                    return piece;
+            }
+        }
+        return KitPiece::count;
+    };
+
     apply(ShellSlotKind::kick, 0, processor.getFactoryKickModule().toStdString(), {}, "Kick", KitPiece::kick, 0);
     apply(ShellSlotKind::snare, 0, processor.getFactorySnareModule().toStdString(), {}, "Snare", KitPiece::snare, 0);
 
+    static const KitPiece tomPieces[factory::tomSlots] {
+        KitPiece::tom1, KitPiece::tom2, KitPiece::tom3, KitPiece::tom4, KitPiece::tom5};
+
+    std::array<std::string, factory::tomSlots> tomModuleIds;
+    std::array<std::string, factory::tomSlots> tomPieceIds;
+    std::array<KitPiece, factory::tomSlots> tomVisuals;
+    std::array<bool, static_cast<size_t>(KitPiece::count)> usedVisual {};
+    tomVisuals.fill(KitPiece::count);
+
     for (int slot = 0; slot < factory::tomSlots; ++slot)
     {
-        const auto moduleId = processor.getFactoryTomModule(slot).toStdString();
-        std::string pieceId;
-        if (const auto it = catalogs.find(moduleId); it != catalogs.end())
+        tomModuleIds[static_cast<size_t>(slot)] = processor.getFactoryTomModule(slot).toStdString();
+
+        if (const auto it = catalogs.find(tomModuleIds[static_cast<size_t>(slot)]); it != catalogs.end())
         {
             const auto toms = factory::tomsOf(it->second);
             if (slot < static_cast<int>(toms.size()))
-                pieceId = toms[static_cast<size_t>(slot)].id;
+                tomPieceIds[static_cast<size_t>(slot)] = toms[static_cast<size_t>(slot)].id;
         }
 
-        static const KitPiece tomPieces[factory::tomSlots] {
-            KitPiece::tom1, KitPiece::tom2, KitPiece::tom3, KitPiece::tom4, KitPiece::tom5};
-        const auto fallback = tomPieces[std::clamp(slot, 0, factory::tomSlots - 1)];
-        apply(ShellSlotKind::tom, slot, moduleId, pieceId, "Tom " + juce::String(slot + 1), fallback, 0);
+        const auto visual = visualPieceFor(tomModuleIds[static_cast<size_t>(slot)],
+                                           tomPieceIds[static_cast<size_t>(slot)]);
+        if (visual != KitPiece::count)
+        {
+            tomVisuals[static_cast<size_t>(slot)] = visual;
+            usedVisual[static_cast<size_t>(visual)] = true;
+        }
+    }
+
+    for (int slot = 0; slot < factory::tomSlots; ++slot)
+    {
+        auto *holder = shellSlotButton(ShellSlotKind::tom, slot);
+        auto fallback = tomVisuals[static_cast<size_t>(slot)];
+
+        if (fallback == KitPiece::count)
+        {
+            // Empty slot: take the first visual tom that is not already used,
+            // so the chevron can still be clicked to assign a source.
+            for (const auto candidate : tomPieces)
+            {
+                if (!usedVisual[static_cast<size_t>(candidate)])
+                {
+                    fallback = candidate;
+                    usedVisual[static_cast<size_t>(candidate)] = true;
+                    break;
+                }
+            }
+        }
+
+        if (fallback == KitPiece::count)
+        {
+            if (holder != nullptr && holder->button != nullptr)
+            {
+                holder->button->setVisible(false);
+                holder->hasBounds = false;
+            }
+            continue;
+        }
+
+        apply(ShellSlotKind::tom,
+              slot,
+              tomModuleIds[static_cast<size_t>(slot)],
+              tomPieceIds[static_cast<size_t>(slot)],
+              "Tom " + juce::String(slot + 1),
+              fallback,
+              0);
     }
 }
 

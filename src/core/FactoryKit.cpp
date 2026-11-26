@@ -541,8 +541,22 @@ BuildResult build(const std::vector<std::pair<std::string, const DrumKit *>> &ki
             else if (shellKind == ShellKind::tom)
             {
                 static const int tomNotes[tomSlots] {48, 47, 45, 43, 41};
-                suggestedNote = tomNotes[std::clamp(shellSlot, 0, tomSlots - 1)];
-                midiRole = "tom." + std::to_string(shellSlot + 1);
+
+                // Salamander and Monster call their floor tom "Low Tom" and
+                // number it 2. Visually it belongs on the floor (tom.3), so
+                // keep the kit picture honest even though the source lists it
+                // as the second tom.
+                int roleSlot = std::clamp(shellSlot, 0, tomSlots - 1);
+                const auto tomName = roleToken(srcLp.name + " " + srcLp.id);
+                if ((moduleId == "salamander" || moduleId == "monster")
+                    && (tomName.find("low") != std::string::npos || tomName.find("ftom") != std::string::npos
+                        || tomName.find("floor") != std::string::npos))
+                {
+                    roleSlot = 2; // tom.3 = floor tom
+                }
+
+                suggestedNote = tomNotes[roleSlot];
+                midiRole = "tom." + std::to_string(roleSlot + 1);
             }
             else
             {
