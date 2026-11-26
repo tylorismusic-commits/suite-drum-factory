@@ -389,10 +389,11 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
     };
     addAndMakeVisible(busBtn);
 
-    phaseBtn.setVisible(false);
+    const bool externalKit = !processor.getSampler().isFactoryPieceMode();
+    phaseBtn.setVisible(externalKit);
     fxBtn.setVisible(false);
     bleedBtn.setVisible(false);
-    monoBtn.setVisible(false);
+    monoBtn.setVisible(externalKit);
     busBtn.setVisible(true);
 
     bleedKnob = std::make_unique<Knob>("BLEED", 0.0f, 1.0f, 0.15f);
@@ -404,6 +405,7 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
         processor.getSampler().setMicStripParams(channelIndex_, params);
     };
     addAndMakeVisible(*bleedKnob);
+    bleedKnob->setVisible(!externalKit);
 
     updateFromState();
     setTheme(owner.theme);
@@ -412,6 +414,12 @@ MixerView::ChannelStripComponent::ChannelStripComponent(MixerView &o, PluginProc
 void MixerView::ChannelStripComponent::updateFromState()
 {
     const auto params = processor.getSampler().getMicStripParams(channelIndex_);
+    const bool externalKit = !processor.getSampler().isFactoryPieceMode();
+    phaseBtn.setVisible(externalKit);
+    monoBtn.setVisible(externalKit);
+    if (bleedKnob != nullptr)
+        bleedKnob->setVisible(!externalKit);
+
     phaseBtn.setActive(params.phaseInvert);
     soloBtn.setActive(params.solo);
     muteBtn.setActive(params.mute);
@@ -459,8 +467,25 @@ void MixerView::ChannelStripComponent::resized()
     const float panY = insertBottom + 4.0f;
     panBarBounds = juce::Rectangle<float>(r.getX() + 8.0f, panY, r.getWidth() - 54.0f, isCompact ? 14.0f : 16.0f);
 
+    const bool externalKit = !processor.getSampler().isFactoryPieceMode();
     if (bleedKnob != nullptr)
-        bleedKnob->setBounds(static_cast<int>(r.getRight() - 46.0f), static_cast<int>(panY - 8.0f), 40, 54);
+    {
+        if (externalKit)
+            bleedKnob->setBounds(0, 0, 0, 0);
+        else
+            bleedKnob->setBounds(static_cast<int>(r.getRight() - 46.0f), static_cast<int>(panY - 8.0f), 40, 54);
+    }
+
+    if (externalKit)
+    {
+        phaseBtn.setBounds(static_cast<int>(r.getRight() - 46.0f), static_cast<int>(panY - 8.0f), 40, 22);
+        monoBtn.setBounds(static_cast<int>(r.getRight() - 46.0f), static_cast<int>(panY + 17.0f), 40, 22);
+    }
+    else
+    {
+        phaseBtn.setBounds(0, 0, 0, 0);
+        monoBtn.setBounds(0, 0, 0, 0);
+    }
 
     const float soloMuteY = panY + 46.0f;
     const float soloMuteH = isCompact ? 18.0f : 20.0f;
@@ -482,10 +507,8 @@ void MixerView::ChannelStripComponent::resized()
     faderThumbBounds = juce::Rectangle<float>(faderTrackBounds.getX() - 4.0f, thumbY,
                                               faderTrackBounds.getWidth() + 8.0f, isCompact ? 16.0f : 20.0f);
 
-    phaseBtn.setBounds(0, 0, 0, 0);
     fxBtn.setBounds(0, 0, 0, 0);
     bleedBtn.setBounds(0, 0, 0, 0);
-    monoBtn.setBounds(0, 0, 0, 0);
     busBtn.setBounds(r.getX() + 6.0f, r.getBottom() - 23.0f, r.getWidth() - 12.0f, 18.0f);
 }
 

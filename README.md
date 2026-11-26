@@ -74,6 +74,10 @@ Drums Glorp.
   to the classic sidebar at any time.
 - The **KIT** dropdown in the kit view loads any installed external kit, browses
   for a `.glorpkit`/XML file, or rescans the kit folders.
+- External kits expose per-strip **Ø (phase)** and **MONO** controls so obvious
+  source problems — polarity, one-sided trigger channels, odd mic layouts — can
+  be corrected in the mixer. Factory kits keep those corrections baked in and
+  hide the controls.
 - Source-mic polarity is applied automatically while the piece is summed, so
   modules that mark a mic out of phase (for example DRS Kdrum_back) need no
   manual setup.
