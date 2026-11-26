@@ -115,18 +115,18 @@ const std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> &
 const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> &singleImageHitPoints()
 {
     static const std::array<juce::Point<float>, static_cast<size_t>(KitPiece::count)> points {{
-        juce::Point<float>(0.565f, 0.425f), // kick
-        juce::Point<float>(0.462f, 0.415f), // snare
-        juce::Point<float>(0.508f, 0.270f), // tom 1
-        juce::Point<float>(0.621f, 0.255f), // tom 2
-        juce::Point<float>(0.781f, 0.465f), // floor tom = tom 4
+        juce::Point<float>(0.565f, 0.445f), // kick
+        juce::Point<float>(0.462f, 0.430f), // snare
+        juce::Point<float>(0.508f, 0.285f), // tom 1
+        juce::Point<float>(0.621f, 0.270f), // tom 2
+        juce::Point<float>(0.781f, 0.480f), // floor tom = tom 4
         juce::Point<float>(0.321f, 0.246f), // hi-hat
         juce::Point<float>(0.885f, 0.360f), // ride
         juce::Point<float>(0.417f, 0.079f), // crash 1
         juce::Point<float>(0.678f, 0.086f), // crash 2
-        juce::Point<float>(0.671f, 0.420f), // tom 3
-        juce::Point<float>(0.781f, 0.465f), // tom 4
-        juce::Point<float>(0.265f, 0.450f), // tom 5
+        juce::Point<float>(0.671f, 0.435f), // tom 3
+        juce::Point<float>(0.781f, 0.480f), // tom 4
+        juce::Point<float>(0.265f, 0.465f), // tom 5
         juce::Point<float>(0.527f, 0.121f), // splash 1
         juce::Point<float>(0.594f, 0.121f), // splash 2
         juce::Point<float>(0.758f, 0.289f), // china 1
@@ -789,7 +789,7 @@ void DrumKitView::drawSingleImageDimming(juce::Graphics &g) const
     const auto &bodies = singleImageBodies();
     for (size_t i = 0; i < static_cast<size_t>(KitPiece::count); ++i)
     {
-        if (pieceEnabled[i])
+        if (pieceEnabled[i] || static_cast<KitPiece>(i) == KitPiece::floorTom)
             continue;
 
         const auto r = bodies[i];
@@ -803,9 +803,25 @@ void DrumKitView::drawSingleImageDimming(juce::Graphics &g) const
 
         juce::Path clip;
         if (isCymbalPiece(static_cast<KitPiece>(i)))
+        {
             clip.addEllipse(area);
+        }
         else
-            clip.addRoundedRectangle(area, 8.0f);
+        {
+            // Tapered shell outline rather than a plain rectangle, so a
+            // disabled drum dims to its own silhouette.
+            const float insetX = area.getWidth() * 0.10f;
+            const float insetY = area.getHeight() * 0.035f;
+            clip.startNewSubPath(area.getX() + insetX, area.getY());
+            clip.lineTo(area.getRight() - insetX, area.getY());
+            clip.lineTo(area.getRight(), area.getY() + insetY * 2.0f);
+            clip.lineTo(area.getRight() - area.getWidth() * 0.02f, area.getBottom() - insetY);
+            clip.lineTo(area.getRight() - area.getWidth() * 0.18f, area.getBottom());
+            clip.lineTo(area.getX() + area.getWidth() * 0.18f, area.getBottom());
+            clip.lineTo(area.getX() + area.getWidth() * 0.02f, area.getBottom() - insetY);
+            clip.lineTo(area.getX(), area.getY() + insetY * 2.0f);
+            clip.closeSubPath();
+        }
 
         if (singleKitBlack.isValid())
         {
@@ -1091,8 +1107,10 @@ KitPiece DrumKitView::pieceAt(juce::Point<float> pos) const
 
         for (const auto piece : order)
         {
-            const auto &region = singlePieceBounds[static_cast<size_t>(piece)];
-            if (!ellipseContains(region, pos))
+            const bool cymbal = isCymbalPiece(piece);
+            const auto &region = cymbal ? singlePieceBounds[static_cast<size_t>(piece)]
+                                        : singlePieceBodyBounds[static_cast<size_t>(piece)];
+            if (cymbal ? !ellipseContains(region, pos) : !region.contains(pos))
                 continue;
 
             const float u = juce::jlimit(0.0f, 1.0f, (pos.x - singleKitBounds.getX()) / singleKitBounds.getWidth());
@@ -1742,6 +1760,7 @@ void DrumKitView::layoutSingleKit(float W, float H)
     }
 
     const auto &regions = singleImageRegions();
+    const auto &bodies = singleImageBodies();
     for (size_t i = 0; i < static_cast<size_t>(KitPiece::count); ++i)
     {
         const auto r = regions[i];
@@ -1749,6 +1768,13 @@ void DrumKitView::layoutSingleKit(float W, float H)
                                 singleKitBounds.getY() + r.getY() * drawH,
                                 r.getWidth() * drawW,
                                 r.getHeight() * drawH};
+
+        const auto b = bodies[i];
+        singlePieceBodyBounds[i] = {singleKitBounds.getX() + b.getX() * drawW,
+                                    singleKitBounds.getY() + b.getY() * drawH,
+                                    b.getWidth() * drawW,
+                                    b.getHeight() * drawH};
+
         pieces[i].bounds = singlePieceBounds[i];
         pieces[i].glowBounds = singlePieceBounds[i].expanded(8.0f);
         pieces[i].scaledImage = {};

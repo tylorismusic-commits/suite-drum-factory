@@ -218,6 +218,7 @@ class DrumKitView
     juce::Image singleKitBlack;
     juce::Rectangle<float> singleKitBounds;
     std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> singlePieceBounds;
+    std::array<juce::Rectangle<float>, static_cast<size_t>(KitPiece::count)> singlePieceBodyBounds;
     bool useSingleKitImage = true;
     void rebuildKitOutline();
     void layoutSingleKit(float W, float H);

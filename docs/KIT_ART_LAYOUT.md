@@ -38,8 +38,9 @@ disabled pieces stay in place and are dimmed.
 
 - Each piece has a normalised click ellipse (head or cymbal surface).
 - Each shell has a larger body rectangle used only for the disabled dim.
-- Dimming clips a black copy of the whole kit silhouette to the disabled
-  region, so background pixels stay transparent.
+- Dimming clips a black copy of the whole kit silhouette to a tapered shell
+  outline or a cymbal ellipse, so only that drum/cymbal is dimmed.
+- Whole drum bodies are clickable, not just the heads.
 - Hit dots sit at the centre of the playing surface.
 - Shell chevrons sit at the top-right of the piece region.
 - Cymbals have no source dropdown.
