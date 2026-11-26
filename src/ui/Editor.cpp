@@ -4368,14 +4368,10 @@ void Editor::resized()
     if (studioDeckActive())
     {
         const bool compact = h < 680;
-        const int deckH = compact ? 190 : 218;
         const int deckX = 20;
-        const int deckY = h - deckH - 14;
         const int deckW = w - 40;
-        studioDeckRect = {static_cast<float>(deckX), static_cast<float>(deckY),
-                          static_cast<float>(deckW), static_cast<float>(deckH)};
-
         const int gap = 10;
+
         int inspectorW = juce::jlimit(360, 520, juce::roundToInt(static_cast<float>(deckW) * 0.42f));
         int monitorW = juce::jlimit(210, 270, juce::roundToInt(static_cast<float>(deckW) * 0.23f));
         int flowW = deckW - inspectorW - monitorW - gap * 2;
@@ -4385,6 +4381,25 @@ void Editor::resized()
             inspectorW = juce::jmax(320, deckW - flowW - monitorW - gap * 2);
         }
 
+        const int iw = inspectorW - 24;
+        const int learnW = 66;
+        const int noteW = 82;
+        const int noteLearnW = noteW + learnW + 8;
+        const int zonesAvail = juce::jmax(70, iw - noteLearnW - 8);
+        const int zw = 68;
+        const int zoneRowH = compact ? 20 : 22;
+
+        int perRow = juce::jmax(1, (zonesAvail + 4) / (zw + 4));
+        int zoneRows = 0;
+        if (! zoneButtons.empty())
+            zoneRows = (static_cast<int>(zoneButtons.size()) + perRow - 1) / perRow;
+
+        const int baseDeckH = compact ? 204 : 232;
+        const int deckH = baseDeckH + juce::jmax(0, zoneRows - 2) * (zoneRowH + 2);
+        const int deckY = h - deckH - 14;
+
+        studioDeckRect = {static_cast<float>(deckX), static_cast<float>(deckY),
+                          static_cast<float>(deckW), static_cast<float>(deckH)};
         studioInspectorRect = {static_cast<float>(deckX), static_cast<float>(deckY),
                                static_cast<float>(inspectorW), static_cast<float>(deckH)};
         studioFlowRect = {static_cast<float>(deckX + inspectorW + gap), static_cast<float>(deckY),
@@ -4413,33 +4428,30 @@ void Editor::resized()
 
         const int ix = static_cast<int>(studioInspectorRect.getX()) + 12;
         const int iy = static_cast<int>(studioInspectorRect.getY());
-        const int iw = static_cast<int>(studioInspectorRect.getWidth()) - 24;
         const int selectorY = iy + 36;
-        const int selectorW = juce::jmin(190, iw / 3);
-        instSelectorButton.setBounds(ix, selectorY, selectorW, 26);
+        instSelectorButton.setBounds(ix, selectorY, iw, 26);
 
-        const int learnW = 66;
-        instLearnButton.setBounds(static_cast<int>(studioInspectorRect.getRight()) - 12 - learnW,
-                                  selectorY, learnW, 24);
+        studioNoteRect = {static_cast<float>(ix + iw - noteLearnW), static_cast<float>(iy + 68),
+                          static_cast<float>(noteW), static_cast<float>(zoneRowH)};
+        instLearnButton.setBounds(ix + iw - learnW, iy + 68, learnW, 24);
 
         int zx = ix;
         int zy = iy + 68;
-        const int zw = 68;
-        const int zh = 20;
         for (auto &z : zoneButtons)
         {
-            if (zx + zw > ix + iw)
+            if (zx + zw > ix + zonesAvail)
             {
                 zx = ix;
-                zy += 22;
+                zy += zoneRowH + 2;
             }
-            z->setBounds(zx, zy, zw, zh);
+            z->setBounds(zx, zy, zw, zoneRowH);
             zx += zw + 4;
         }
 
+        const int zonesBottom = zoneButtons.empty() ? iy + 68 : zy + zoneRowH;
+        const int soundY = zonesBottom + (compact ? 6 : 8);
         const int knobW = compact ? 52 : 56;
         const int knobH = compact ? 58 : 64;
-        const int soundY = iy + (compact ? 90 : 98);
         int kx = ix;
         for (auto *knob : {instPitchKnob.get(), instDynamicsKnob.get(), instAttackKnob.get(), instDampKnob.get()})
         {
@@ -4848,25 +4860,20 @@ void Editor::drawStudioDeck(juce::Graphics &g)
 
     if (studioInspectorTab == 0 && instLearnButton.isVisible())
     {
-        const auto selector = instSelectorButton.getBounds().toFloat();
-        const auto learn = instLearnButton.getBounds().toFloat();
-        const float x = selector.getRight() + 8.0f;
-        const float w = learn.getX() - x - 8.0f;
-        if (w > 24.0f)
-        {
-            const int samplerIndex = getActiveSamplerIndex();
-            const auto note = (learningInstrument == samplerIndex && samplerIndex >= 0)
-                                  ? juce::String("ARMED")
-                                  : noteLabelFor(samplerIndex);
-            g.setFont(uiFont(9.0f));
-            g.setColour(theme.inkSoft);
-            g.drawText("NOTE", juce::Rectangle<float>(x, learn.getY(), 32.0f, learn.getHeight()),
-                       juce::Justification::centredLeft, false);
-            g.setFont(displayFont(13.0f));
-            g.setColour(theme.accent);
-            g.drawText(note, juce::Rectangle<float>(x + 32.0f, learn.getY(), w - 34.0f, learn.getHeight()),
-                       juce::Justification::centredLeft, false);
-        }
+        const int samplerIndex = getActiveSamplerIndex();
+        const auto note = (learningInstrument == samplerIndex && samplerIndex >= 0)
+                              ? juce::String("ARMED")
+                              : noteLabelFor(samplerIndex);
+        g.setFont(uiFont(8.5f));
+        g.setColour(theme.inkSoft);
+        g.drawText("NOTE", juce::Rectangle<float>(studioNoteRect.getX(), studioNoteRect.getY(),
+                                                  30.0f, studioNoteRect.getHeight()),
+                   juce::Justification::centredLeft, false);
+        g.setFont(displayFont(12.5f));
+        g.setColour(theme.accent);
+        g.drawText(note, juce::Rectangle<float>(studioNoteRect.getX() + 30.0f, studioNoteRect.getY(),
+                                                studioNoteRect.getWidth() - 30.0f, studioNoteRect.getHeight()),
+                   juce::Justification::centredLeft, false);
     }
 
     if (studioInspectorTab == 1)

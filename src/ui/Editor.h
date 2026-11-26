@@ -481,6 +481,7 @@ class Editor
     juce::Rectangle<float> studioInspectorRect;
     juce::Rectangle<float> studioFlowRect;
     juce::Rectangle<float> studioMonitorRect;
+    juce::Rectangle<float> studioNoteRect;
 
     // E-Drum Setup Wizard Overlay
     std::unique_ptr<EDrumWizard> edrumWizard;
