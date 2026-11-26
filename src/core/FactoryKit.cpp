@@ -195,6 +195,19 @@ int tomOrdinalForSlot(const std::string &moduleId, int slot)
     return slot;
 }
 
+int tomCountForModule(const std::string &moduleId)
+{
+    if (moduleId == "naked")
+        return 5;
+    if (moduleId == "crocell")
+        return 4;
+    if (moduleId == "drs")
+        return 3;
+    if (moduleId == "salamander" || moduleId == "monster")
+        return 2;
+    return 0;
+}
+
 int tomSlotForOrdinal(const std::string &moduleId, int ordinal)
 {
     if (ordinal < 0)
@@ -318,8 +331,11 @@ std::vector<Configuration> factoryConfigurations()
         c.selection.snareModule = module;
         c.selection.tomModules = {"", "", "", "", ""};
         for (int slot = 0; slot < tomSlots; ++slot)
+        {
+            const int ordinal = tomOrdinalForSlot(module, slot);
             c.selection.tomModules[static_cast<size_t>(slot)] =
-                tomOrdinalForSlot(module, slot) >= 0 ? module : std::string();
+                ordinal >= 0 && ordinal < tomCountForModule(module) ? module : std::string();
+        }
         return c;
     };
 

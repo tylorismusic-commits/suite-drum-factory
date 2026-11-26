@@ -1984,8 +1984,11 @@ void Editor::updateShellSlotButtons()
                 tomPieceIds[static_cast<size_t>(slot)] = toms[static_cast<size_t>(ordinal)].id;
         }
 
-        const auto visual = visualPieceFor(tomModuleIds[static_cast<size_t>(slot)],
-                                           tomPieceIds[static_cast<size_t>(slot)]);
+        const auto visual = (tomModuleIds[static_cast<size_t>(slot)].empty()
+                             || tomPieceIds[static_cast<size_t>(slot)].empty())
+                                ? KitPiece::count
+                                : visualPieceFor(tomModuleIds[static_cast<size_t>(slot)],
+                                                 tomPieceIds[static_cast<size_t>(slot)]);
         if (visual != KitPiece::count)
         {
             tomVisuals[static_cast<size_t>(slot)] = visual;

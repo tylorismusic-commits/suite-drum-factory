@@ -147,6 +147,27 @@ PluginProcessor::PluginProcessor() : juce::AudioProcessor(createBusesProperties(
         }
     }
 
+    // Drop tom-slot choices the selected module cannot fill. This is what
+    // previously let a Crocell/DRS Tom 5 fall back onto the kick anchor.
+    bool tomSelectionChanged = false;
+    for (int slot = 0; slot < factory::tomSlots; ++slot)
+    {
+        const auto &id = factorySelection.tomModules[static_cast<size_t>(slot)];
+        if (id.empty())
+            continue;
+
+        const auto it = factoryCatalogs.find(id);
+        const int ordinal = factory::tomOrdinalForSlot(id, slot);
+        if (it == factoryCatalogs.end() || ordinal < 0
+            || ordinal >= static_cast<int>(factory::tomsOf(it->second).size()))
+        {
+            factorySelection.tomModules[static_cast<size_t>(slot)].clear();
+            tomSelectionChanged = true;
+        }
+    }
+    if (tomSelectionChanged)
+        saveFactorySelection();
+
     midiRouter.onMidiMapChanged = [this] { listeners.call(&Listener::parametersChanged); };
 
     audioEngine.getSampler().setSampleRateAndBlock(44100.0, 512);

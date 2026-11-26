@@ -75,6 +75,7 @@ std::vector<CatalogPiece> tomsOf(const Catalog &catalog);
 /// tom is Tom 1 and their low tom is Tom 3.
 int tomOrdinalForSlot(const std::string &moduleId, int slot);
 int tomSlotForOrdinal(const std::string &moduleId, int ordinal);
+int tomCountForModule(const std::string &moduleId);
 
 /// A candidate piece before enable/disable filtering. `moduleId` is the stable
 /// source id ("naked", "crocell", ...) and `id` is the id inside that source kit.
