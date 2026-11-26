@@ -1222,6 +1222,80 @@ class Editor::LayerDrawer : public juce::Component
 };
 
 //==============================================================================
+class Editor::AboutCard : public juce::Component
+{
+  public:
+    AboutCard()
+    {
+        setInterceptsMouseClicks(true, true);
+        closeButton.setButtonText("CLOSE");
+        closeButton.onClick = [this] { if (onClose) onClose(); };
+        closeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2f2f34));
+        closeButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xfff2f2f0));
+        addAndMakeVisible(closeButton);
+    }
+
+    std::function<void()> onClose;
+
+    void paint(juce::Graphics &g) override
+    {
+        g.fillAll(juce::Colours::black.withAlpha(0.62f));
+
+        auto card = getLocalBounds().toFloat();
+        card = card.withSizeKeepingCentre(std::min(660.0f, card.getWidth() - 80.0f),
+                                          std::min(560.0f, card.getHeight() - 80.0f));
+        g.setColour(juce::Colour(0xff1e1e22));
+        g.fillRoundedRectangle(card, 14.0f);
+        g.setColour(juce::Colour(0xffe0a128));
+        g.drawRoundedRectangle(card.reduced(1.0f), 14.0f, 1.5f);
+
+        auto area = card.reduced(34.0f, 26.0f);
+        g.setColour(juce::Colour(0xfff2f2f0));
+        g.setFont(juce::Font(juce::FontOptions(30.0f)));
+        g.drawText("SUITE DRUM FACTORY", area.removeFromTop(40.0f), juce::Justification::centredLeft, false);
+
+        g.setColour(juce::Colour(0xff9a9aa0));
+        g.setFont(juce::Font(juce::FontOptions(15.0f)));
+        g.drawText("VST3 / LV2 drum instrument  ·  " + juce::String(JucePlugin_VersionString),
+                   area.removeFromTop(24.0f), juce::Justification::centredLeft, false);
+
+        area.removeFromTop(18.0f);
+
+        juce::AttributedString body;
+        body.setJustification(juce::Justification::topLeft);
+        body.setFont(juce::Font(juce::FontOptions(15.5f)));
+        body.setColour(juce::Colour(0xffd8d8d8));
+        body.append(
+            "Built around Naked Drums, with swappable shells from Crocell, DRS, Salamander and Monster.\n\n"
+            "Thanks to the original sample providers and the communities who recorded and released these kits:\n\n"
+            "Naked Drums — Wilkinson Audio; SFZ conversion by kinwie (CC BY 4.0)\n"
+            "CrocellKit — DrumGizmo Team / Crocell (CC BY 4.0)\n"
+            "DRSKit — DRSDrums / DrumGizmo Team (CC BY 4.0)\n"
+            "Salamander Drumkit — Alexander Holm (CC BY-SA 3.0)\n"
+            "Monster Drumkit — Alexander Holm (CC BY-SA 3.0)\n\n"
+            "Sample derivatives keep their original licences. Plugin code is based on GlorpDrums by asuka-glorp.\n\n"
+            "Thank you for supporting independent drum sampling.");
+
+        juce::TextLayout layout;
+        layout.createLayout(body, area.getWidth() - 8.0f);
+        layout.draw(g, area);
+    }
+
+    void resized() override
+    {
+        auto card = getLocalBounds().toFloat();
+        card = card.withSizeKeepingCentre(std::min(660.0f, card.getWidth() - 80.0f),
+                                          std::min(560.0f, card.getHeight() - 80.0f));
+        closeButton.setBounds(static_cast<int>(card.getRight() - 124.0f),
+                              static_cast<int>(card.getBottom() - 54.0f),
+                              92,
+                              30);
+    }
+
+  private:
+    juce::TextButton closeButton;
+};
+
 Editor::Editor(PluginProcessor &p) : processor(p)
 {
     glorp::setUiTextScale(processor.getSettings().uiTextScale);
@@ -2254,6 +2328,20 @@ void Editor::showFactoryPiecesMenu()
                        });
 }
 
+void Editor::showAboutCard()
+{
+    if (aboutCard == nullptr)
+    {
+        aboutCard = std::make_unique<AboutCard>();
+        aboutCard->onClose = [this] { aboutCard->setVisible(false); };
+        addChildComponent(*aboutCard);
+    }
+
+    aboutCard->setBounds(getLocalBounds());
+    aboutCard->setVisible(true);
+    aboutCard->toFront(true);
+}
+
 void Editor::setViewMode(EditorView mode)
 {
     currentView = mode;
@@ -2873,20 +2961,7 @@ juce::PopupMenu Editor::buildSettingsMenu()
         });
 
     menu.addSeparator();
-    menu.addItem("About Suite Drum Factory",
-                 [this]
-                 {
-                     juce::AlertWindow::showMessageBoxAsync(
-                         juce::AlertWindow::InfoIcon,
-                         "Suite Drum Factory",
-                         "Suite Drum Factory VST3 / LV2 Drum Instrument\n\n"
-                         "Plays GlorpKit and DrumGizmo kits with natural WSOLA tuning,\n"
-                         "interactive MIDI learn, and individual output buses.\n\n"
-                         "Part of the Suite series. Based on GlorpDrums by asuka-glorp.\n"
-                         "AGPL-3.0.",
-                         "OK",
-                         this);
-                 });
+    menu.addItem("About Suite Drum Factory", [this] { showAboutCard(); });
 
     return menu;
 }
@@ -4144,10 +4219,8 @@ void Editor::resized()
 
     const int factoryW = 104;
     const int factoryH = 28;
-    const int factoryGroupW = factoryW * 2 + 8;
-    const int factoryX = kitX + (kitW - factoryGroupW) / 2;
-    configButton.setBounds(factoryX, 52, factoryW, factoryH);
-    factoryPiecesButton.setBounds(factoryX + factoryW + 8, 52, factoryW, factoryH);
+    configButton.setBounds(viewToggleButton.getX(), 52, factoryW, factoryH);
+    factoryPiecesButton.setBounds(settingsButton.getRight() - factoryW, 52, factoryW, factoryH);
     factoryPiecesButton.toFront(false);
     configButton.toFront(false);
     updateShellSlotButtons();

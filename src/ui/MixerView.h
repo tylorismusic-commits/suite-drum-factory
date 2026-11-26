@@ -340,6 +340,36 @@ class MixerView
     };
 
     //==========================================================================
+    // Factory Bus Strip (Kick / Snare / Room)
+    //==========================================================================
+    class BusStripComponent : public juce::Component
+    {
+      public:
+        BusStripComponent(MixerView &owner, PluginProcessor &processor, int busIndex);
+        void paint(juce::Graphics &g) override;
+        void resized() override;
+        void mouseDown(const juce::MouseEvent &e) override;
+        void mouseDrag(const juce::MouseEvent &e) override;
+        void mouseDoubleClick(const juce::MouseEvent &e) override;
+        void setTheme(const Theme &t);
+
+      private:
+        MixerView &owner;
+        PluginProcessor &processor;
+        int busIndex_ = 0;
+        Theme theme = Theme::suite();
+
+        juce::Rectangle<float> faderTrackBounds;
+        juce::Rectangle<float> faderThumbBounds;
+        juce::Rectangle<float> meterBounds;
+        juce::Rectangle<float> panBarBounds;
+        juce::Rectangle<float> muteBounds;
+
+        bool draggingFader = false;
+        bool draggingPan = false;
+    };
+
+    //==========================================================================
     // Master Strip Component
     //==========================================================================
     class MasterStripComponent : public juce::Component
@@ -385,6 +415,7 @@ class MixerView
     std::vector<std::unique_ptr<ChannelStripComponent>> channelStrips;
 
     std::unique_ptr<MasterStripComponent> masterStrip;
+    std::vector<std::unique_ptr<BusStripComponent>> busStrips;
 
     // Preset buttons
     HandButton presetCleanBtn {"CLEAN", false};

@@ -564,6 +564,163 @@ void MixerView::ChannelStripComponent::mouseDoubleClick(const juce::MouseEvent &
 // MasterStripComponent
 //==============================================================================
 
+MixerView::BusStripComponent::BusStripComponent(MixerView &o, PluginProcessor &p, int busIndex)
+    : owner(o), processor(p), busIndex_(busIndex)
+{
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void MixerView::BusStripComponent::setTheme(const Theme &t)
+{
+    theme = t;
+    repaint();
+}
+
+void MixerView::BusStripComponent::resized()
+{
+    auto b = getLocalBounds().toFloat();
+    b.removeFromTop(52.0f);
+    panBarBounds = b.removeFromTop(14.0f).reduced(8.0f, 0.0f);
+    b.removeFromTop(8.0f);
+    auto bottom = b.removeFromBottom(52.0f);
+    muteBounds = bottom.removeFromBottom(24.0f).withSizeKeepingCentre(52.0f, 22.0f);
+    b.removeFromBottom(4.0f);
+
+    faderTrackBounds = b.withWidth(16.0f).withX(b.getCentreX() - 24.0f);
+    meterBounds = b.withWidth(20.0f).withX(b.getCentreX() + 10.0f);
+    faderThumbBounds = {faderTrackBounds.getX() - 4.0f, 0.0f, faderTrackBounds.getWidth() + 8.0f, 16.0f};
+}
+
+void MixerView::BusStripComponent::paint(juce::Graphics &g)
+{
+    auto b = getLocalBounds().toFloat().reduced(1.0f);
+    g.setColour(theme.panel);
+    g.fillRoundedRectangle(b, 7.0f);
+    drawSketchRect(g, b, theme.panelEdge, 1.2f, 301);
+
+    const auto &sampler = processor.getSampler();
+    const auto params = sampler.getFactoryBusParams(busIndex_);
+    const auto title = sampler.factoryBusTitle(busIndex_);
+    const auto colour = busIndex_ == 0 ? juce::Colour(0xffe67e22)
+                                      : (busIndex_ == 1 ? juce::Colour(0xff2ecc71) : juce::Colour(0xff9b59b6));
+
+    auto header = b.removeFromTop(26.0f).reduced(5.0f, 3.0f);
+    g.setColour(colour.withAlpha(0.22f));
+    g.fillRoundedRectangle(header, 4.0f);
+    g.setColour(colour);
+    g.setFont(displayFont(10.0f));
+    g.drawFittedText(title.toUpperCase(), header.toNearestInt(), juce::Justification::centred, 1, 0.7f);
+
+    g.setColour(theme.trough);
+    g.fillRoundedRectangle(panBarBounds, 3.0f);
+    const float centre = panBarBounds.getCentreX();
+    const float panX = centre + params.pan * panBarBounds.getWidth() * 0.46f;
+    g.setColour(colour);
+    g.fillRect(juce::Rectangle<float>(juce::jmin(centre, panX), panBarBounds.getY() + 2.0f,
+                                      std::abs(panX - centre), panBarBounds.getHeight() - 4.0f));
+    g.setColour(theme.inkSoft);
+    g.drawVerticalLine(static_cast<int>(centre), panBarBounds.getY(), panBarBounds.getBottom());
+
+    g.setColour(theme.trough);
+    g.fillRoundedRectangle(faderTrackBounds, 5.0f);
+    drawSketchRect(g, faderTrackBounds, theme.panelEdge, 1.0f, 302);
+    const float norm = gainToNormalized(params.level);
+    const float thumbY = faderTrackBounds.getBottom() - norm * faderTrackBounds.getHeight();
+    faderThumbBounds.setY(thumbY - faderThumbBounds.getHeight() * 0.5f);
+    g.setColour(colour);
+    g.fillRoundedRectangle(faderThumbBounds, 3.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.45f));
+    g.drawRoundedRectangle(faderThumbBounds, 3.0f, 1.0f);
+
+    g.setColour(theme.trough);
+    g.fillRoundedRectangle(meterBounds, 3.0f);
+    const float peakL = dbToNormalized(linearToDb(sampler.getFactoryBusPeakL(busIndex_)));
+    const float peakR = dbToNormalized(linearToDb(sampler.getFactoryBusPeakR(busIndex_)));
+    const float rmsL = dbToNormalized(linearToDb(sampler.getFactoryBusRmsL(busIndex_)));
+    const float rmsR = dbToNormalized(linearToDb(sampler.getFactoryBusRmsR(busIndex_)));
+    auto meterArea = meterBounds.reduced(3.0f);
+    const float halfW = (meterArea.getWidth() - 2.0f) * 0.5f;
+    for (int side = 0; side < 2; ++side)
+    {
+        auto col = meterArea.withWidth(halfW).withX(meterArea.getX() + side * (halfW + 2.0f));
+        const float rms = side == 0 ? rmsL : rmsR;
+        const float peak = side == 0 ? peakL : peakR;
+        const float h = rms * col.getHeight();
+        g.setColour(rms > 0.85f ? juce::Colour(0xffe74c3c) : colour);
+        g.fillRoundedRectangle(col.withY(col.getBottom() - h).withHeight(h), 2.0f);
+        if (peak > 0.02f)
+        {
+            g.setColour(peak > 0.97f ? juce::Colour(0xffe74c3c) : theme.ink);
+            g.fillRect(col.getX(), col.getBottom() - peak * col.getHeight() - 1.0f, col.getWidth(), 2.0f);
+        }
+    }
+
+    g.setColour(theme.inkSoft);
+    g.setFont(uiFont(9.0f));
+    g.drawText(formatDb(params.level),
+               juce::Rectangle<float>(b.getX(), b.getBottom() - 46.0f, b.getWidth(), 16.0f),
+               juce::Justification::centred,
+               false);
+
+    g.setColour(params.mute ? theme.warning : theme.panelEdge);
+    g.fillRoundedRectangle(muteBounds, 4.0f);
+    g.setColour(params.mute ? juce::Colours::white : theme.inkSoft);
+    g.setFont(uiFont(9.0f).boldened());
+    g.drawText("MUTE", muteBounds, juce::Justification::centred, false);
+}
+
+void MixerView::BusStripComponent::mouseDown(const juce::MouseEvent &e)
+{
+    const auto pos = e.position;
+    if (muteBounds.contains(pos))
+    {
+        auto params = processor.getSampler().getFactoryBusParams(busIndex_);
+        params.mute = !params.mute;
+        processor.getSampler().setFactoryBusParams(busIndex_, params);
+        repaint();
+        return;
+    }
+    if (panBarBounds.contains(pos))
+    {
+        draggingPan = true;
+        mouseDrag(e);
+        return;
+    }
+    if (faderTrackBounds.expanded(10.0f, 4.0f).contains(pos))
+    {
+        draggingFader = true;
+        mouseDrag(e);
+    }
+}
+
+void MixerView::BusStripComponent::mouseDrag(const juce::MouseEvent &e)
+{
+    auto params = processor.getSampler().getFactoryBusParams(busIndex_);
+    if (draggingFader)
+    {
+        const float norm = juce::jlimit(0.0f, 1.0f,
+                                        (faderTrackBounds.getBottom() - e.position.y) / faderTrackBounds.getHeight());
+        params.level = normalizedToGain(norm);
+        processor.getSampler().setFactoryBusParams(busIndex_, params);
+    }
+    else if (draggingPan)
+    {
+        params.pan = juce::jlimit(-1.0f, 1.0f,
+                                  (e.position.x - panBarBounds.getCentreX()) / (panBarBounds.getWidth() * 0.46f));
+        processor.getSampler().setFactoryBusParams(busIndex_, params);
+    }
+    repaint();
+}
+
+void MixerView::BusStripComponent::mouseDoubleClick(const juce::MouseEvent &)
+{
+    auto params = processor.getSampler().getFactoryBusParams(busIndex_);
+    params.level = 1.0f;
+    params.pan = 0.0f;
+    processor.getSampler().setFactoryBusParams(busIndex_, params);
+    repaint();
+}
+
 MixerView::MasterStripComponent::MasterStripComponent(MixerView &o, PluginProcessor &proc) : owner(o), processor(proc)
 {
     limiterBtn.setButtonText("LIMITER");
@@ -656,7 +813,7 @@ void MixerView::MasterStripComponent::paint(juce::Graphics &g)
 
     g.setColour(theme.background);
     g.setFont(displayFont(12.5f));
-    g.drawText("MASTER BUS", badgeR, juce::Justification::centred, false);
+    g.drawText("MIX BUS", badgeR, juce::Justification::centred, false);
 
     // Master Pan Bar
     g.setColour(theme.trough);
@@ -1318,7 +1475,7 @@ void MixerView::MasterFXPopup::paint(juce::Graphics &g)
 
     g.setColour(theme.isDark ? juce::Colours::white : ink);
     g.setFont(displayFont(15.0f));
-    g.drawText("MASTER BUS & REVERB", 24, 14, getWidth() - 120, 24, juce::Justification::left, false);
+    g.drawText("MIX BUS & REVERB", 24, 14, getWidth() - 120, 24, juce::Justification::left, false);
 
     g.setColour(theme.ink.withAlpha(0.25f));
     g.drawHorizontalLine(88, 20.0f, getWidth() - 20.0f);
@@ -2593,14 +2750,8 @@ MixerView::MixerView(PluginProcessor &proc) : processor(proc)
         }
     };
 
-    addAndMakeVisible(presetCleanBtn);
-    addAndMakeVisible(presetRockBtn);
-    addAndMakeVisible(presetWarmBtn);
-    addAndMakeVisible(presetPunchBtn);
-    addAndMakeVisible(presetDryBtn);
-    addAndMakeVisible(presetMixBtn);
-    addAndMakeVisible(savePresetBtn);
-    addAndMakeVisible(presetBrowserBtn);
+    // Generic factory presets from Suite Drums Glorp are intentionally not
+    // shown; this bundle will get configuration-aware mix presets later.
 
     bleedMatrixBtn.setButtonText("BLEED MATRIX");
     bleedMatrixBtn.activeColour = juce::Colour(0xffe67e22);
@@ -2636,6 +2787,16 @@ void MixerView::refreshChannels()
         strip->setTheme(theme);
         channelContainer->addAndMakeVisible(*strip);
         channelStrips.push_back(std::move(strip));
+    }
+
+    busStrips.clear();
+    const int numBuses = processor.getSampler().numFactoryBuses();
+    for (int i = 0; i < numBuses; ++i)
+    {
+        auto strip = std::make_unique<BusStripComponent>(*this, processor, i);
+        strip->setTheme(theme);
+        addAndMakeVisible(*strip);
+        busStrips.push_back(std::move(strip));
     }
 
     if (masterStrip != nullptr)
@@ -2831,6 +2992,10 @@ void MixerView::timerCallback()
     for (auto &s : channelStrips)
         s->repaintMeter();
 
+    for (auto &s : busStrips)
+        if (s != nullptr)
+            s->repaint();
+
     if (masterStrip != nullptr)
         masterStrip->repaintMeter();
 }
@@ -2842,22 +3007,14 @@ void MixerView::resized()
     // Top control bar
     const float btnY = 10.0f;
     const float btnH = 26.0f;
-    presetCleanBtn.setBounds(16, btnY, 68, btnH);
-    presetRockBtn.setBounds(88, btnY, 68, btnH);
-    presetWarmBtn.setBounds(160, btnY, 68, btnH);
-    presetPunchBtn.setBounds(232, btnY, 68, btnH);
-    presetDryBtn.setBounds(304, btnY, 68, btnH);
-    presetMixBtn.setBounds(380, btnY, 78, btnH);
-
-    savePresetBtn.setBounds(466, btnY, 104, btnH);
-    presetBrowserBtn.setBounds(578, btnY, 74, btnH);
-    bleedMatrixBtn.setBounds(660, btnY, 114, btnH);
+    bleedMatrixBtn.setBounds(16, btnY, 114, btnH);
 
     // Channel Area vs Master Strip
     const float contentY = 46.0f;
     const float totalAvailH = r.getHeight() - contentY - 8.0f;
     const float masterW = 100.0f;
-    const float viewW = r.getWidth() - masterW - 20.0f;
+    const float busW = busStrips.empty() ? 0.0f : (3.0f * 86.0f + 8.0f);
+    const float viewW = r.getWidth() - masterW - busW - (busStrips.empty() ? 20.0f : 30.0f);
 
     float contentH = totalAvailH;
     if (bleedMatrixOpen)
@@ -2886,6 +3043,16 @@ void MixerView::resized()
     {
         s->setBounds(static_cast<int>(curX), 0, static_cast<int>(stripW), static_cast<int>(stripH));
         curX += stripW + 4.0f;
+    }
+
+    float busX = 12.0f + viewW + 8.0f;
+    for (auto &bus : busStrips)
+    {
+        bus->setBounds(static_cast<int>(busX),
+                       static_cast<int>(contentY),
+                       86,
+                       static_cast<int>(stripH));
+        busX += 90.0f;
     }
 
     masterStrip->setBounds(static_cast<int>(r.getWidth() - masterW - 8.0f),
@@ -2936,6 +3103,10 @@ void MixerView::setTheme(const Theme &newTheme)
     bleedMatrixBtn.setTheme(theme);
 
     for (auto &strip : channelStrips)
+        if (strip != nullptr)
+            strip->setTheme(theme);
+
+    for (auto &strip : busStrips)
         if (strip != nullptr)
             strip->setTheme(theme);
 

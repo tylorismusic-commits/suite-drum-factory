@@ -230,6 +230,17 @@ class Sampler
     void setMasterStripParams(const MasterStripParams &params);
     MasterStripParams getMasterStripParams() const;
 
+    // -- Factory buses (Kick sum, Snare sum, Room sum; Mix = master) ---------
+    int numFactoryBuses() const noexcept;
+    juce::String factoryBusName(int index) const;
+    juce::String factoryBusTitle(int index) const;
+    void setFactoryBusParams(int index, const MicStripParams &params);
+    MicStripParams getFactoryBusParams(int index) const;
+    float getFactoryBusPeakL(int index) const noexcept;
+    float getFactoryBusPeakR(int index) const noexcept;
+    float getFactoryBusRmsL(int index) const noexcept;
+    float getFactoryBusRmsR(int index) const noexcept;
+
     void applyMixerPreset(const MixerPreset &preset);
     MixerPreset getCurrentMixerPreset(const juce::String &name) const;
 
@@ -291,6 +302,7 @@ class Sampler
         double rateScale = 1.0;          ///< sample rate / kit rate
         int kitChannelIndex = 0;         ///< index into kitChannels_ for per-mic mixing
         bool isBleed = false;            ///< true if this is an off-axis bleed mic channel
+        bool roomMic = false;            ///< room/overhead/ambient mic for the Room sum
         int pieceIdx = 0;                ///< source BleedPiece integer index
         float channelBleedFactor = 1.0f; ///< XML bleed attribute (1.0 = default)
     };
@@ -511,6 +523,7 @@ class Sampler
         juce::String title;
         MicStripParams params;
         ChannelStripFX fx;
+        int factoryBus = 3;          ///< 0 kick, 1 snare, 2 room, 3 mix
         float autoGain = 1.0f;       ///< hidden calibration gain for factory pieces
         bool kitPhaseInvert = false; ///< polarity correction that belongs to the recording
         std::atomic<float> peakL {0.0f};
@@ -520,6 +533,23 @@ class Sampler
     };
 
     std::vector<std::unique_ptr<MicChannelState>> micChannels;
+
+    struct FactoryBusState
+    {
+        juce::String name;
+        juce::String title;
+        MicStripParams params;
+        ChannelStripFX fx;
+        std::atomic<float> peakL {0.0f};
+        std::atomic<float> peakR {0.0f};
+        std::atomic<float> rmsL {0.0f};
+        std::atomic<float> rmsR {0.0f};
+    };
+
+    std::array<std::unique_ptr<FactoryBusState>, 3> factoryBuses;
+    std::array<std::vector<float>, 4> busScratchL;
+    std::array<std::vector<float>, 4> busScratchR;
+
     MasterStripParams masterStripParams;
     MasterFX masterFX;
     std::atomic<float> masterPeakL {0.0f};

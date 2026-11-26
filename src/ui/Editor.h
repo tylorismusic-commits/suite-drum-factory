@@ -131,6 +131,9 @@ class Editor
     void showFactoryPiecesMenu();
     void showFactoryConfigMenu();
     void promptSaveFactoryConfiguration();
+    void showAboutCard();
+
+    class AboutCard;
 
     enum class ShellSlotKind
     {
@@ -430,6 +433,7 @@ class Editor
     std::unique_ptr<MixerView> mixerView;
     std::unique_ptr<MidiPage> midiPage;
     std::unique_ptr<MidiBrowser> midiBrowser;
+    std::unique_ptr<AboutCard> aboutCard;
     EditorView currentView = EditorView::kitView;
 
     juce::OpenGLContext openGlContext;
