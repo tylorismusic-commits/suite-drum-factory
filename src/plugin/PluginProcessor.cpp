@@ -1325,6 +1325,7 @@ void PluginProcessor::getStateInformation(juce::MemoryBlock &destination)
             layer->setAttribute("invert", params.polarityInvert ? 1 : 0);
             layer->setAttribute("delayMs", static_cast<double>(params.delayMs));
             layer->setAttribute("trimMs", static_cast<double>(params.trimMs));
+            layer->setAttribute("pitchSemitones", static_cast<double>(params.pitchSemitones));
             layer->setAttribute("level", static_cast<double>(params.level));
             layer->setAttribute("pan", static_cast<double>(params.pan));
         }
@@ -1595,6 +1596,7 @@ void PluginProcessor::setStateInformation(const void *data, int sizeInBytes)
             params.polarityInvert = layer->getIntAttribute("invert", 0) != 0;
             params.delayMs = static_cast<float>(layer->getDoubleAttribute("delayMs", 0.0));
             params.trimMs = static_cast<float>(layer->getDoubleAttribute("trimMs", 0.0));
+            params.pitchSemitones = static_cast<float>(layer->getDoubleAttribute("pitchSemitones", 0.0));
             params.level = static_cast<float>(layer->getDoubleAttribute("level", 1.0));
             params.pan = static_cast<float>(layer->getDoubleAttribute("pan", 0.0));
 

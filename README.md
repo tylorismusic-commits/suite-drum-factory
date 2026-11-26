@@ -59,6 +59,8 @@ Drums Glorp.
   snare and tom source modules.
 - A new session opens on the **Studio Mix** configuration with the lightly
   processed **Studio Glue** preset.
+- Kick and snare one-shot layers have their own blend, pitch, ADSR, delay,
+  trim and polarity controls, including pitch matching against the kit hit.
 - The kit view uses a full-width art layout with a compact three-zone studio
   deck: a **Piece Inspector** for source/articulation and tuning, a **Mix Strip**
   with always-visible volume, pan, bleed, output routing and an open-strip

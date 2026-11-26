@@ -56,6 +56,7 @@ void clampLayerParams(UserLayerParams &params) noexcept
     params.releaseMs = std::clamp(params.releaseMs, 0.0f, 2000.0f);
     params.delayMs = std::clamp(params.delayMs, 0.0f, 20.0f);
     params.trimMs = std::clamp(params.trimMs, 0.0f, 1000.0f);
+    params.pitchSemitones = std::clamp(params.pitchSemitones, -24.0f, 24.0f);
     params.level = std::clamp(params.level, 0.0f, 2.0f);
     params.pan = std::clamp(params.pan, -1.0f, 1.0f);
 }
@@ -2233,7 +2234,8 @@ void Sampler::renderUserLayerVoices(int numSamples)
             0,
             sampleFrames);
         const auto playFrames = sampleFrames - trimFrames;
-        const double rateRatio = layer.sampleRate > 0.0 ? layer.sampleRate / currentSampleRate : 1.0;
+        const double rateRatio = (layer.sampleRate > 0.0 ? layer.sampleRate / currentSampleRate : 1.0)
+                                 * std::pow(2.0, static_cast<double>(layer.params.pitchSemitones) / 12.0);
         const int attackSamples = static_cast<int>(layer.params.attackMs * 0.001 * currentSampleRate);
         const int decaySamples = static_cast<int>(layer.params.decayMs * 0.001 * currentSampleRate);
         const int releaseSamples = static_cast<int>(layer.params.releaseMs * 0.001 * currentSampleRate);

@@ -470,11 +470,13 @@ void Editor::VelocityCurvePreview::paint(juce::Graphics &g)
     // Sketched ink border
     drawSketchRect(g, b, theme.panelEdge, 1.8f, 42);
 
-    // Plot area margins: left for 'out', bottom for 'in'
-    const float labelMarginL = 18.0f;
-    const float labelMarginB = 16.0f;
-    const float padR = 10.0f;
-    const float padT = 10.0f;
+    // Plot area margins: left for 'out', bottom for 'in'. Short previews get
+    // compact horizontal labels so the words never clip.
+    const bool tightLabels = b.getHeight() < 58.0f;
+    const float labelMarginL = tightLabels ? 24.0f : 18.0f;
+    const float labelMarginB = tightLabels ? 11.0f : 16.0f;
+    const float padR = tightLabels ? 6.0f : 10.0f;
+    const float padT = tightLabels ? 4.0f : 10.0f;
 
     const auto plotArea = juce::Rectangle<float>(b.getX() + labelMarginL,
                                                  b.getY() + padT,
@@ -502,18 +504,28 @@ void Editor::VelocityCurvePreview::paint(juce::Graphics &g)
     drawSketchRect(g, plotArea, theme.isDark ? theme.panelEdge.withAlpha(0.6f) : ink, 1.2f, 88);
 
     // Axis labels: "OUT" on left, "IN" on bottom in comic font
-    g.setFont(displayFont(9.5f));
     g.setColour(theme.ink);
 
-    // "OUT" stacked vertically
     const auto leftLabelArea =
-        juce::Rectangle<float>(b.getX() + 2.0f, plotArea.getY(), labelMarginL - 4.0f, plotArea.getHeight());
-    g.drawFittedText("O\nU\nT", leftLabelArea.toNearestInt(), juce::Justification::centred, 3);
+        juce::Rectangle<float>(b.getX() + 2.0f, b.getY() + padT, labelMarginL - 4.0f,
+                               juce::jmax(10.0f, b.getHeight() - padT - labelMarginB));
+
+    if (tightLabels)
+    {
+        g.setFont(displayFont(7.0f));
+        g.drawFittedText("OUT", leftLabelArea.toNearestInt(), juce::Justification::centred, 1, 0.6f);
+    }
+    else
+    {
+        g.setFont(displayFont(9.5f));
+        g.drawFittedText("O\nU\nT", leftLabelArea.toNearestInt(), juce::Justification::centred, 3);
+    }
 
     // "IN" centered along bottom
+    g.setFont(displayFont(tightLabels ? 7.0f : 9.5f));
     const auto bottomLabelArea =
         juce::Rectangle<float>(plotArea.getX(), plotArea.getBottom() + 1.0f, plotArea.getWidth(), labelMarginB - 2.0f);
-    g.drawText("IN", bottomLabelArea, juce::Justification::centred, false);
+    g.drawFittedText("IN", bottomLabelArea.toNearestInt(), juce::Justification::centred, 1, 0.7f);
 
     // Plot response curve: y = f(x)
     juce::Path curvePath;
@@ -718,6 +730,9 @@ class Editor::LayerDrawer : public juce::Component
         addAndMakeVisible(closeButton);
 
         blendKnob = std::make_unique<Knob>("BLEND", 0.0f, 1.0f, 0.5f);
+        pitchKnob = std::make_unique<Knob>("PITCH", -24.0f, 24.0f, 0.0f, "st");
+        pitchKnob->setBipolar(true);
+        pitchKnob->setDoubleClickReturnValue(true, 0.5);
         attackKnob = std::make_unique<Knob>("ATTACK", 0.0f, 200.0f, 0.0f, "ms");
         decayKnob = std::make_unique<Knob>("DECAY", 0.0f, 2000.0f, 120.0f, "ms");
         sustainKnob = std::make_unique<Knob>("SUSTAIN", 0.0f, 1.0f, 1.0f);
@@ -726,6 +741,7 @@ class Editor::LayerDrawer : public juce::Component
         trimKnob = std::make_unique<Knob>("TRIM", 0.0f, 1000.0f, 0.0f, "ms");
 
         addAndMakeVisible(*blendKnob);
+        addAndMakeVisible(*pitchKnob);
         addAndMakeVisible(*attackKnob);
         addAndMakeVisible(*decayKnob);
         addAndMakeVisible(*sustainKnob);
@@ -733,7 +749,7 @@ class Editor::LayerDrawer : public juce::Component
         addAndMakeVisible(*delayKnob);
         addAndMakeVisible(*trimKnob);
 
-        for (auto *knob : {blendKnob.get(), attackKnob.get(), decayKnob.get(),
+        for (auto *knob : {blendKnob.get(), pitchKnob.get(), attackKnob.get(), decayKnob.get(),
                            sustainKnob.get(), releaseKnob.get(), delayKnob.get(), trimKnob.get()})
             knob->onValueChanged = [this](float) { pushParams(); };
 
@@ -828,6 +844,8 @@ class Editor::LayerDrawer : public juce::Component
 
         if (blendKnob != nullptr)
             blendKnob->setAccentColour(theme.accentAlt);
+        if (pitchKnob != nullptr)
+            pitchKnob->setAccentColour(theme.accent);
         if (attackKnob != nullptr)
             attackKnob->setAccentColour(theme.accentWarm);
         if (decayKnob != nullptr)
@@ -854,6 +872,7 @@ class Editor::LayerDrawer : public juce::Component
         const auto params = sampler.getUserLayerParams(slot);
 
         blendKnob->setValue(params.blend);
+        pitchKnob->setValue(params.pitchSemitones);
         attackKnob->setValue(params.attackMs);
         decayKnob->setValue(params.decayMs);
         sustainKnob->setValue(params.sustain);
@@ -910,7 +929,7 @@ class Editor::LayerDrawer : public juce::Component
 
         g.setFont(uiFont(9.5f).boldened());
         g.setColour(theme.inkSoft);
-        g.drawText("ONE-SHOT BLEND, ADSR & PHASE",
+        g.drawText("ONE-SHOT BLEND, PITCH, ADSR & PHASE",
                    headerSubBounds,
                    juce::Justification::centredLeft,
                    false);
@@ -1008,7 +1027,7 @@ class Editor::LayerDrawer : public juce::Component
         r.removeFromTop(1);
 
         auto knobRow = r.removeFromTop(72);
-        const int n = 5;
+        const int n = 6;
         const int gap = 4;
         const int knobW = (knobRow.getWidth() - gap * (n - 1)) / n;
         auto placeKnob = [&](Knob &knob, int index)
@@ -1016,10 +1035,11 @@ class Editor::LayerDrawer : public juce::Component
             knob.setBounds(knobRow.getX() + index * (knobW + gap), knobRow.getY(), knobW, knobRow.getHeight());
         };
         placeKnob(*blendKnob, 0);
-        placeKnob(*attackKnob, 1);
-        placeKnob(*decayKnob, 2);
-        placeKnob(*sustainKnob, 3);
-        placeKnob(*releaseKnob, 4);
+        placeKnob(*pitchKnob, 1);
+        placeKnob(*attackKnob, 2);
+        placeKnob(*decayKnob, 3);
+        placeKnob(*sustainKnob, 4);
+        placeKnob(*releaseKnob, 5);
 
         r.removeFromTop(4);
         phaseCaptionBounds = r.removeFromTop(10).toFloat();
@@ -1191,6 +1211,7 @@ class Editor::LayerDrawer : public juce::Component
 
         auto params = processor.getSampler().getUserLayerParams(slot);
         params.blend = blendKnob->getValue();
+        params.pitchSemitones = pitchKnob->getValue();
         params.attackMs = attackKnob->getValue();
         params.decayMs = decayKnob->getValue();
         params.sustain = sustainKnob->getValue();
@@ -1214,6 +1235,7 @@ class Editor::LayerDrawer : public juce::Component
 
     LayerWaveform waveform;
     std::unique_ptr<Knob> blendKnob;
+    std::unique_ptr<Knob> pitchKnob;
     std::unique_ptr<Knob> attackKnob;
     std::unique_ptr<Knob> decayKnob;
     std::unique_ptr<Knob> sustainKnob;
@@ -4929,15 +4951,18 @@ void Editor::drawStudioMonitor(juce::Graphics &g, juce::Rectangle<float> area)
                                             content.getWidth() - 32.0f, 14.0f).toNearestInt(),
                      juce::Justification::centredLeft, 1, 0.7f);
 
+    const bool compactMonitor = area.getHeight() < 180.0f;
     const float meterX = content.getX();
     const float meterW = juce::jmax(40.0f, knob.getX() - meterX - 10.0f);
-    const float meterY = content.getY() + 52.0f;
-    const float barH = 16.0f;
+    const float meterY = content.getY() + (compactMonitor ? 44.0f : 50.0f);
+    const float barH = compactMonitor ? 12.0f : 14.0f;
+    const float barGap = 5.0f;
 
     for (int side = 0; side < 2; ++side)
     {
         const float level = side == 0 ? minimalMasterLevelL : minimalMasterLevelR;
-        const auto bar = juce::Rectangle<float>(meterX + 12.0f, meterY + static_cast<float>(side) * (barH + 7.0f),
+        const auto bar = juce::Rectangle<float>(meterX + 12.0f,
+                                                meterY + static_cast<float>(side) * (barH + barGap),
                                                 meterW - 12.0f, barH);
         g.setColour(theme.trough);
         g.fillRoundedRectangle(bar, 3.0f);
@@ -4962,20 +4987,21 @@ void Editor::drawStudioMonitor(juce::Graphics &g, juce::Rectangle<float> area)
     const float peakDb = juce::Decibels::gainToDecibels(peak, -100.0f);
     g.setFont(displayFont(12.0f));
     g.setColour(theme.ink);
+    g.setFont(displayFont(compactMonitor ? 11.0f : 12.0f));
     g.drawText(juce::String(peakDb, 1) + " dB",
-               juce::Rectangle<float>(meterX, meterY + 2.0f * (barH + 7.0f) + 2.0f, meterW, 16.0f),
+               juce::Rectangle<float>(meterX, meterY + 2.0f * (barH + barGap) + 2.0f, meterW, 15.0f),
                juce::Justification::centredLeft, false);
 
     g.setFont(uiFont(7.5f));
     g.setColour(theme.inkSoft);
-    g.drawText(master.limiterEnabled ? "LIMITER ON" : "LIMITER OFF",
-               juce::Rectangle<float>(content.getX(), content.getBottom() - 32.0f,
-                                      content.getWidth() - 96.0f, 12.0f),
-               juce::Justification::centredLeft, false);
-    g.drawText("REVERB " + juce::String(juce::roundToInt(master.reverbReturn * 100.0f)) + "%",
-               juce::Rectangle<float>(content.getX(), content.getBottom() - 18.0f,
-                                      content.getWidth() - 96.0f, 12.0f),
-               juce::Justification::centredLeft, false);
+    g.drawFittedText(master.limiterEnabled ? "LIMITER ON" : "LIMITER OFF",
+                     juce::Rectangle<float>(content.getX(), content.getBottom() - 30.0f,
+                                            content.getWidth() - 96.0f, 12.0f).toNearestInt(),
+                     juce::Justification::centredLeft, 1, 0.7f);
+    g.drawFittedText("REVERB " + juce::String(juce::roundToInt(master.reverbReturn * 100.0f)) + "%",
+                     juce::Rectangle<float>(content.getX(), content.getBottom() - 16.0f,
+                                            content.getWidth() - 96.0f, 12.0f).toNearestInt(),
+                     juce::Justification::centredLeft, 1, 0.7f);
 
     if (masterVolumeKnob != nullptr)
     {

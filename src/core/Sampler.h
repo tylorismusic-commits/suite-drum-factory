@@ -66,6 +66,7 @@ struct UserLayerParams
     bool polarityInvert = false;
     float delayMs = 0.0f;        ///< 0 .. 20
     float trimMs = 0.0f;         ///< 0 .. 1000, leading sample frames skipped
+    float pitchSemitones = 0.0f; ///< -24 .. +24, match the sample to the kit pitch
     float level = 1.0f;          ///< layer mixer trim
     float pan = 0.0f;            ///< layer mixer pan
 };

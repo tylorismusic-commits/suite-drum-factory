@@ -27,6 +27,7 @@
 - [x] Headless QA matrix across every factory configuration and external kit, plus an all-DSP stress render.
 - [x] Kit dropdown for external kits, logarithmic EQ frequency knobs, and four insert-driven factory mix presets.
 - [x] Full-width kit view with a three-zone studio deck, plus a classic-sidebar fallback in Settings.
+- [x] One-shot layer pitch matching, compact curve labels and adaptive monitor metering.
 - [x] Direct out fully bypasses sums, Mix bus and shared reverb; routing persists in the project state.
 - [x] Four-slot serial insert racks on pieces and buses (EQ, compressor, drive, transient, limiter, clipper).
 - [ ] Configuration-aware mix-ready presets.
