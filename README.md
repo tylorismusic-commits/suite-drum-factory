@@ -41,8 +41,9 @@ Drums Glorp.
 - Each piece strip has a **BLEED** knob that blends that piece’s room/overhead
   content into the channel instead of the shared Room sum.
 - The bottom of each piece strip routes either into the internal sums or direct
-  to a host output pair, bypassing the sums and Mix bus while keeping the strip
-  inserts.
+  to a host output pair. Direct out keeps the strip inserts and carries the
+  piece's room content, but bypasses the sums, Mix bus, master inserts and the
+  shared reverb return.
 - Insert pickers open at the clicked strip row; the editor updates EQ curves,
   compressor gain reduction and clipper transfer curves live.
 - Insert racks and bus levels are saved in the plugin state, so reopening a

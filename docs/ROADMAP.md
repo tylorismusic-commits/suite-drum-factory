@@ -22,6 +22,7 @@
 - [x] Fixed Kick / Snare / Toms / Cymbals / Room / Mix bus mixer with scrollable bus strips.
 - [x] GGD-style inline insert rows and per-channel bleed knobs.
 - [x] Live EQ curve, compressor GR, clipper transfer curve and direct output routing.
+- [x] Direct out fully bypasses sums, Mix bus and shared reverb; routing persists in the project state.
 - [x] Four-slot serial insert racks on pieces and buses (EQ, compressor, drive, transient, limiter, clipper).
 - [ ] Configuration-aware mix-ready presets.
 - [ ] Mix presets tied to the active configuration instead of generic presets.

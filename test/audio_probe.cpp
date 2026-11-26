@@ -930,6 +930,66 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    if (std::getenv ("GLORP_PROBE_DIRECTOUT") != nullptr)
+    {
+        proc.prepareToPlay (48000.0, 512);
+        auto& sampler = proc.getSampler();
+
+        int kick = -1;
+        for (int i = 0; i < sampler.numMicStrips(); ++i)
+            if (sampler.micStripTitle (i).containsIgnoreCase ("kick"))
+            {
+                kick = i;
+                break;
+            }
+
+        if (kick < 0)
+        {
+            std::cout << "directout probe: no kick strip" << std::endl;
+            return 0;
+        }
+
+        proc.setMicOutputBus (kick, 1);
+
+        juce::AudioBuffer<float> buffer (32, 512);
+        double sumMain = 0.0, sumDirect = 0.0;
+        int64_t frames = 0;
+
+        for (int block = 0; block < 120; ++block)
+        {
+            juce::MidiBuffer midi;
+            if (block == 0)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 36, static_cast<juce::uint8> (100)), 0);
+
+            buffer.clear();
+            proc.processBlock (buffer, midi);
+
+            if (block >= 1)
+            {
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float l = buffer.getSample (0, i);
+                    const float r = buffer.getSample (1, i);
+                    const float dl = buffer.getSample (2, i);
+                    const float dr = buffer.getSample (3, i);
+                    sumMain += static_cast<double> (l) * l + static_cast<double> (r) * r;
+                    sumDirect += static_cast<double> (dl) * dl + static_cast<double> (dr) * dr;
+                    frames += 2;
+                }
+            }
+        }
+
+        const auto rmsDb = [] (double sum, int64_t count)
+        {
+            const double rms = std::sqrt (sum / static_cast<double> (std::max<int64_t> (1, count)));
+            return juce::Decibels::gainToDecibels (static_cast<float> (rms));
+        };
+
+        std::cout << "directout kick=" << kick << " mainRmsDb=" << rmsDb (sumMain, frames)
+                  << " directRmsDb=" << rmsDb (sumDirect, frames) << std::endl;
+        return 0;
+    }
+
     if (std::getenv ("GLORP_PROBE_MICPARAMS") != nullptr)
     {
         for (int i = 0; i < proc.getSampler().numMicStrips(); ++i)

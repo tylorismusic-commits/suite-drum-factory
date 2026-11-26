@@ -2910,6 +2910,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     int channel = 0;
                     int mic = 0;
                     bool room = false;
+                    float bleed = 1.0f;
                     float gainL = 0.0f;
                     float gainR = 0.0f;
                 };
@@ -2937,6 +2938,17 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     plan.channel = channelRef.channel;
                     plan.mic = micIdx;
                     plan.room = factoryPieceMode && channelRef.roomMic;
+
+                    if (plan.room)
+                    {
+                        // A directly routed piece keeps all of its room content
+                        // on its own strip; nothing is left for the Room sum.
+                        const bool direct = micChannels[static_cast<size_t>(micIdx)]->params.outputBus > 0;
+                        plan.bleed = direct ? 1.0f
+                                            : juce::jlimit(0.0f, 1.0f,
+                                                           micChannels[static_cast<size_t>(micIdx)]->params.bleed);
+                    }
+
                     plan.gainL = channelRef.gainL * instGainL * bleedGain;
                     plan.gainR = channelRef.gainR * instGainR * bleedGain;
                 }
@@ -2946,10 +2958,15 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     const auto &plan = plans[pIndex];
                     plan.handle->read(resamplePos, sourceFrames, plan.channel, v.mixL.data());
 
-                    auto *dstL = plan.room ? busScratchL[4].data()
-                                           : micScratchL[static_cast<size_t>(plan.mic)].data();
-                    auto *dstR = plan.room ? busScratchR[4].data()
-                                           : micScratchR[static_cast<size_t>(plan.mic)].data();
+                    auto *chL = micScratchL[static_cast<size_t>(plan.mic)].data();
+                    auto *chR = micScratchR[static_cast<size_t>(plan.mic)].data();
+                    auto *roomL = busScratchL[4].data();
+                    auto *roomR = busScratchR[4].data();
+
+                    const float channelGainL = plan.gainL * (plan.room ? plan.bleed : 1.0f);
+                    const float channelGainR = plan.gainR * (plan.room ? plan.bleed : 1.0f);
+                    const float roomGainL = plan.room ? plan.gainL * (1.0f - plan.bleed) : 0.0f;
+                    const float roomGainR = plan.room ? plan.gainR * (1.0f - plan.bleed) : 0.0f;
                     const double startOffset = v.position - static_cast<double>(resamplePos);
 
                     for (int i = 0; i < numSamples; ++i)
@@ -2960,8 +2977,10 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         const float s0 = v.mixL[static_cast<size_t>(idx)];
                         const float s1 = v.mixL[static_cast<size_t>(idx + 1)];
                         const float sample = s0 + frac * (s1 - s0);
-                        dstL[i] += sample * plan.gainL;
-                        dstR[i] += sample * plan.gainR;
+                        chL[i] += sample * channelGainL;
+                        chR[i] += sample * channelGainR;
+                        roomL[i] += sample * roomGainL;
+                        roomR[i] += sample * roomGainR;
                     }
                 }
 
@@ -2987,6 +3006,7 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     int channel = 0;
                     int mic = 0;
                     bool room = false;
+                    float bleed = 1.0f;
                     float gainL = 0.0f;
                     float gainR = 0.0f;
                 };
@@ -3015,6 +3035,17 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                     plan.channel = channelRef.channel;
                     plan.mic = micIdx;
                     plan.room = factoryPieceMode && channelRef.roomMic;
+
+                    if (plan.room)
+                    {
+                        // A directly routed piece keeps all of its room content
+                        // on its own strip; nothing is left for the Room sum.
+                        const bool direct = micChannels[static_cast<size_t>(micIdx)]->params.outputBus > 0;
+                        plan.bleed = direct ? 1.0f
+                                            : juce::jlimit(0.0f, 1.0f,
+                                                           micChannels[static_cast<size_t>(micIdx)]->params.bleed);
+                    }
+
                     plan.gainL = channelRef.gainL * instGainL * bleedGain;
                     plan.gainR = channelRef.gainR * instGainR * bleedGain;
                 }
@@ -3030,13 +3061,23 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         const auto &plan = plans[pIndex];
                         plan.handle->read(blockPos, blockCount, plan.channel, v.mixL.data());
 
-                        auto *dstL = plan.room ? busScratchL[4].data()
-                                               : micScratchL[static_cast<size_t>(plan.mic)].data();
-                        auto *dstR = plan.room ? busScratchR[4].data()
-                                               : micScratchR[static_cast<size_t>(plan.mic)].data();
+                        auto *chL = micScratchL[static_cast<size_t>(plan.mic)].data();
+                        auto *chR = micScratchR[static_cast<size_t>(plan.mic)].data();
+                        auto *roomL = busScratchL[4].data();
+                        auto *roomR = busScratchR[4].data();
 
-                        juce::FloatVectorOperations::addWithMultiply(dstL, v.mixL.data(), plan.gainL, blockCount);
-                        juce::FloatVectorOperations::addWithMultiply(dstR, v.mixL.data(), plan.gainR, blockCount);
+                        const float channelGainL = plan.gainL * (plan.room ? plan.bleed : 1.0f);
+                        const float channelGainR = plan.gainR * (plan.room ? plan.bleed : 1.0f);
+                        juce::FloatVectorOperations::addWithMultiply(chL, v.mixL.data(), channelGainL, blockCount);
+                        juce::FloatVectorOperations::addWithMultiply(chR, v.mixL.data(), channelGainR, blockCount);
+
+                        if (plan.room && plan.bleed < 0.999f)
+                        {
+                            const float roomGainL = plan.gainL * (1.0f - plan.bleed);
+                            const float roomGainR = plan.gainR * (1.0f - plan.bleed);
+                            juce::FloatVectorOperations::addWithMultiply(roomL, v.mixL.data(), roomGainL, blockCount);
+                            juce::FloatVectorOperations::addWithMultiply(roomR, v.mixL.data(), roomGainR, blockCount);
+                        }
                     }
 
                     v.position += blockCount;
@@ -3162,8 +3203,10 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         }
                         else if (factoryPieceMode && channelRef.roomMic)
                         {
-                            const float bleed = juce::jlimit(0.0f, 1.0f,
-                                micChannels[static_cast<size_t>(micIdx)]->params.bleed);
+                            const auto &roomParams = micChannels[static_cast<size_t>(micIdx)]->params;
+                            const float bleed = roomParams.outputBus > 0
+                                                    ? 1.0f
+                                                    : juce::jlimit(0.0f, 1.0f, roomParams.bleed);
                             const float l = sample * channelRef.gainL * instGainL * effGain;
                             const float r = sample * channelRef.gainR * instGainR * effGain;
                             busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
@@ -3228,8 +3271,10 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                         }
                         else if (factoryPieceMode && channelRef.roomMic)
                         {
-                            const float bleed = juce::jlimit(0.0f, 1.0f,
-                                micChannels[static_cast<size_t>(micIdx)]->params.bleed);
+                            const auto &roomParams = micChannels[static_cast<size_t>(micIdx)]->params;
+                            const float bleed = roomParams.outputBus > 0
+                                                    ? 1.0f
+                                                    : juce::jlimit(0.0f, 1.0f, roomParams.bleed);
                             const float l = sample * channelRef.gainL * instGainL * effGain;
                             const float r = sample * channelRef.gainR * instGainR * effGain;
                             busScratchL[4][static_cast<size_t>(i)] += l * (1.0f - bleed);
@@ -3309,12 +3354,15 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
                                                  pieceRoomR[static_cast<size_t>(m)].data(), numSamples);
             }
 
+            // Direct strips bypass the Mix bus, so their reverb send must not
+            // feed the shared master reverb return.
+            const bool directStrip = factoryPieceMode && p.outputBus > 0;
             state.fx.process(micScratchL[static_cast<size_t>(m)].data(),
                              micScratchR[static_cast<size_t>(m)].data(),
                              numSamples,
                              p,
-                             reverbAccumL.data(),
-                             reverbAccumR.data());
+                             directStrip ? nullptr : reverbAccumL.data(),
+                             directStrip ? nullptr : reverbAccumR.data());
             state.inserts.process(micScratchL[static_cast<size_t>(m)].data(),
                                   micScratchR[static_cast<size_t>(m)].data(),
                                   numSamples);
@@ -3378,12 +3426,17 @@ void Sampler::render(float *const *output, int numOutputChannels, int numSamples
             if (factoryPieceMode)
             {
                 // Direct output routing bypasses the sums and Mix bus entirely.
+                // If the chosen host bus is unavailable, the strip stays silent
+                // rather than leaking back into the internal sums.
                 const int directBus = state.params.outputBus;
-                if (directBus > 0 && directBus < totalBuses && output[directBus * 2] != nullptr
-                    && output[directBus * 2 + 1] != nullptr)
+                if (directBus > 0)
                 {
-                    juce::FloatVectorOperations::add(output[directBus * 2], sL, numSamples);
-                    juce::FloatVectorOperations::add(output[directBus * 2 + 1], sR, numSamples);
+                    if (directBus < totalBuses && output[directBus * 2] != nullptr
+                        && output[directBus * 2 + 1] != nullptr)
+                    {
+                        juce::FloatVectorOperations::add(output[directBus * 2], sL, numSamples);
+                        juce::FloatVectorOperations::add(output[directBus * 2 + 1], sR, numSamples);
+                    }
                 }
                 else
                 {
