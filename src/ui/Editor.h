@@ -122,6 +122,8 @@ class Editor
     int selectedSumIndex() const;
     int countInserts(bool bus, int channel) const;
     void drawStudioDeck(juce::Graphics &g);
+    void handleStudioDeckClick(juce::Point<float> position);
+    void bringStudioDeckToFront();
     void drawStudioSignalFlow(juce::Graphics &g, juce::Rectangle<float> area);
     void drawStudioMonitor(juce::Graphics &g, juce::Rectangle<float> area);
     void syncMinimalGridItems();
@@ -482,6 +484,7 @@ class Editor
     juce::Rectangle<float> studioFlowRect;
     juce::Rectangle<float> studioMonitorRect;
     juce::Rectangle<float> studioNoteRect;
+    std::unique_ptr<juce::Component> studioDeckBackdrop;
 
     // E-Drum Setup Wizard Overlay
     std::unique_ptr<EDrumWizard> edrumWizard;

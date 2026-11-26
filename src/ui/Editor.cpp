@@ -4,6 +4,28 @@
 
 namespace glorp
 {
+namespace
+{
+class StudioDeckBackdropComponent : public juce::Component
+{
+  public:
+    std::function<void(juce::Graphics &)> onPaint;
+    std::function<void(const juce::MouseEvent &)> onMouseDown;
+
+    void paint(juce::Graphics &g) override
+    {
+        if (onPaint != nullptr)
+            onPaint(g);
+    }
+
+    void mouseDown(const juce::MouseEvent &e) override
+    {
+        if (onMouseDown != nullptr)
+            onMouseDown(e);
+    }
+};
+} // namespace
+
 
 //==============================================================================
 void Editor::MenuButton::paintButton(juce::Graphics &g, bool isHover, bool isDown)
@@ -2452,12 +2474,7 @@ void Editor::mouseDown(const juce::MouseEvent &e)
 
     if (studioDeckActive() && studioFlowRect.contains(e.position))
     {
-        const int piece = selectedPieceIndex();
-        if (piece >= 0 && mixerView != nullptr)
-        {
-            setViewMode(EditorView::mixerView);
-            mixerView->focusChannel(piece);
-        }
+        handleStudioDeckClick(e.position);
         return;
     }
 
@@ -3312,6 +3329,22 @@ void Editor::buildControls()
     };
     addChildComponent(studioOpenStripButton);
 
+    auto backdrop = std::make_unique<StudioDeckBackdropComponent>();
+    backdrop->onPaint = [this](juce::Graphics &g)
+    {
+        g.saveState();
+        g.addTransform(juce::AffineTransform::translation(-studioDeckRect.getX(), -studioDeckRect.getY()));
+        drawStudioDeck(g);
+        g.restoreState();
+    };
+    backdrop->onMouseDown = [this](const juce::MouseEvent &e)
+    {
+        handleStudioDeckClick(e.position + studioDeckRect.getTopLeft());
+    };
+    studioDeckBackdrop = std::move(backdrop);
+    addChildComponent(*studioDeckBackdrop);
+    bringStudioDeckToFront();
+
     bindInstrumentKnobs();
     updateInstrumentDisplay();
     refreshStudioDeckControls();
@@ -3808,6 +3841,8 @@ void Editor::refreshStudioDeckControls()
 
     setStudioOnlyVisible(studioSoundTab.get());
     setStudioOnlyVisible(studioMixTab.get());
+    if (studioDeckBackdrop != nullptr)
+        studioDeckBackdrop->setVisible(studio);
 
     if (!studio)
     {
@@ -3874,6 +3909,52 @@ void Editor::refreshStudioDeckControls()
     scope.setVisible(false);
     if (masterVolumeKnob != nullptr)
         masterVolumeKnob->setVisible(true);
+}
+
+void Editor::bringStudioDeckToFront()
+{
+    if (studioDeckBackdrop != nullptr)
+        studioDeckBackdrop->toFront(false);
+
+    const auto bring = [](juce::Component *component)
+    {
+        if (component != nullptr)
+            component->toFront(false);
+    };
+
+    bring(studioSoundTab.get());
+    bring(studioMixTab.get());
+    bring(instBleedKnob.get());
+    bring(&studioOutputButton);
+    bring(&studioOpenStripButton);
+    bring(&instSelectorButton);
+    bring(&outBusButton);
+    bring(instVolumeKnob.get());
+    bring(instPanKnob.get());
+    bring(instPitchKnob.get());
+    bring(instDynamicsKnob.get());
+    bring(instAttackKnob.get());
+    bring(instDampKnob.get());
+    bring(&instCurveButton);
+    bring(&instCurvePreview);
+    bring(&instLearnButton);
+    bring(&instLayerButton);
+    bring(masterVolumeKnob.get());
+    for (auto &z : zoneButtons)
+        bring(z.get());
+}
+
+void Editor::handleStudioDeckClick(juce::Point<float> position)
+{
+    if (!studioDeckActive() || !studioFlowRect.contains(position))
+        return;
+
+    const int piece = selectedPieceIndex();
+    if (piece >= 0 && mixerView != nullptr)
+    {
+        setViewMode(EditorView::mixerView);
+        mixerView->focusChannel(piece);
+    }
 }
 
 int Editor::selectedPieceIndex() const
@@ -4403,6 +4484,7 @@ void Editor::resized()
         const int baseDeckH = compact ? 204 : 232;
         const int deckH = baseDeckH + juce::jmax(0, zoneRows - 2) * (zoneRowH + 2);
         const int deckY = h - deckH - 14;
+        const int baseDeckY = h - baseDeckH - 14;
 
         studioDeckRect = {static_cast<float>(deckX), static_cast<float>(deckY),
                           static_cast<float>(deckW), static_cast<float>(deckH)};
@@ -4423,7 +4505,10 @@ void Editor::resized()
         updateShellSlotButtons();
 
         const int kitY = 84;
-        kitView.setBounds(24, kitY, w - 48, juce::jmax(120, deckY - kitY - 8));
+        kitView.setBounds(24, kitY, w - 48, juce::jmax(120, baseDeckY - kitY - 8));
+
+        if (studioDeckBackdrop != nullptr)
+            studioDeckBackdrop->setBounds(studioDeckRect.toNearestInt());
 
         const int tabW = compact ? 58 : 64;
         const int tabH = 22;
@@ -4771,10 +4856,7 @@ void Editor::paint(juce::Graphics &g)
     if (currentView == EditorView::kitView)
     {
         if (studioDeckActive())
-        {
-            drawStudioDeck(g);
             return;
-        }
 
         // 4. Left Panel Card ("INSTRUMENT SETTINGS")
         const auto panelRect = juce::Rectangle<float>(24.0f, 74.0f, 196.0f, leftPanelHeight);
