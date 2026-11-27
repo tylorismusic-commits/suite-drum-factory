@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 - 2026-11-27
+
+- Fix insert racks on externally loaded `.glorpkit`/folder kits and one-shot
+  layer strips. Their strip racks were never prepared after the host had
+  already called `prepareToPlay()`, so inserts appeared in the mixer but
+  processed no audio. Inserts now work on external kits.
+
 ## 0.1.1 - 2026-11-26
 
 - Fix the optional Suite Kit Studio / converter link on source builds by

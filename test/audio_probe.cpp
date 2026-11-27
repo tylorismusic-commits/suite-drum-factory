@@ -128,6 +128,49 @@ QaStats renderNote (glorp::PluginProcessor& proc, int note, double seconds)
     return stats;
 }
 
+QaStats renderNoteNoPrepare (glorp::PluginProcessor& proc, int note, double seconds)
+{
+    QaStats stats;
+    juce::AudioBuffer<float> buffer (32, 512);
+    const int blocks = static_cast<int> ((seconds * 48000.0) / 512.0);
+    double sumSq = 0.0;
+    int64_t frames = 0;
+
+    for (int block = 0; block < blocks; ++block)
+    {
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, static_cast<juce::uint8> (100)), 0);
+        buffer.clear();
+        proc.processBlock (buffer, midi);
+
+        for (int ch = 0; ch < 4; ++ch)
+        {
+            const auto* data = buffer.getReadPointer (ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float v = data[i];
+                if (! std::isfinite (v))
+                    ++stats.nonFinite;
+                if (ch < 2)
+                {
+                    stats.peak = std::max (stats.peak, std::abs (v));
+                    sumSq += static_cast<double> (v) * v;
+                }
+                else
+                {
+                    stats.directPeak = std::max (stats.directPeak, std::abs (v));
+                }
+            }
+        }
+        frames += static_cast<int64_t> (buffer.getNumSamples()) * 2;
+    }
+
+    stats.rms = std::sqrt (sumSq / static_cast<double> (std::max<int64_t> (1, frames)));
+    stats.blocks = blocks;
+    return stats;
+}
+
 QaStats renderDense (glorp::PluginProcessor& proc, double seconds, int hitEveryBlocks = 3)
 {
     QaStats stats;
@@ -641,6 +684,51 @@ int main (int argc, char** argv)
             break;
         }
 
+        return 0;
+    }
+
+    if (std::getenv ("GLORP_PROBE_EXTERNAL_INSERTS") != nullptr)
+    {
+        proc.prepareToPlay (48000.0, 512);
+        proc.loadKit (kitPath);
+
+        const int strips = proc.getSampler().numMicStrips();
+        std::cout << "external-inserts strips=" << strips
+                  << " factoryPieceMode=" << (proc.getSampler().isFactoryPieceMode() ? 1 : 0)
+                  << " err=" << proc.getLastKitError().toStdString() << std::endl;
+
+        int strip = 0;
+        int note = 36;
+        for (int i = 0; i < strips; ++i)
+        {
+            const auto title = proc.getSampler().micStripTitle (i).toLowerCase();
+            if (title.contains ("snare"))
+            {
+                strip = i;
+                note = 38;
+                break;
+            }
+            if (title.contains ("kick"))
+            {
+                strip = i;
+                note = 36;
+            }
+        }
+
+        proc.getSampler().setMicOutputBus (strip, 1);
+        const auto before = renderNoteNoPrepare (proc, note, 0.8);
+        proc.getSampler().setInsertType (false, strip, 0, glorp::InsertType::eq);
+        proc.getSampler().setInsertValue (false, strip, 0, glorp::eqParamOutputGain, -18.0f);
+        const auto after = renderNoteNoPrepare (proc, note, 0.8);
+
+        std::cout << "external-inserts strip=" << strip
+                  << " title=" << proc.getSampler().micStripTitle (strip).toStdString()
+                  << " beforeDirectDb=" << juce::Decibels::gainToDecibels (before.directPeak)
+                  << " afterDirectDb=" << juce::Decibels::gainToDecibels (after.directPeak)
+                  << " deltaDb=" << (juce::Decibels::gainToDecibels (after.directPeak)
+                                     - juce::Decibels::gainToDecibels (before.directPeak))
+                  << " nonFinite=" << after.nonFinite
+                  << std::endl;
         return 0;
     }
 

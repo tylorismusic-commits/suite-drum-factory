@@ -521,6 +521,10 @@ bool Sampler::loadKit(DrumKit kit, juce::String &error)
             ch->title = kitChannels_[k].title.empty() ? kitChannels_[k].name : kitChannels_[k].title;
             ch->params = MicStripParams {};
             ch->fx.prepare(currentSampleRate, currentBlockSize);
+            // External kits are loaded after the host has already prepared the
+            // sampler, so their freshly-created strip racks need their own
+            // prepare pass or every insert stays bypassed.
+            ch->inserts.prepare(currentSampleRate, currentBlockSize);
 
             auto itM = kit.factoryMicLevels.find(ch->name.toStdString());
             if (itM != kit.factoryMicLevels.end())
@@ -2061,6 +2065,7 @@ void Sampler::appendUserLayerChannel(int slot)
     ch->params.level = std::clamp(layer.params.level, 0.0f, 2.0f);
     ch->params.pan = std::clamp(layer.params.pan, -1.0f, 1.0f);
     ch->fx.prepare(currentSampleRate, currentBlockSize);
+    ch->inserts.prepare(currentSampleRate, currentBlockSize);
 
     layer.micChannelIndex = static_cast<int>(micChannels.size());
     micChannels.push_back(std::move(ch));
