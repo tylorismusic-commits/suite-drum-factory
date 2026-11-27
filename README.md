@@ -13,6 +13,15 @@ The plugin is sample-free by default. Factory samples are distributed separately
 as drag-in `.suitefactory` packs; see [Expansion packs](docs/EXPANSIONS.md) and
 `NOTICE.md`.
 
+## Downloads
+
+- **Factory Base** — plugin + Naked Drums base pack:
+  https://tylorhythm.gumroad.com/l/factorybase
+- **Factory Complete** — plugin + full five-kit factory pack:
+  https://tylorhythm.gumroad.com/l/factorycomplete
+- **Free plugin, source and release notes**:
+  https://github.com/tylorismusic-commits/suite-drum-factory/releases/tag/v0.1.1
+
 ## What works
 
 - Naked Drums is loaded as the fixed base.
