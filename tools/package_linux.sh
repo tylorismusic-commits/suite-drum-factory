@@ -63,7 +63,20 @@ cp "${ROOT}/README.md" "${ROOT}/LICENSE" "${ROOT}/NOTICE.md" "${STAGE}/"
 if [ -f "${ROOT}/CHANGELOG.md" ]; then
     cp "${ROOT}/CHANGELOG.md" "${STAGE}/"
 fi
+if [ -d "${ROOT}/licenses" ]; then
+    cp -r "${ROOT}/licenses" "${STAGE}/"
+fi
 cp "${ROOT}/docs/EXPANSIONS.md" "${STAGE}/docs/"
+
+cat > "${STAGE}/SOURCE-CODE.txt" <<EOF
+Suite Drum Factory ${VERSION}
+
+Plugin source code (AGPL-3.0):
+https://github.com/tylorismusic-commits/suite-drum-factory/tree/v${VERSION}
+
+The corresponding source for the released plugin binary is the v${VERSION} tag.
+Sample packs are separate works under the licences in licenses/ and NOTICE.md.
+EOF
 
 cat > "${STAGE}/INSTALL.txt" <<EOF
 SUITE DRUM FACTORY ${VERSION} - LINUX x86_64
