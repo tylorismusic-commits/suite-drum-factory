@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(SuiteDrumFactory VERSION 0.1.5 LANGUAGES C CXX)
+project(SuiteDrumFactory VERSION 0.1.6 LANGUAGES C CXX)
 
 #==================================================================================
 # Options
@@ -143,7 +143,7 @@ juce_add_plugin(GlorpDrums
     COPY_PLUGIN_AFTER_BUILD FALSE
     IS_SYNTH                FALSE
     NEEDS_MIDI_INPUT        TRUE
-    NEEDS_MIDI_OUTPUT       FALSE
+    NEEDS_MIDI_OUTPUT       TRUE
     IS_MIDI_EFFECT          FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     ICON_BIG                assets/suite_drums_icon.png

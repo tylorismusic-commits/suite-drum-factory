@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6 - 2026-11-28
+
+- Build the VST3 and LV2 with a real MIDI output bus (`NEEDS_MIDI_OUTPUT`).
+  The plugin always wrote remapped MIDI from `processBlock`, but the format
+  wrappers never advertised a MIDI output port, so DAWs such as REAPER had
+  nothing to route to the next instrument in the chain.
+- This makes MIDI Thru work end-to-end: host MIDI, internal loop-browser
+  previews and note-offs now reach downstream instruments on the same track.
+
 ## 0.1.5 - 2026-11-28
 
 - **Close Kit (MIDI Thru)** now enables MIDI Thru as part of the same action.
