@@ -6,7 +6,7 @@ swap the shell pieces (kick, snare, toms) from Crocell, DRS, Salamander or
 Monster. Cymbals default to Naked and can be replaced as one group by an
 installed expansion pack.
 
-**Current release: 0.1.4.** This repository is the Suite Drum Factory product
+**Current release: 0.1.5.** This repository is the Suite Drum Factory product
 fork, separate from Suite Drums Glorp.
 
 The plugin is sample-free by default. Factory samples are distributed separately
@@ -20,7 +20,7 @@ as drag-in `.suitefactory` packs; see [Expansion packs](docs/EXPANSIONS.md) and
 - **Factory Complete** — plugin + full five-kit factory pack:
   https://tylorhythm.gumroad.com/l/factorycomplete
 - **Free plugin, source and release notes**:
-  https://github.com/tylorismusic-commits/suite-drum-factory/releases/tag/v0.1.4
+  https://github.com/tylorismusic-commits/suite-drum-factory/releases/tag/v0.1.5
 
 ## What works
 

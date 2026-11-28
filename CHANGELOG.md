@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 - 2026-11-28
+
+- **Close Kit (MIDI Thru)** now enables MIDI Thru as part of the same action.
+  Previously it only unloaded the kit, so if MIDI Thru had not been toggled on
+  first, the virtual destination map was never built and the editor/loop
+  browser still behaved as if no MIDI Thru was configured.
+- Added a regression probe for the close-kit path.
+
 ## 0.1.4 - 2026-11-28
 
 - Preserve the loop's MIDI channel when previewing through MIDI Thru, so a
