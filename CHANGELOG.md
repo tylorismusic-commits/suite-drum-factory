@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4 - 2026-11-28
+
+- Preserve the loop's MIDI channel when previewing through MIDI Thru, so a
+  downstream library listening on channel 10 receives GM drum loops on the
+  channel it expects.
+- Send all-notes-off on all 16 channels when pausing, stopping or restarting a
+  MIDI Thru preview.
+- Hide the velocity-curve editor on virtual MIDI Thru rows, where there is no
+  sample instrument to shape.
+
 ## 0.1.3 - 2026-11-28
 
 - Fix MIDI Thru as a no-kit mapper. With the plugin before a downstream drum
