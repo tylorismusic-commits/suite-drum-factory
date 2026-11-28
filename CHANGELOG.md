@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.3 - 2026-11-28
+
+- Fix MIDI Thru as a no-kit mapper. With the plugin before a downstream drum
+  library (for example Ugritone KVLT) and no samples loaded, the MIDI editor
+  keeps showing the destination note names and map instead of going blank.
+- Loop-browser previews now play through the plugin's MIDI output in MIDI Thru
+  no-kit mode, including note-offs and all-notes-off on pause, stop and loop
+  restart, so a source profile can audition straight into the next instrument.
+- Changing the loop browser's source profile now rebuilds the MIDI Thru map,
+  and loading a kit clears the virtual destination map.
+- Fix "No source-map notes matched the current kit mapping" when a valid
+  source/destination map exists but no sampler kit is loaded.
+
 ## 0.1.2 - 2026-11-27
 
 - Fix insert racks on externally loaded `.glorpkit`/folder kits and one-shot
